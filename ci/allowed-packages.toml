@@ -1,0 +1,72 @@
+# Every third-party package permitted in uv.lock, with the license it ships
+# under. The CI license gate fails the build on anything not listed here, so
+# adding a dependency is a deliberate, reviewable act.
+#
+# Adding an entry means asserting you checked the license. Permissive only:
+# see docs/specs/robo-papyro-spec.md §7. Copyleft in the dependency graph is a
+# blocker in this environment, not a preference.
+#
+# Workspace members (rp-core, rp-pdf, rp-docx, robo-papyro) are allowed
+# automatically and do not need listing.
+
+[direct]
+# Named in the spec's approved list.
+pdf2image = "MIT"
+pdfplumber = "MIT"
+pillow = "MIT-CMU"
+pydantic = "MIT"
+pypdf = "BSD-3-Clause"
+typer = "MIT"
+
+# Phase 1 (rp-docx) will add these; pre-approved by the spec.
+lxml = "BSD-3-Clause"
+mammoth = "BSD-2-Clause"
+python-docx = "MIT"
+
+# Phase 3 (rp-xlsx / rp-pptx); pre-approved by the spec.
+openpyxl = "MIT"
+python-pptx = "MIT"
+
+[dev]
+coverage = "Apache-2.0"
+iniconfig = "MIT"
+packaging = "Apache-2.0 OR BSD-2-Clause"
+pluggy = "MIT"
+pytest = "MIT"
+pytest-cov = "MIT"
+reportlab = "BSD-3-Clause"
+ruff = "MIT"
+tomli = "MIT"
+
+[optional]
+# The `ai` extra: the VLM review pass.
+openai = "Apache-2.0"
+
+[transitive]
+annotated-doc = "MIT"
+annotated-types = "MIT"
+anyio = "MIT"
+certifi = "MPL-2.0"          # weak, file-level copyleft; a CA-bundle data package
+cffi = "MIT-0"
+charset-normalizer = "MIT"
+colorama = "BSD-3-Clause"
+cryptography = "Apache-2.0 OR BSD-3-Clause"
+distro = "Apache-2.0"
+h11 = "MIT"
+httpcore = "BSD-3-Clause"
+httpx = "BSD-3-Clause"
+idna = "BSD-3-Clause"
+jiter = "MIT"
+markdown-it-py = "MIT"
+mdurl = "MIT"
+pdfminer-six = "MIT"
+pycparser = "BSD-3-Clause"
+pydantic-core = "MIT"
+pygments = "BSD-2-Clause"
+pypdfium2 = "BSD-3-Clause OR Apache-2.0"
+rich = "MIT"
+shellingham = "ISC"
+sniffio = "MIT OR Apache-2.0"
+tqdm = "MPL-2.0 AND MIT"     # weak, file-level copyleft
+typing-extensions = "PSF-2.0"
+typing-inspection = "MIT"

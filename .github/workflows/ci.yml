@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fail rather than silently resolving something the lockfile does not pin.
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - name: ruff check
+        run: uv run ruff check packages ci
+      - name: ruff format --check
+        run: uv run ruff format --check packages ci
+      # The license gate's own tests: the gate must be shown to fail on the
+      # things it claims to catch, not merely to pass today.
+      - name: Test the license gate
+        run: uv run pytest ci -rs
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [rp-core, rp-pdf, robo-papyro]
+        python-version: ["3.11", "3.13"]
+    name: test ${{ matrix.package }} (py${{ matrix.python-version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      # poppler backs rp-pdf's default text engine and all rendering. Without
+      # it those tests skip, and a skipped test proves nothing.
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - run: uv sync --all-extras
+
+      # Console scripts must be on PATH: rp-pdf and robo-papyro both have tests
+      # that drive the installed entry points through subprocess.
+      # -rs reports the reason for any skip, so a silently-skipped suite is
+      # visible in the log rather than passing as a green tick.
+      - name: Run tests
+        run: uv run pytest packages/${{ matrix.package }}/tests -rs
+
+  license-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Stdlib only, by design: the gate reads uv.lock as data and must run
+      # even when the environment cannot be built.
+      - name: Check every locked package against the approved list
+        run: python3 ci/license_gate.py
+
+  # The definition of done from robo-papyro-spec.md §8: a clean checkout syncs,
+  # and every CLI the suite advertises actually runs.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poppler
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync
+      - name: CLIs respond
+        run: |
+          uv run rp --help
+          uv run rp doctor
+          uv run rp pdf --help
+          uv run rp-pdf --help
+          uv run rp-pdf doctor
+      - name: rp pdf and rp-pdf are the same code path
+        run: |
+          uv run --with reportlab python -c "
+          from reportlab.pdfgen import canvas
+          c = canvas.Canvas('sample.pdf'); c.drawString(72, 720, 'Page 1'); c.save()"
+          uv run rp pdf index sample.pdf > through-umbrella.json
+          uv run rp-pdf index sample.pdf > direct.json
+          diff through-umbrella.json direct.json
+      - name: Exit codes are the suite's, not a flat 1
+        run: |
+          expect() {
+            local want=$1; shift
+            local got=0
+            "$@" > /dev/null 2>&1 || got=$?
+            if [ "$got" -ne "$want" ]; then
+              echo "::error::$* exited $got, expected $want"; exit 1
+            fi
+          }
+          echo "not a pdf" > fake.pdf
+          expect 3 uv run rp-pdf index fake.pdf
+          expect 1 uv run rp-pdf text sample.pdf --pages 99
+          expect 0 uv run rp-pdf index sample.pdf

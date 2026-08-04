@@ -91,9 +91,7 @@ class TestErrorHandler:
 
     def test_also_catches_foreign_exceptions_as_exit_1(self, capsys):
         with pytest.raises(typer.Exit) as excinfo:
-            with clikit.error_handler(
-                envelope=False, stream="stdout", also=(FileNotFoundError,)
-            ):
+            with clikit.error_handler(envelope=False, stream="stdout", also=(FileNotFoundError,)):
                 raise FileNotFoundError("No such file: x.pdf")
         assert excinfo.value.exit_code == 1
         assert "x.pdf" in json.loads(capsys.readouterr().out)["error"]

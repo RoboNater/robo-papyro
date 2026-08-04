@@ -27,4 +27,6 @@ src = ["packages/*/src", "packages/*/tests"]
 select = ["E4", "E7", "E9", "F"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/*/tests"]
+# "ci" holds the license gate and its tests — workspace infrastructure rather
+# than any one package's code.
+testpaths = ["packages/*/tests", "ci"]

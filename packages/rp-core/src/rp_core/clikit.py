@@ -152,10 +152,7 @@ def doctor_command(*capabilities: str) -> Callable[[bool], None]:
         # Install hints are long; show them only for what is actually missing,
         # below the table, rather than as a column that wraps the terminal.
         _print_table(
-            [
-                {k: v for k, v in row.items() if k != "install_hint"}
-                for row in to_jsonable(report)
-            ]
+            [{k: v for k, v in row.items() if k != "install_hint"} for row in to_jsonable(report)]
         )
         missing = [c for c in report if not c.available]
         if missing:

@@ -17,8 +17,9 @@ from rp_core.errors import ConversionError, MissingDependencyError
 
 
 def _completed(returncode: int = 0, stderr: bytes = b"") -> subprocess.CompletedProcess:
-    return subprocess.CompletedProcess(args=["soffice"], returncode=returncode, stdout=b"",
-                                       stderr=stderr)
+    return subprocess.CompletedProcess(
+        args=["soffice"], returncode=returncode, stdout=b"", stderr=stderr
+    )
 
 
 class TestFindBinary:

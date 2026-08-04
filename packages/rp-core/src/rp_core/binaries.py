@@ -79,9 +79,7 @@ def require_binary(
         return found
     hint = install_hint if install_hint is not None else INSTALL_HINTS.get(name, "")
     message = f"{name} is required but was not found on PATH."
-    raise MissingDependencyError(
-        f"{message} {hint}".strip(), binary=name, install_hint=hint
-    )
+    raise MissingDependencyError(f"{message} {hint}".strip(), binary=name, install_hint=hint)
 
 
 def run_binary(
@@ -164,9 +162,7 @@ def soffice_convert(
 
     expected = outdir / f"{source.stem}.{to.split(':')[0]}"
     if not expected.is_file():
-        detail = proc.stderr.decode("utf-8", "replace").strip() or (
-            f"exit code {proc.returncode}"
-        )
+        detail = proc.stderr.decode("utf-8", "replace").strip() or (f"exit code {proc.returncode}")
         raise ConversionError(
             f"LibreOffice reported no error converting {source.name} to {to}, but "
             f"{expected.name} was not written ({detail})."

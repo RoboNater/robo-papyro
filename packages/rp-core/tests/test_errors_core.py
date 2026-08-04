@@ -50,7 +50,7 @@ def test_envelope_carries_install_hint():
 
 
 def test_envelope_is_json_serializable():
-    payload = MissingDependencyError("absent", binary="soffice").to_envelope().model_dump(
-        mode="json"
+    payload = (
+        MissingDependencyError("absent", binary="soffice").to_envelope().model_dump(mode="json")
     )
     assert payload["error"]["exit_code"] == 2

@@ -139,13 +139,15 @@ def render_pages(
     output_dir = Path(output_dir)
 
     if source.suffix.lower() == ".pdf":
-        return _render_pdf(source, output_dir, dpi=dpi, pages=pages, fmt=fmt,
-                           poppler_path=poppler_path)
+        return _render_pdf(
+            source, output_dir, dpi=dpi, pages=pages, fmt=fmt, poppler_path=poppler_path
+        )
 
     with tempfile.TemporaryDirectory(prefix="robo-papyro-render-") as tmp:
         as_pdf = soffice_convert(source, "pdf", Path(tmp))
-        return _render_pdf(as_pdf, output_dir, dpi=dpi, pages=pages, fmt=fmt,
-                           poppler_path=poppler_path)
+        return _render_pdf(
+            as_pdf, output_dir, dpi=dpi, pages=pages, fmt=fmt, poppler_path=poppler_path
+        )
 
 
 def _render_pdf(

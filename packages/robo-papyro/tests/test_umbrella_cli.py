@@ -114,9 +114,7 @@ class TestNoLeafImports:
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [str(a) for a in args], capture_output=True, text=True, encoding="utf-8"
-    )
+    return subprocess.run([str(a) for a in args], capture_output=True, text=True, encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
