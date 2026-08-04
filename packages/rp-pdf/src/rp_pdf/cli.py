@@ -2,7 +2,9 @@
 
 Conventions:
 - JSON to stdout by default; --plain/--csv for human/file variants.
-- Errors: exit code 1, message to stderr, structured {"error": ...} on stdout.
+- Errors: message to stderr, structured {"error": ...} on stdout, and the exit
+  code carried by the error class (rp_core.errors): 1 for input errors, 2 for a
+  missing external binary, 3 for an unreadable PDF.
 
 Options resolve by precedence flag -> env var -> config file -> built-in
 default (see rp_pdf.config). Boolean flags are paired (--x/--no-x) and default to
@@ -16,14 +18,13 @@ from __future__ import annotations
 
 import csv
 import enum
-import json
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
 from pydantic import BaseModel
+from rp_core import clikit
 
 from rp_pdf import config, core
 from rp_pdf import markdown as md
@@ -95,6 +96,7 @@ COMMAND_NAMES = frozenset(
         "markdown",
         "render",
         "validate-vlm-ocr",
+        "doctor",
     }
 )
 
@@ -140,24 +142,24 @@ def _announce_labels(file: Path, pages: str, physical: bool, password: Optional[
         )
 
 
-@contextmanager
 def _errors():
-    try:
-        yield
-    except (core.RpPdfError, PageSpecError, FileNotFoundError) as exc:
-        print(json.dumps({"error": str(exc)}))
-        print(str(exc), file=sys.stderr)
-        raise typer.Exit(1) from exc
+    """rp-pdf's error contract, expressed in rp_core.clikit's terms.
+
+    The flat `{"error": message}` shape on stdout is deliberate: it is what
+    agents consuming rp-pdf already parse. New CLIs in the suite use clikit's
+    default, the ErrorEnvelope on stderr. Exit codes now come from the error
+    class (rp_core.errors), so a missing poppler exits 2 and an unreadable PDF
+    exits 3 instead of everything exiting 1.
+    """
+    return clikit.error_handler(
+        envelope=False,
+        stream="stdout",
+        also=(PageSpecError, FileNotFoundError),
+    )
 
 
 def _dump(result: BaseModel | list[BaseModel] | dict) -> None:
-    if isinstance(result, BaseModel):
-        data = result.model_dump(mode="json")
-    elif isinstance(result, list):
-        data = [item.model_dump(mode="json") for item in result]
-    else:
-        data = result
-    print(json.dumps(data, indent=2, ensure_ascii=False))
+    clikit.dump_json(result)
 
 
 @app.callback()
@@ -555,6 +557,11 @@ def validate_vlm_ocr(
         _dump(result)
         if result["overall_status"] == "fail":
             raise typer.Exit(1)
+
+
+# Capability report. rp-pdf's optional binaries are poppler's; LibreOffice is
+# not on any rp-pdf code path.
+app.command("doctor")(clikit.doctor_command("pdftotext", "pdftoppm", "pdfinfo"))
 
 
 def _leading_global_options(args: list[str]) -> tuple[list[str], list[str]]:
