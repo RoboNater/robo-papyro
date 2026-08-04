@@ -39,7 +39,9 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from rp_pdf import core
+from rp_core.errors import InputError
+
+from rp_pdf.errors import RpPdfError
 
 CONFIG_FILENAME = "rp-pdf.toml"
 USER_CONFIG_PATH = Path.home() / ".config" / "rp-pdf" / "config.toml"
@@ -54,7 +56,7 @@ _VLM_KEYS = frozenset({"model", "base_url", "organization", "cache_dir"})
 DEFAULT_COMMAND = "index"
 
 
-class ConfigError(core.RpPdfError):
+class ConfigError(RpPdfError, InputError):
     """The config file could not be read or parsed."""
 
 

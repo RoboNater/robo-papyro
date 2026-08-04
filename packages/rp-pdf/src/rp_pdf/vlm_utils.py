@@ -13,10 +13,12 @@ import os
 import re
 from pathlib import Path
 
-from rp_pdf import core
+from rp_core.errors import InputError
+
+from rp_pdf.errors import RpPdfError
 
 
-class VlmError(core.RpPdfError):
+class VlmError(RpPdfError, InputError):
     """A VLM pass is misconfigured (missing model, key, or openai package)."""
 
 

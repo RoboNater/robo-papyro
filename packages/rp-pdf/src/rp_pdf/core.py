@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Literal
 
@@ -17,7 +15,17 @@ import pdfplumber
 from pypdf import PasswordType, PdfReader
 from pypdf.errors import PyPdfError
 from pypdf.generic import Destination
+from rp_core import binaries, render
+from rp_core.errors import MissingDependencyError
+from rp_core.pages import contiguous_runs
 
+from rp_pdf.errors import (
+    InvalidPdfError,
+    PasswordError,
+    PopplerNotFoundError,
+    QueryError,
+    RpPdfError,
+)
 from rp_pdf.models import (
     DocumentIndex,
     DocumentMetadata,
@@ -31,6 +39,16 @@ from rp_pdf.models import (
 )
 from rp_pdf.pages import PageSpec, parse_page_labels, parse_pages
 
+# Re-exported so `core.InvalidPdfError` and friends keep resolving; the classes
+# themselves live in rp_pdf.errors, parented onto rp_core.errors.
+__all__ = [
+    "InvalidPdfError",
+    "PasswordError",
+    "PopplerNotFoundError",
+    "QueryError",
+    "RpPdfError",
+]
+
 POPPLER_HINT = (
     "poppler is required for the default text extraction engine and for page "
     "rendering. Install it with 'apt install poppler-utils' (Linux), "
@@ -42,26 +60,6 @@ POPPLER_HINT = (
 )
 
 TextEngine = Literal["poppler", "pypdf", "pdfplumber"]
-
-
-class RpPdfError(Exception):
-    """Base class for rp-pdf errors."""
-
-
-class InvalidPdfError(RpPdfError):
-    """The file is not a readable PDF."""
-
-
-class PasswordError(RpPdfError):
-    """The PDF is encrypted and the password is missing or wrong."""
-
-
-class PopplerNotFoundError(RpPdfError):
-    """poppler binaries are required (text extraction or rendering) but were not found."""
-
-
-class QueryError(RpPdfError):
-    """A search query is empty or not a valid regular expression."""
 
 
 def _open_reader(path: Path, password: str | None) -> PdfReader:
@@ -160,15 +158,12 @@ def get_index(path: Path, password: str | None = None) -> DocumentIndex:
     )
 
 
-def _find_pdftotext(poppler_path: str | Path | None) -> str:
-    poppler_path = poppler_path or os.environ.get("RP_POPPLER_PATH") or None
-    exe = (
-        shutil.which("pdftotext", path=str(poppler_path))
-        if poppler_path
-        else shutil.which("pdftotext")
-    )
+def _find_pdftotext(poppler_path: str | Path | None) -> Path:
+    """Locate pdftotext via rp_core, re-raising as PopplerNotFoundError so the
+    PDF-specific hint (which mentions --engine pypdf) survives."""
+    exe = binaries.find_binary("pdftotext", search_path=poppler_path)
     if exe is None:
-        raise PopplerNotFoundError(POPPLER_HINT)
+        raise PopplerNotFoundError(POPPLER_HINT, binary="pdftotext")
     return exe
 
 
@@ -184,14 +179,16 @@ def _pdftotext_pages(
     how the output is split back into pages."""
     exe = _find_pdftotext(poppler_path)
     texts: dict[int, str] = {}
-    for start, end in _contiguous_runs(numbers):
-        cmd = [exe, "-f", str(start), "-l", str(end), "-enc", "UTF-8"]
+    for start, end in contiguous_runs(numbers):
+        args = ["-f", str(start), "-l", str(end), "-enc", "UTF-8"]
         if layout:
-            cmd.append("-layout")
+            args.append("-layout")
         if password is not None:
-            cmd += ["-upw", password, "-opw", password]
-        cmd += [str(path), "-"]
-        proc = subprocess.run(cmd, capture_output=True)
+            args += ["-upw", password, "-opw", password]
+        args += [str(path), "-"]
+        # timeout=None preserves the pre-refactor behavior: pdftotext has never
+        # been time-limited here, and a large PDF can legitimately take minutes.
+        proc = binaries.run_binary(exe, args, timeout=None)
         if proc.returncode != 0:
             detail = proc.stderr.decode("utf-8", "replace").strip()
             raise InvalidPdfError(
@@ -392,50 +389,43 @@ def render_pages(
 
     Requires poppler. poppler_path (or the RP_POPPLER_PATH environment
     variable) points at poppler's bin directory when it is not on PATH.
-    """
-    from pdf2image import convert_from_path
-    from pdf2image.exceptions import PDFInfoNotInstalledError
 
+    The poppler invocation itself lives in rp_core.render; what stays here is
+    the part rp-core cannot know about — resolving the page spec against the
+    PDF's page labels, naming files by label, and reporting both numbering
+    schemes in the result.
+    """
     reader = _open_reader(path, password)
     numbers, labels = _resolve_pages(reader, pages, physical)
-    fmt = fmt.lower()
-    if fmt == "jpg":
-        fmt = "jpeg"
-    ext = "jpg" if fmt == "jpeg" else fmt
-    poppler_path = poppler_path or os.environ.get("RP_POPPLER_PATH") or None
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    poppler_path = poppler_path or os.environ.get(binaries.POPPLER_PATH_ENV) or None
 
-    results: list[RenderedPage] = []
     try:
-        for start, end in _contiguous_runs(numbers):
-            images = convert_from_path(
-                str(path),
-                dpi=dpi,
-                fmt=fmt,
-                first_page=start,
-                last_page=end,
-                userpw=password,
-                poppler_path=str(poppler_path) if poppler_path else None,
-            )
-            for offset, image in enumerate(images):
-                n = start + offset
-                label = _label_for(labels, n)
-                target = out_dir / f"{page_stem(n, label)}.{ext}"
-                image.save(target)
-                results.append(
-                    RenderedPage(
-                        physical_page=n,
-                        labeled_page=label,
-                        path=str(target),
-                        width=image.width,
-                        height=image.height,
-                        dpi=dpi,
-                    )
-                )
-    except PDFInfoNotInstalledError as exc:
-        raise PopplerNotFoundError(POPPLER_HINT) from exc
-    return results
+        images = render.rasterize_pages(
+            path,
+            out_dir,
+            numbers,
+            dpi=dpi,
+            fmt=fmt,
+            password=password,
+            poppler_path=poppler_path,
+            name=lambda n: page_stem(n, _label_for(labels, n)),
+        )
+    except MissingDependencyError as exc:
+        # Re-raised with the PDF-specific hint, which also points at the
+        # pure-Python --engine alternatives.
+        raise PopplerNotFoundError(POPPLER_HINT, binary="pdftoppm") from exc
+
+    return [
+        RenderedPage(
+            physical_page=n,
+            labeled_page=_label_for(labels, n),
+            path=str(image.path),
+            width=image.width,
+            height=image.height,
+            dpi=dpi,
+        )
+        for n, image in zip(numbers, images, strict=True)
+    ]
 
 
 def _safe_date(meta, attr: str) -> str | None:
@@ -471,14 +461,3 @@ def _convert_outline(
                 )
             )
     return result
-
-
-def _contiguous_runs(numbers: list[int]) -> list[tuple[int, int]]:
-    """Group a sorted list of page numbers into inclusive contiguous (start, end) runs."""
-    runs: list[tuple[int, int]] = []
-    for n in numbers:
-        if runs and n == runs[-1][1] + 1:
-            runs[-1] = (runs[-1][0], n)
-        else:
-            runs.append((n, n))
-    return runs

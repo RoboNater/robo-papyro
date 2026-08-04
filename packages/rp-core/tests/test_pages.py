@@ -1,6 +1,6 @@
 import pytest
 
-from rp_pdf.pages import PageSpecError, parse_page_labels, parse_pages
+from rp_core.pages import PageSpecError, parse_page_labels, parse_pages
 
 # physical pages 1-10: cover, FM1-FM3, i-iii, then content pages 1-3
 LABELS = ["cover", "FM1", "FM2", "FM3", "i", "ii", "iii", "1", "2", "3"]
