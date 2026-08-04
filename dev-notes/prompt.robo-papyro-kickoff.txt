@@ -1,0 +1,29 @@
+We are expanding an existing PDF extraction toolkit (pdfx) into a
+multi-format document toolkit suite called robo-papyro. This repo currently
+holds the pdfx source verbatim at root, plus two spec documents.
+
+Read both specs in full before writing any code:
+  - robo-papyro-spec.md   (workspace architecture, shared core, constraints)
+  - rp-docx-spec.md       (the Word package — Phase 1, do NOT build it yet)
+
+Your task is Phase 0 only: steps 1-9 in robo-papyro-spec.md section 8.
+That covers workspace scaffolding, relocating pdfx to packages/rp-pdf,
+renaming pdfx -> rp_pdf / rp-pdf, extracting the shared rp-core package,
+and adding the `rp` umbrella CLI.
+
+Before you start, confirm the naming decision in section 2 back to me,
+and outline how you plan to sequence steps 4-5 given what you find in the
+existing code. Do not begin editing until I reply.
+
+Key constraints (full list in section 10):
+- This is a refactor. rp-pdf's behavior must not change, only its name
+  and where shared code lives.
+- Move code, do not rewrite it. Run the existing test suite after every
+  structural step.
+- One-way dependencies: rp-core imports no leaf package.
+- Permissive licenses only. If you think you need a forbidden dependency,
+  stop and ask.
+
+When done, summarize the restructure, test results, anything whose behavior
+changed even slightly, and any place the extraction revealed a design problem.
+
