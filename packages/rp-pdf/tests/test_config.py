@@ -1,10 +1,10 @@
-"""Tests for the optional TOML config file (pdfx.config) and its integration
+"""Tests for the optional TOML config file (rp_pdf.config) and its integration
 with the CLI: discovery, the flag → env → config → default precedence matrix,
-the `pdfx FILE` default action, and the guarantee that the API key is never
+the `rp-pdf FILE` default action, and the guarantee that the API key is never
 read from the config file.
 
-The unit tests exercise pdfx.config directly (no subprocess). The integration
-tests drive the installed `pdfx` entry point via subprocess with a controlled
+The unit tests exercise rp_pdf.config directly (no subprocess). The integration
+tests drive the installed `rp-pdf` entry point via subprocess with a controlled
 working directory so config-file discovery is deterministic; they use the
 `index` command and the `pypdf` text engine so no poppler binary is needed.
 """
@@ -16,8 +16,8 @@ import subprocess
 
 import pytest
 
-from pdfx import config
-from pdfx.config import Config, ConfigError
+from rp_pdf import config
+from rp_pdf.config import Config, ConfigError
 
 
 # --------------------------------------------------------------------------- #
@@ -36,11 +36,11 @@ def restore_active():
 @pytest.fixture()
 def clean_env(monkeypatch):
     for var in (
-        "PDFX_VLM_MODEL",
-        "PDFX_VLM_BASE_URL",
-        "PDFX_VLM_ORG",
-        "PDFX_CACHE_DIR",
-        "PDFX_CONFIG",
+        "RP_PDF_VLM_MODEL",
+        "RP_PDF_VLM_BASE_URL",
+        "RP_PDF_VLM_ORG",
+        "RP_PDF_CACHE_DIR",
+        "RP_PDF_CONFIG",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -65,14 +65,14 @@ def test_explicit_missing_path_errors(tmp_path, clean_env):
         config.load(tmp_path / "nope.toml")
 
 
-def test_pdfx_config_env_var(tmp_path, clean_env, monkeypatch):
+def test_rp_pdf_config_env_var(tmp_path, clean_env, monkeypatch):
     cfg = write(tmp_path / "env.toml", '[text]\nengine = "pypdf"\n')
-    monkeypatch.setenv("PDFX_CONFIG", str(cfg))
+    monkeypatch.setenv("RP_PDF_CONFIG", str(cfg))
     assert config.load().lookup("text", "engine") == "pypdf"
 
 
-def test_nearest_pdfx_toml_walking_up(tmp_path, clean_env, monkeypatch):
-    write(tmp_path / "pdfx.toml", '[text]\nengine = "pypdf"\n')
+def test_nearest_rp_pdf_toml_walking_up(tmp_path, clean_env, monkeypatch):
+    write(tmp_path / "rp-pdf.toml", '[text]\nengine = "pypdf"\n')
     nested = tmp_path / "a" / "b" / "c"
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
@@ -94,7 +94,7 @@ def test_project_overrides_user_per_key(tmp_path, clean_env, monkeypatch):
     user = write(tmp_path / "user.toml", '[text]\nengine = "pdfplumber"\nlayout = true\n')
     project_dir = tmp_path / "proj"
     project_dir.mkdir()
-    write(project_dir / "pdfx.toml", '[text]\nengine = "pypdf"\n')
+    write(project_dir / "rp-pdf.toml", '[text]\nengine = "pypdf"\n')
     monkeypatch.chdir(project_dir)
     monkeypatch.setattr(config, "USER_CONFIG_PATH", user)
     loaded = config.load()
@@ -141,24 +141,24 @@ def with_config(restore_active):
 
 def test_flag_beats_everything(with_config, clean_env, monkeypatch):
     with_config({"markdown": {"model": "cfg"}})
-    monkeypatch.setenv("PDFX_VLM_MODEL", "env")
-    assert config.resolve("markdown", "model", "flag", None, env="PDFX_VLM_MODEL") == "flag"
+    monkeypatch.setenv("RP_PDF_VLM_MODEL", "env")
+    assert config.resolve("markdown", "model", "flag", None, env="RP_PDF_VLM_MODEL") == "flag"
 
 
 def test_env_beats_config(with_config, clean_env, monkeypatch):
     with_config({"markdown": {"model": "cfg"}})
-    monkeypatch.setenv("PDFX_VLM_MODEL", "env")
-    assert config.resolve("markdown", "model", None, None, env="PDFX_VLM_MODEL") == "env"
+    monkeypatch.setenv("RP_PDF_VLM_MODEL", "env")
+    assert config.resolve("markdown", "model", None, None, env="RP_PDF_VLM_MODEL") == "env"
 
 
 def test_config_beats_default(with_config, clean_env):
     with_config({"markdown": {"model": "cfg"}})
-    assert config.resolve("markdown", "model", None, "builtin", env="PDFX_VLM_MODEL") == "cfg"
+    assert config.resolve("markdown", "model", None, "builtin", env="RP_PDF_VLM_MODEL") == "cfg"
 
 
 def test_default_when_nothing_set(with_config, clean_env):
     with_config({})
-    assert config.resolve("markdown", "model", None, "builtin", env="PDFX_VLM_MODEL") == "builtin"
+    assert config.resolve("markdown", "model", None, "builtin", env="RP_PDF_VLM_MODEL") == "builtin"
 
 
 def test_bool_tristate_config_turns_on(with_config, clean_env):
@@ -179,9 +179,9 @@ def test_int_option_from_config(with_config, clean_env):
 
 def test_empty_env_var_is_ignored(with_config, clean_env, monkeypatch):
     with_config({"markdown": {"model": "cfg"}})
-    monkeypatch.setenv("PDFX_VLM_MODEL", "")
+    monkeypatch.setenv("RP_PDF_VLM_MODEL", "")
     # An empty env var must not shadow the config value.
-    assert config.resolve("markdown", "model", None, None, env="PDFX_VLM_MODEL") == "cfg"
+    assert config.resolve("markdown", "model", None, None, env="RP_PDF_VLM_MODEL") == "cfg"
 
 
 # --------------------------------------------------------------------------- #
@@ -189,13 +189,13 @@ def test_empty_env_var_is_ignored(with_config, clean_env, monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_api_key_not_read_from_config(tmp_path, clean_env, monkeypatch):
     """Even with an api_key in the file, VLM setup still demands the env key."""
-    from pdfx.vlm_utils import VlmError, make_client
+    from rp_pdf.vlm_utils import VlmError, make_client
 
-    write(tmp_path / "pdfx.toml", '[vlm]\napi_key = "sk-should-be-ignored"\nmodel = "m"\n')
+    write(tmp_path / "rp-pdf.toml", '[vlm]\napi_key = "sk-should-be-ignored"\nmodel = "m"\n')
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(config, "USER_CONFIG_PATH", tmp_path / "absent.toml")
     config.set_active(config.load())
-    monkeypatch.delenv("PDFX_VLM_API_KEY", raising=False)
+    monkeypatch.delenv("RP_PDF_VLM_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     # No base_url and no env key → make_client must fail asking for the key,
     # proving the config's api_key was not picked up.
@@ -204,16 +204,16 @@ def test_api_key_not_read_from_config(tmp_path, clean_env, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Integration: the `pdfx FILE` default action + CLI precedence via subprocess
+# Integration: the `rp-pdf FILE` default action + CLI precedence via subprocess
 # --------------------------------------------------------------------------- #
 def run_cli(*args, cwd=None, env=None):
     base = {
-        k: v for k, v in __import__("os").environ.items() if not k.startswith(("PDFX_", "OPENAI_"))
+        k: v for k, v in __import__("os").environ.items() if not k.startswith(("RP_", "OPENAI_"))
     }
     if env:
         base.update(env)
     return subprocess.run(
-        ["pdfx", *[str(a) for a in args]],
+        ["rp-pdf", *[str(a) for a in args]],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -231,7 +231,7 @@ def test_default_action_without_config_runs_index(text_pdf, tmp_path):
 
 def test_default_action_uses_config_command(text_pdf, tmp_path):
     write(
-        tmp_path / "pdfx.toml",
+        tmp_path / "rp-pdf.toml",
         '[default]\ncommand = "text"\n[text]\nengine = "pypdf"\npages = "2"\nplain = true\n',
     )
     result = run_cli(text_pdf, cwd=tmp_path)
@@ -242,7 +242,7 @@ def test_default_action_uses_config_command(text_pdf, tmp_path):
 
 def test_flag_overrides_config_command_option(text_pdf, tmp_path):
     write(
-        tmp_path / "pdfx.toml",
+        tmp_path / "rp-pdf.toml",
         '[default]\ncommand = "text"\n[text]\nengine = "pypdf"\npages = "2"\nplain = true\n',
     )
     # --pages 1 on the command line overrides the config's pages = "2".
@@ -252,7 +252,7 @@ def test_flag_overrides_config_command_option(text_pdf, tmp_path):
 
 
 def test_explicit_subcommand_still_works_with_config(text_pdf, tmp_path):
-    write(tmp_path / "pdfx.toml", '[default]\ncommand = "text"\n')
+    write(tmp_path / "rp-pdf.toml", '[default]\ncommand = "text"\n')
     result = run_cli("index", text_pdf, cwd=tmp_path)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["page_count"] == 3
@@ -260,7 +260,7 @@ def test_explicit_subcommand_still_works_with_config(text_pdf, tmp_path):
 
 def test_config_flag_points_at_explicit_file(text_pdf, tmp_path):
     cfg = write(tmp_path / "elsewhere.toml", '[default]\ncommand = "index"\n')
-    # Run from a dir with no pdfx.toml; --config supplies the file.
+    # Run from a dir with no rp-pdf.toml; --config supplies the file.
     work = tmp_path / "work"
     work.mkdir()
     result = run_cli("--config", cfg, text_pdf, cwd=work)
@@ -269,7 +269,7 @@ def test_config_flag_points_at_explicit_file(text_pdf, tmp_path):
 
 
 def test_malformed_config_is_clean_cli_error(text_pdf, tmp_path):
-    write(tmp_path / "pdfx.toml", "[default\ncommand = 'index'\n")
+    write(tmp_path / "rp-pdf.toml", "[default\ncommand = 'index'\n")
     result = run_cli("index", text_pdf, cwd=tmp_path)
     assert result.returncode == 1
     assert "Invalid TOML" in json.loads(result.stdout)["error"]

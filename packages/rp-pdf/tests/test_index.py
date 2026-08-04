@@ -1,11 +1,11 @@
-from pdfx import core
+from rp_pdf import core
 
 
 def test_page_count_and_metadata(text_pdf):
     index = core.get_index(text_pdf)
     assert index.page_count == 3
     assert index.metadata.title == "Test Document"
-    assert index.metadata.author == "pdfx tests"
+    assert index.metadata.author == "rp-pdf tests"
 
 
 def test_page_summaries(text_pdf):

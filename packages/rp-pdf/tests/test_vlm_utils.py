@@ -1,4 +1,4 @@
-"""Tests for shared VLM configuration resolution (pdfx.vlm_utils.make_client),
+"""Tests for shared VLM configuration resolution (rp_pdf.vlm_utils.make_client),
 including the organization option added for OpenAI-hosted, org-scoped accounts.
 
 No network: make_client builds an OpenAI client but does not call it, so these
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from pdfx.vlm_utils import VlmError, make_client
+from rp_pdf.vlm_utils import VlmError, make_client
 
 
 @pytest.fixture()
@@ -18,10 +18,10 @@ def clean_env(monkeypatch):
     """Clear every env var make_client reads, including the OpenAI SDK's own
     organization vars, so resolution is deterministic."""
     for var in (
-        "PDFX_VLM_MODEL",
-        "PDFX_VLM_BASE_URL",
-        "PDFX_VLM_ORG",
-        "PDFX_VLM_API_KEY",
+        "RP_PDF_VLM_MODEL",
+        "RP_PDF_VLM_BASE_URL",
+        "RP_PDF_VLM_ORG",
+        "RP_PDF_VLM_API_KEY",
         "OPENAI_API_KEY",
         "OPENAI_ORG_ID",
         "OPENAI_ORGANIZATION",
@@ -41,20 +41,20 @@ def test_organization_from_argument(clean_env):
 
 
 def test_organization_from_env(clean_env, monkeypatch):
-    monkeypatch.setenv("PDFX_VLM_ORG", "org-env")
+    monkeypatch.setenv("RP_PDF_VLM_ORG", "org-env")
     client, _ = make_client("m", "http://x/v1")
     assert client.organization == "org-env"
 
 
 def test_organization_argument_wins_over_env(clean_env, monkeypatch):
-    monkeypatch.setenv("PDFX_VLM_ORG", "org-env")
+    monkeypatch.setenv("RP_PDF_VLM_ORG", "org-env")
     client, _ = make_client("m", "http://x/v1", organization="org-arg")
     assert client.organization == "org-arg"
 
 
 def test_model_and_base_url_still_resolve_from_env(clean_env, monkeypatch):
-    monkeypatch.setenv("PDFX_VLM_MODEL", "env-model")
-    monkeypatch.setenv("PDFX_VLM_BASE_URL", "http://env/v1")
+    monkeypatch.setenv("RP_PDF_VLM_MODEL", "env-model")
+    monkeypatch.setenv("RP_PDF_VLM_BASE_URL", "http://env/v1")
     client, model = make_client(None, None)
     assert model == "env-model"
     assert str(client.base_url).rstrip("/") == "http://env/v1"

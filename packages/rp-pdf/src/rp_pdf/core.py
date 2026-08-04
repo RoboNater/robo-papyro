@@ -18,7 +18,7 @@ from pypdf import PasswordType, PdfReader
 from pypdf.errors import PyPdfError
 from pypdf.generic import Destination
 
-from pdfx.models import (
+from rp_pdf.models import (
     DocumentIndex,
     DocumentMetadata,
     ImageInfo,
@@ -29,13 +29,13 @@ from pdfx.models import (
     SearchHit,
     Table,
 )
-from pdfx.pages import PageSpec, parse_page_labels, parse_pages
+from rp_pdf.pages import PageSpec, parse_page_labels, parse_pages
 
 POPPLER_HINT = (
     "poppler is required for the default text extraction engine and for page "
     "rendering. Install it with 'apt install poppler-utils' (Linux), "
     "'brew install poppler' (macOS), or 'winget install oschwartz10612.Poppler' "
-    "(Windows); alternatively set PDFX_POPPLER_PATH to poppler's bin directory. "
+    "(Windows); alternatively set RP_POPPLER_PATH to poppler's bin directory. "
     "For text extraction only, --engine pypdf or --engine pdfplumber (library: "
     "engine='pypdf') selects a pure-Python extractor instead, which may run "
     "words together on PDFs that encode word gaps as glyph positioning."
@@ -44,23 +44,23 @@ POPPLER_HINT = (
 TextEngine = Literal["poppler", "pypdf", "pdfplumber"]
 
 
-class PdfxError(Exception):
-    """Base class for pdfx errors."""
+class RpPdfError(Exception):
+    """Base class for rp-pdf errors."""
 
 
-class InvalidPdfError(PdfxError):
+class InvalidPdfError(RpPdfError):
     """The file is not a readable PDF."""
 
 
-class PasswordError(PdfxError):
+class PasswordError(RpPdfError):
     """The PDF is encrypted and the password is missing or wrong."""
 
 
-class PopplerNotFoundError(PdfxError):
+class PopplerNotFoundError(RpPdfError):
     """poppler binaries are required (text extraction or rendering) but were not found."""
 
 
-class QueryError(PdfxError):
+class QueryError(RpPdfError):
     """A search query is empty or not a valid regular expression."""
 
 
@@ -161,7 +161,7 @@ def get_index(path: Path, password: str | None = None) -> DocumentIndex:
 
 
 def _find_pdftotext(poppler_path: str | Path | None) -> str:
-    poppler_path = poppler_path or os.environ.get("PDFX_POPPLER_PATH") or None
+    poppler_path = poppler_path or os.environ.get("RP_POPPLER_PATH") or None
     exe = (
         shutil.which("pdftotext", path=str(poppler_path))
         if poppler_path
@@ -390,7 +390,7 @@ def render_pages(
     """Rasterize pages to image files in out_dir, named page_stem(...).<ext>
     (e.g. page0007.png, or page0030_pp0007.png when the document has labels).
 
-    Requires poppler. poppler_path (or the PDFX_POPPLER_PATH environment
+    Requires poppler. poppler_path (or the RP_POPPLER_PATH environment
     variable) points at poppler's bin directory when it is not on PATH.
     """
     from pdf2image import convert_from_path
@@ -402,7 +402,7 @@ def render_pages(
     if fmt == "jpg":
         fmt = "jpeg"
     ext = "jpg" if fmt == "jpeg" else fmt
-    poppler_path = poppler_path or os.environ.get("PDFX_POPPLER_PATH") or None
+    poppler_path = poppler_path or os.environ.get("RP_POPPLER_PATH") or None
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 

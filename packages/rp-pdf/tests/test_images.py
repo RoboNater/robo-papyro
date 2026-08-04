@@ -2,7 +2,7 @@ from pathlib import Path
 
 from conftest import IMAGE_SIZE
 
-from pdfx import core
+from rp_pdf import core
 
 
 def test_metadata_only(image_pdf):

@@ -1,14 +1,14 @@
-"""Typer CLI wrapping pdfx.core. Parses args, calls core, serializes output.
+"""Typer CLI wrapping rp_pdf.core. Parses args, calls core, serializes output.
 
 Conventions:
 - JSON to stdout by default; --plain/--csv for human/file variants.
 - Errors: exit code 1, message to stderr, structured {"error": ...} on stdout.
 
 Options resolve by precedence flag -> env var -> config file -> built-in
-default (see pdfx.config). Boolean flags are paired (--x/--no-x) and default to
+default (see rp_pdf.config). Boolean flags are paired (--x/--no-x) and default to
 None so an omitted flag falls through to the config file instead of forcing
 False; this is what lets, e.g., --no-ai turn off an AI pass the config enabled.
-Running `pdfx FILE.pdf` with no subcommand runs the command named in the config
+Running `rp-pdf FILE.pdf` with no subcommand runs the command named in the config
 file's [default] section (or `index` if none), against FILE.
 """
 
@@ -25,9 +25,9 @@ from typing import Annotated, Optional
 import typer
 from pydantic import BaseModel
 
-from pdfx import config, core
-from pdfx import markdown as md
-from pdfx.pages import PageSpecError
+from rp_pdf import config, core
+from rp_pdf import markdown as md
+from rp_pdf.pages import PageSpecError
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -78,12 +78,12 @@ OrgOpt = Annotated[
     Optional[str],
     typer.Option(
         "--organization",
-        help="VLM API organization ID (or set PDFX_VLM_ORG); OpenAI-hosted, "
+        help="VLM API organization ID (or set RP_PDF_VLM_ORG); OpenAI-hosted, "
         "org-scoped accounts only — leave unset for local/third-party servers",
     ),
 ]
 
-# Canonical subcommand names, used to decide whether `pdfx X ...` names a command
+# Canonical subcommand names, used to decide whether `rp-pdf X ...` names a command
 # or a file for the default action.
 COMMAND_NAMES = frozenset(
     {
@@ -106,7 +106,7 @@ def _resolve_engine(command: str, value: Optional[TextEngine]) -> str:
     )
     valid = {engine.value for engine in TextEngine}
     if resolved not in valid:
-        raise core.PdfxError(
+        raise core.RpPdfError(
             f"Invalid engine {resolved!r} in config; choose from {', '.join(sorted(valid))}."
         )
     return resolved
@@ -144,7 +144,7 @@ def _announce_labels(file: Path, pages: str, physical: bool, password: Optional[
 def _errors():
     try:
         yield
-    except (core.PdfxError, PageSpecError, FileNotFoundError) as exc:
+    except (core.RpPdfError, PageSpecError, FileNotFoundError) as exc:
         print(json.dumps({"error": str(exc)}))
         print(str(exc), file=sys.stderr)
         raise typer.Exit(1) from exc
@@ -167,11 +167,11 @@ def _configure(
         typer.Option(
             "--config",
             "-c",
-            help="Path to a pdfx TOML config file (overrides discovery and $PDFX_CONFIG)",
+            help="Path to an rp-pdf TOML config file (overrides discovery and $RP_PDF_CONFIG)",
         ),
     ] = None,
 ) -> None:
-    """pdfx — PDF extraction toolkit (JSON-first library and CLI)."""
+    """rp-pdf — PDF extraction toolkit (JSON-first library and CLI)."""
     with _errors():
         config.set_active(config.load(config_path))
 
@@ -381,14 +381,14 @@ def markdown(
     ] = None,
     model: Annotated[
         Optional[str],
-        typer.Option("--model", help="VLM model name (or set PDFX_VLM_MODEL)"),
+        typer.Option("--model", help="VLM model name (or set RP_PDF_VLM_MODEL)"),
     ] = None,
     base_url: Annotated[
         Optional[str],
         typer.Option(
             "--base-url",
             help="OpenAI-compatible endpoint, e.g. an OpenRouter/Ollama/vLLM URL "
-            "(or set PDFX_VLM_BASE_URL); key from PDFX_VLM_API_KEY or OPENAI_API_KEY",
+            "(or set RP_PDF_VLM_BASE_URL); key from RP_PDF_VLM_API_KEY or OPENAI_API_KEY",
         ),
     ] = None,
     organization: OrgOpt = None,
@@ -421,7 +421,7 @@ def markdown(
     ] = None,
     cache_dir: Annotated[
         Optional[Path],
-        typer.Option("--cache-dir", help="AI response cache location (default ~/.cache/pdfx)"),
+        typer.Option("--cache-dir", help="AI response cache location (default ~/.cache/rp-pdf)"),
     ] = None,
     cache: Annotated[
         Optional[bool],
@@ -444,10 +444,10 @@ def markdown(
             images_dir=_resolve_path(cmd, "images_dir", images_dir),
             ai=config.resolve(cmd, "ai", ai, False),
             ocr=config.resolve(cmd, "ocr", ocr, False),
-            model=config.resolve(cmd, "model", model, None, env="PDFX_VLM_MODEL"),
-            base_url=config.resolve(cmd, "base_url", base_url, None, env="PDFX_VLM_BASE_URL"),
+            model=config.resolve(cmd, "model", model, None, env="RP_PDF_VLM_MODEL"),
+            base_url=config.resolve(cmd, "base_url", base_url, None, env="RP_PDF_VLM_BASE_URL"),
             organization=config.resolve(
-                cmd, "organization", organization, None, env="PDFX_VLM_ORG"
+                cmd, "organization", organization, None, env="RP_PDF_VLM_ORG"
             ),
             jobs=config.resolve(cmd, "jobs", jobs, 1),
             dpi=config.resolve(cmd, "dpi", dpi, 150),
@@ -457,7 +457,7 @@ def markdown(
             password=password,
             physical=physical_v,
             poppler_path=_resolve_path(cmd, "poppler_path", poppler_path),
-            cache_dir=_resolve_path(cmd, "cache_dir", cache_dir, env="PDFX_CACHE_DIR"),
+            cache_dir=_resolve_path(cmd, "cache_dir", cache_dir, env="RP_PDF_CACHE_DIR"),
             use_cache=config.resolve(cmd, "cache", cache, True),
         )
         for warning in result.warnings:
@@ -494,7 +494,7 @@ def render(
         physical_v = config.resolve(cmd, "physical", physical, False)
         out_v = _resolve_path(cmd, "out", out)
         if out_v is None:
-            raise core.PdfxError(
+            raise core.RpPdfError(
                 "render needs an output directory: pass --out or set [render].out in the config."
             )
         _announce_labels(file, pages_v, physical_v, password)
@@ -516,14 +516,14 @@ def render(
 def validate_vlm_ocr(
     model: Annotated[
         Optional[str],
-        typer.Option("--model", help="VLM model name (or set PDFX_VLM_MODEL)"),
+        typer.Option("--model", help="VLM model name (or set RP_PDF_VLM_MODEL)"),
     ] = None,
     base_url: Annotated[
         Optional[str],
         typer.Option(
             "--base-url",
-            help="OpenAI-compatible endpoint URL (or set PDFX_VLM_BASE_URL); "
-            "key from PDFX_VLM_API_KEY or OPENAI_API_KEY",
+            help="OpenAI-compatible endpoint URL (or set RP_PDF_VLM_BASE_URL); "
+            "key from RP_PDF_VLM_API_KEY or OPENAI_API_KEY",
         ),
     ] = None,
     organization: OrgOpt = None,
@@ -540,14 +540,14 @@ def validate_vlm_ocr(
     nothing; 'warn' statuses report low similarity but still exit zero.
     """
     with _errors():
-        from pdfx import ocr
+        from rp_pdf import ocr
 
         cmd = "validate-vlm-ocr"
         result = ocr.validate_ocr(
-            model=config.resolve(cmd, "model", model, None, env="PDFX_VLM_MODEL"),
-            base_url=config.resolve(cmd, "base_url", base_url, None, env="PDFX_VLM_BASE_URL"),
+            model=config.resolve(cmd, "model", model, None, env="RP_PDF_VLM_MODEL"),
+            base_url=config.resolve(cmd, "base_url", base_url, None, env="RP_PDF_VLM_BASE_URL"),
             organization=config.resolve(
-                cmd, "organization", organization, None, env="PDFX_VLM_ORG"
+                cmd, "organization", organization, None, env="RP_PDF_VLM_ORG"
             ),
             dpi=config.resolve(cmd, "dpi", dpi, 150),
             poppler_path=_resolve_path(cmd, "poppler_path", poppler_path),
@@ -559,7 +559,7 @@ def validate_vlm_ocr(
 
 def _leading_global_options(args: list[str]) -> tuple[list[str], list[str]]:
     """Split leading group-level options (only --config/-c) from the rest, so a
-    bare `pdfx --config x.toml FILE` can have its default command injected."""
+    bare `rp-pdf --config x.toml FILE` can have its default command injected."""
     globals_: list[str] = []
     i = 0
     while i < len(args):
@@ -586,7 +586,7 @@ def _config_path_from(globals_: list[str]) -> Optional[str]:
 
 
 def _inject_default_command(argv: list[str]) -> list[str]:
-    """Rewrite `pdfx [--config X] FILE ...` into `pdfx [--config X] CMD FILE ...`
+    """Rewrite `rp-pdf [--config X] FILE ...` into `rp-pdf [--config X] CMD FILE ...`
     where CMD is the config's [default].command (or `index`). Leaves argv alone
     when the first token is already a subcommand or an option (e.g. --help)."""
     globals_, rest = _leading_global_options(argv[1:])
@@ -597,7 +597,7 @@ def _inject_default_command(argv: list[str]) -> list[str]:
         return argv
     try:
         command = config.load(_config_path_from(globals_)).default_command()
-    except core.PdfxError:
+    except core.RpPdfError:
         # A broken config surfaces cleanly later, via the callback's error path.
         command = None
     command = command or config.DEFAULT_COMMAND

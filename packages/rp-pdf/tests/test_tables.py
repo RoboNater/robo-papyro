@@ -1,6 +1,6 @@
 from conftest import TABLE_DATA
 
-from pdfx import core
+from rp_pdf import core
 
 
 def test_extracts_table(table_pdf):

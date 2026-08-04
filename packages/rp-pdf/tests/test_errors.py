@@ -1,7 +1,7 @@
 import pytest
 from conftest import ENCRYPTED_PASSWORD, requires_poppler
 
-from pdfx import PageSpecError, core
+from rp_pdf import PageSpecError, core
 
 
 def test_missing_file(tmp_path):

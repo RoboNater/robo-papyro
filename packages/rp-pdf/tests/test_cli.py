@@ -1,4 +1,4 @@
-"""CLI tests run against the installed `pdfx` entry point via subprocess."""
+"""CLI tests run against the installed `rp-pdf` entry point via subprocess."""
 
 import json
 import subprocess
@@ -8,7 +8,7 @@ from conftest import ENCRYPTED_PASSWORD, TABLE_DATA, requires_poppler
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["pdfx", *[str(a) for a in args]], capture_output=True, text=True, encoding="utf-8"
+        ["rp-pdf", *[str(a) for a in args]], capture_output=True, text=True, encoding="utf-8"
     )
 
 

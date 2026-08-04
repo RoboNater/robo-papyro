@@ -1,6 +1,6 @@
 from conftest import requires_poppler
 
-from pdfx import core
+from rp_pdf import core
 
 # The default text engine shells out to poppler's pdftotext (issue #1).
 pytestmark = requires_poppler
@@ -92,7 +92,7 @@ def test_label_range(labeled_pdf):
 def test_label_not_found(labeled_pdf):
     import pytest
 
-    from pdfx import PageSpecError
+    from rp_pdf import PageSpecError
 
     with pytest.raises(PageSpecError, match="No page labeled"):
         core.get_text(labeled_pdf, "42")

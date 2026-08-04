@@ -18,7 +18,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, TableStyle
 from reportlab.platypus import Table as RLTable
 
-from pdfx.markdown import VlmError, _accept_response, _pipe_table, to_markdown
+from rp_pdf.markdown import VlmError, _accept_response, _pipe_table, to_markdown
 
 
 @pytest.fixture(scope="module")
@@ -171,7 +171,7 @@ def test_outline_headings_noop_without_outline(table_pdf):
 
 
 def test_heading_match_is_conservative():
-    from pdfx.markdown import _heading_match
+    from rp_pdf.markdown import _heading_match
 
     assert _heading_match("Background Methods.", "Background Methods")
     assert _heading_match("  background   methods ", "Background Methods")
@@ -206,8 +206,8 @@ def test_ai_refines_pages(text_pdf, fake_vlm, vlm_env, tmp_path):
 
 @requires_poppler
 def test_ai_env_config_and_keyless_local_server(text_pdf, fake_vlm, vlm_env, monkeypatch, tmp_path):
-    monkeypatch.setenv("PDFX_VLM_MODEL", "fake-vlm")
-    monkeypatch.setenv("PDFX_VLM_BASE_URL", fake_vlm.base_url)
+    monkeypatch.setenv("RP_PDF_VLM_MODEL", "fake-vlm")
+    monkeypatch.setenv("RP_PDF_VLM_BASE_URL", fake_vlm.base_url)
     result = to_markdown(text_pdf, pages="1", ai=True, cache_dir=tmp_path)
     assert result.pages[0].ai_refined
 

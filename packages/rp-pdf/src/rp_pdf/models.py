@@ -1,4 +1,4 @@
-"""Pydantic result models for pdfx core functions.
+"""Pydantic result models for rp-pdf core functions.
 
 Every per-page result carries both numbering schemes: physical_page is the
 1-based physical position in the file; labeled_page is the display label from

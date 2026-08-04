@@ -34,7 +34,7 @@ IMAGE_SIZE = (64, 48)
 def _has_poppler_tool(name: str) -> bool:
     if shutil.which(name):
         return True
-    poppler_path = os.environ.get("PDFX_POPPLER_PATH")
+    poppler_path = os.environ.get("RP_POPPLER_PATH")
     return bool(poppler_path and shutil.which(name, path=poppler_path))
 
 
@@ -58,7 +58,7 @@ def text_pdf(pdf_dir: Path) -> Path:
     path = pdf_dir / "text.pdf"
     c = rl_canvas.Canvas(str(path), pagesize=letter)
     c.setTitle("Test Document")
-    c.setAuthor("pdfx tests")
+    c.setAuthor("rp-pdf tests")
     for i, chapter in enumerate(["Chapter One", "Chapter Two", "Chapter Three"], start=1):
         key = f"ch{i}"
         c.bookmarkPage(key)
@@ -294,10 +294,10 @@ def fake_vlm():
 @pytest.fixture()
 def vlm_env(monkeypatch):
     for var in (
-        "PDFX_VLM_MODEL",
-        "PDFX_VLM_BASE_URL",
-        "PDFX_VLM_ORG",
-        "PDFX_VLM_API_KEY",
+        "RP_PDF_VLM_MODEL",
+        "RP_PDF_VLM_BASE_URL",
+        "RP_PDF_VLM_ORG",
+        "RP_PDF_VLM_API_KEY",
         "OPENAI_API_KEY",
         "OPENAI_ORG_ID",  # SDK's own org fallback; clear so tests are deterministic
         "OPENAI_ORGANIZATION",

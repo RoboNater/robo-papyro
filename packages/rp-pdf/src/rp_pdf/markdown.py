@@ -1,7 +1,7 @@
 """PDF → Markdown conversion (roadmap Phase 2).
 
 Stage 1 assembles per-page Markdown programmatically from the extractors in
-pdfx.core: prose text, tables as GitHub pipe tables, embedded images as links.
+rp_pdf.core: prose text, tables as GitHub pipe tables, embedded images as links.
 Table regions are cropped out of the prose via their bounding boxes so each
 table appears exactly once, in flow position.
 
@@ -24,10 +24,10 @@ from pathlib import Path
 
 import pdfplumber
 
-from pdfx import core
-from pdfx.models import ImageInfo, MarkdownPage, MarkdownResult
-from pdfx.pages import PageSpec
-from pdfx.vlm_utils import (
+from rp_pdf import core
+from rp_pdf.models import ImageInfo, MarkdownPage, MarkdownResult
+from rp_pdf.pages import PageSpec
+from rp_pdf.vlm_utils import (
     VlmError,
     cache_path,
     cache_read,
@@ -85,17 +85,17 @@ def to_markdown(
     to images_dir's parent (put images_dir next to your output file).
 
     ai=True adds the VLM review pass: model/base_url/organization come from the
-    arguments or the PDFX_VLM_MODEL / PDFX_VLM_BASE_URL / PDFX_VLM_ORG
-    environment variables, the API key from PDFX_VLM_API_KEY or OPENAI_API_KEY.
+    arguments or the RP_PDF_VLM_MODEL / RP_PDF_VLM_BASE_URL / RP_PDF_VLM_ORG
+    environment variables, the API key from RP_PDF_VLM_API_KEY or OPENAI_API_KEY.
     organization is only sent when set (OpenAI-hosted, org-scoped accounts).
     Requires poppler (page rendering)
     and the optional `ai` dependency group. Accepted responses are cached under
-    cache_dir (default ~/.cache/pdfx/vlm, override with PDFX_CACHE_DIR) keyed
+    cache_dir (default ~/.cache/rp-pdf/vlm, override with RP_PDF_CACHE_DIR) keyed
     on file hash + page + model + prompt version + dpi + outline context, so
     interrupted runs resume without re-billing.
 
     ocr=True (requires ai=True) adds a third stage: pages without a text layer
-    are rendered and sent to the VLM for OCR transcription (pdfx.ocr), with the
+    are rendered and sent to the VLM for OCR transcription (rp_pdf.ocr), with the
     same configuration, validation, and response cache as the AI pass.
     Successful transcriptions replace the no-text placeholder and set
     ocr_transcribed=True on the page; failures keep the placeholder and append
@@ -190,7 +190,7 @@ def to_markdown(
         if ocr and no_text:
             # Stage 3: OCR pages without a text layer. Function-level import:
             # the `ocr` parameter shadows the module name in this scope.
-            from pdfx.ocr import transcribe_pages
+            from rp_pdf.ocr import transcribe_pages
 
             transcribed = {
                 r.physical_page: r
@@ -405,7 +405,7 @@ def _refine_pages(
     file_hash = file_sha256(path)
     cache = cache_path(cache_dir) if use_cache else None
 
-    with tempfile.TemporaryDirectory(prefix="pdfx-vlm-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="rp-pdf-vlm-") as tmp:
         spec = ",".join(str(p.physical_page) for p in pages)
         rendered = {
             r.physical_page: Path(r.path)

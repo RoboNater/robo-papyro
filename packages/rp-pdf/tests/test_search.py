@@ -4,7 +4,7 @@ import pytest
 from conftest import requires_poppler
 from test_cli import run_cli
 
-from pdfx import core
+from rp_pdf import core
 
 # The default text engine shells out to poppler's pdftotext (issue #1).
 pytestmark = requires_poppler

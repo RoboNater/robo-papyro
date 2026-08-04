@@ -7,7 +7,7 @@ pass, the image is the only source here: there is no draft to preserve, so the
 prompt asks for a faithful transcription and the length check is the main guard
 against refusals and hallucinated non-answers.
 
-`validate_ocr` backs the `pdfx validate-vlm-ocr` command: it generates a small
+`validate_ocr` backs the `rp-pdf validate-vlm-ocr` command: it generates a small
 synthetic PDF whose pages 2-3 contain text drawn only as embedded images (no
 text layer), runs the real OCR path against the configured model, and scores
 the transcriptions against the known expected text.
@@ -24,10 +24,10 @@ from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from pdfx import core
-from pdfx.models import PageText
-from pdfx.pages import PageSpec
-from pdfx.vlm_utils import (
+from rp_pdf import core
+from rp_pdf.models import PageText
+from rp_pdf.pages import PageSpec
+from rp_pdf.vlm_utils import (
     VlmError,
     cache_path,
     cache_read,
@@ -84,7 +84,7 @@ def transcribe_pages(
     `has_text=True`; a failed one (API error, rejected response) keeps
     `has_text=False` with empty text, and a message is appended to `warnings`
     when a list is passed. Configuration (model/base_url/organization and the
-    PDFX_VLM_* environment fallbacks), caching, and concurrency behave exactly
+    RP_PDF_VLM_* environment fallbacks), caching, and concurrency behave exactly
     like the Markdown AI pass (see `markdown.to_markdown`); rendering the pages
     requires poppler.
     """
@@ -103,7 +103,7 @@ def transcribe_pages(
     cache = cache_path(cache_dir) if use_cache else None
     results: dict[int, str] = {}
 
-    with tempfile.TemporaryDirectory(prefix="pdfx-ocr-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="rp-pdf-ocr-") as tmp:
         spec = ",".join(str(n) for n in scanned)
         rendered = {
             r.physical_page: Path(r.path)
@@ -235,7 +235,7 @@ def validate_ocr(
     similarity percentages, any OCR warnings, and an overall_status of
     pass/warn/fail.
     """
-    with tempfile.TemporaryDirectory(prefix="pdfx-ocr-validate-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="rp-pdf-ocr-validate-") as tmp:
         pdf_path = Path(tmp) / "validation.pdf"
         _write_validation_pdf(pdf_path)
 
@@ -307,7 +307,7 @@ def validate_ocr(
         )
 
     return {
-        "model": model or os.environ.get("PDFX_VLM_MODEL"),
+        "model": model or os.environ.get("RP_PDF_VLM_MODEL"),
         "dpi": dpi,
         "pages": pages,
         "warnings": warnings,
@@ -340,7 +340,7 @@ def _write_validation_pdf(path: Path) -> None:
     c = rl_canvas.Canvas(str(path), pagesize=letter)
 
     c.setFont("Helvetica", 12)
-    c.drawString(72, 720, "pdfx OCR validation document")
+    c.drawString(72, 720, "rp-pdf OCR validation document")
     c.drawString(72, 700, "Page 1 has a normal text layer and must be skipped by OCR.")
     c.drawString(72, 680, "Pages 2 and 3 contain text only as images (no text layer).")
     c.showPage()

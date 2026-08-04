@@ -1,4 +1,4 @@
-"""VLM OCR tests (pdfx.ocr) and the --ocr stage of pdfx markdown.
+"""VLM OCR tests (rp_pdf.ocr) and the --ocr stage of rp-pdf markdown.
 
 Like the markdown AI-pass tests, everything runs against the fake
 OpenAI-compatible endpoint from conftest — no network, no real key. Tests that
@@ -17,15 +17,15 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as rl_canvas
 
-from pdfx.markdown import to_markdown
-from pdfx.ocr import (
+from rp_pdf.markdown import to_markdown
+from rp_pdf.ocr import (
     MIN_TRANSCRIPTION_CHARS,
     _accept_response,
     _write_validation_pdf,
     transcribe_pages,
     validate_ocr,
 )
-from pdfx.vlm_utils import VlmError
+from rp_pdf.vlm_utils import VlmError
 
 TRANSCRIPTION = "Scanned page transcription with enough characters to pass validation."
 
@@ -93,7 +93,7 @@ def test_no_scanned_pages_no_requests(text_pdf, fake_vlm, vlm_env):
 
 @requires_poppler
 def test_organization_sent_as_header(scanned_pdf, fake_vlm, vlm_env, tmp_path):
-    """End-to-end: --organization / PDFX_VLM_ORG reaches the wire as the
+    """End-to-end: --organization / RP_PDF_VLM_ORG reaches the wire as the
     OpenAI-Organization header the SDK sets."""
     fake_vlm.content = TRANSCRIPTION
     transcribe_pages(
@@ -228,7 +228,7 @@ def test_validation_pdf_shape(tmp_path):
 
 @requires_poppler
 def test_validate_ocr_pass(fake_vlm, vlm_env):
-    from pdfx.ocr import VALIDATION_LAYOUT_LINES, VALIDATION_PROSE
+    from rp_pdf.ocr import VALIDATION_LAYOUT_LINES, VALIDATION_PROSE
 
     # jobs=1 processes pages in order: prose page 2 first, layout page 3 second.
     fake_vlm.queue = [(200, VALIDATION_PROSE), (200, "\n".join(VALIDATION_LAYOUT_LINES))]
@@ -242,7 +242,7 @@ def test_validate_ocr_pass(fake_vlm, vlm_env):
 
 @requires_poppler
 def test_validate_ocr_warn_on_poor_transcription(fake_vlm, vlm_env):
-    from pdfx.ocr import VALIDATION_PROSE
+    from rp_pdf.ocr import VALIDATION_PROSE
 
     fake_vlm.queue = [
         (200, VALIDATION_PROSE),
