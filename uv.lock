@@ -4,6 +4,7 @@ requires-python = ">=3.11"
 
 [manifest]
 members = [
+    "rp-core",
     "rp-pdf",
 ]
 
@@ -944,6 +945,21 @@ wheels = [
 ]
 
 [[package]]
+name = "rp-core"
+version = "0.1.0"
+source = { editable = "packages/rp-core" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "typer" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.13.4" },
+    { name = "typer", specifier = ">=0.26.8" },
+]
+
+[[package]]
 name = "rp-pdf"
 version = "0.4.0"
 source = { editable = "packages/rp-pdf" }
@@ -952,6 +968,7 @@ dependencies = [
     { name = "pdfplumber" },
     { name = "pydantic" },
     { name = "pypdf" },
+    { name = "rp-core" },
     { name = "typer" },
 ]
 
@@ -967,6 +984,7 @@ requires-dist = [
     { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pypdf", specifier = ">=6.14.2" },
+    { name = "rp-core", editable = "packages/rp-core" },
     { name = "typer", specifier = ">=0.26.8" },
 ]
 provides-extras = ["ai"]

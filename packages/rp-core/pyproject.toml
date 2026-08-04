@@ -1,0 +1,20 @@
+[project]
+name = "rp-core"
+version = "0.1.0"
+description = "Shared infrastructure for the robo-papyro document toolkit suite"
+readme = "README.md"
+requires-python = ">=3.11"
+# typer is a runtime dependency because clikit.py lives here (spec section 4.6).
+# That does not violate the "core logic never imports typer" constraint: it
+# constrains library logic, and clikit is explicitly the shared CLI layer.
+dependencies = [
+    "pydantic>=2.13.4",
+    "typer>=0.26.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rp_core"]
