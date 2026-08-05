@@ -99,6 +99,10 @@ Tests must **never** require LibreOffice — mock the subprocess.
   `-env:UserInstallation` profile (a shared one makes parallel calls exit zero
   and write nothing), its output-file verification (a zero exit code is not
   evidence of success), and its timeout.
+- **No subprocess runs unbounded.** `run_binary(timeout=None)` means "the suite
+  default" — `RP_SUBPROCESS_TIMEOUT` or 600s — not "wait forever"; there is no
+  way to spell forever. Expiry raises `SubprocessTimeout` (exit 3), never
+  `subprocess.TimeoutExpired`.
 - `render.py` — `rasterize` is the primitive: one PDF, one contiguous physical
   page range, caller-supplied file naming. `render_pages` is the convenience
   wrapper that also routes non-PDF sources through LibreOffice. rp-core has no

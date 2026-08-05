@@ -10,6 +10,13 @@ never a bare ``FileNotFoundError``.
 |---|---|---|
 | ``soffice`` | Office → PDF/ODT/HTML conversion | ``RP_SOFFICE_PATH`` |
 | ``pdftoppm`` / ``pdftotext`` / ``pdfinfo`` | poppler rendering and text | ``RP_POPPLER_PATH`` |
+
+**No subprocess runs unbounded** (spec section 4.4). :func:`run_binary` resolves
+``timeout=None`` to ``RP_SUBPROCESS_TIMEOUT`` or to 600 seconds, and raises
+:class:`~rp_core.errors.SubprocessTimeout` when it expires. Generous is fine —
+a large ``pdftotext`` run can legitimately take minutes — but unbounded is not,
+because a hung subprocess behind an MCP tool call blocks an agent with no signal
+and no Ctrl-C.
 """
 
 from __future__ import annotations
@@ -21,10 +28,16 @@ import tempfile
 from pathlib import Path
 from uuid import uuid4
 
-from rp_core.errors import ConversionError, MissingDependencyError
+from rp_core.errors import ConversionError, InputError, MissingDependencyError, SubprocessTimeout
 
 POPPLER_PATH_ENV = "RP_POPPLER_PATH"
 SOFFICE_PATH_ENV = "RP_SOFFICE_PATH"
+
+#: Suite-wide override for the fallback subprocess timeout, in whole seconds.
+SUBPROCESS_TIMEOUT_ENV = "RP_SUBPROCESS_TIMEOUT"
+
+#: Used when a call site passes no timeout and the environment sets none.
+DEFAULT_SUBPROCESS_TIMEOUT = 600
 
 #: Environment variable naming a directory to search for each binary, when it is
 #: not on PATH.
@@ -82,24 +95,54 @@ def require_binary(
     raise MissingDependencyError(f"{message} {hint}".strip(), binary=name, install_hint=hint)
 
 
+def resolve_timeout(timeout: int | None = None) -> int:
+    """The timeout a call actually gets: the one passed, else
+    ``RP_SUBPROCESS_TIMEOUT``, else :data:`DEFAULT_SUBPROCESS_TIMEOUT`.
+
+    There is no value meaning "wait forever". A non-numeric or non-positive
+    ``RP_SUBPROCESS_TIMEOUT`` raises :class:`~rp_core.errors.InputError` rather
+    than being ignored — silently falling back to the default would leave the
+    user believing a limit they set is in force.
+    """
+    if timeout is not None:
+        return timeout
+    configured = os.environ.get(SUBPROCESS_TIMEOUT_ENV)
+    if configured is None or not configured.strip():
+        return DEFAULT_SUBPROCESS_TIMEOUT
+    try:
+        seconds = int(configured)
+    except ValueError as exc:
+        raise InputError(
+            f"{SUBPROCESS_TIMEOUT_ENV} must be a whole number of seconds, got {configured!r}."
+        ) from exc
+    if seconds <= 0:
+        raise InputError(
+            f"{SUBPROCESS_TIMEOUT_ENV} must be positive, got {seconds}. "
+            "No subprocess in the suite runs unbounded."
+        )
+    return seconds
+
+
 def run_binary(
     path: Path,
     args: list[str],
     *,
-    timeout: int | None = 120,
+    timeout: int | None = None,
 ) -> subprocess.CompletedProcess:
     """Run ``path`` with ``args``, capturing output.
 
     Does not check the return code — callers decide what a nonzero exit means
-    for them. ``timeout=None`` waits indefinitely; every new call site should
-    pass a real timeout, since both LibreOffice and poppler can hang on
-    malformed input.
+    for them. ``timeout=None`` means "use the suite default" (see
+    :func:`resolve_timeout`), not "wait forever": both LibreOffice and poppler
+    can hang on malformed input.
     """
+    timeout = resolve_timeout(timeout)
     try:
         return subprocess.run([str(path), *args], capture_output=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        raise ConversionError(
-            f"{Path(path).name} did not finish within {timeout}s and was killed."
+        raise SubprocessTimeout(
+            f"{Path(path).name} did not finish within {timeout}s and was killed. "
+            f"Raise {SUBPROCESS_TIMEOUT_ENV} if this file legitimately needs longer."
         ) from exc
     except OSError as exc:
         # Never let a bare FileNotFoundError from exec() reach the user.
@@ -115,7 +158,7 @@ def soffice_convert(
     to: str,
     outdir: Path,
     *,
-    timeout: int = 120,
+    timeout: int = 300,
     soffice: Path | None = None,
 ) -> Path:
     """Convert ``source`` to format ``to`` inside ``outdir`` using LibreOffice.
@@ -133,7 +176,8 @@ def soffice_convert(
       and agents parallelize.
     * **Output verification.** A zero exit code is not evidence of success.
       The expected file must exist, or this raises :class:`ConversionError`.
-    * **Timeout.** LibreOffice hangs indefinitely on some malformed inputs.
+    * **Timeout.** LibreOffice hangs indefinitely on some malformed inputs, so
+      this one carries its own 300s limit rather than the suite default.
     """
     exe = soffice if soffice is not None else require_binary("soffice")
     source = Path(source)

@@ -74,6 +74,18 @@ class ConversionError(RoboPapyroError):
     exit_code = 3
 
 
+class SubprocessTimeout(RoboPapyroError):
+    """An external tool ran past its timeout and was killed.
+
+    Distinct from :class:`ConversionError` because the remedy is different: a
+    conversion failure is about the file, a timeout is about the clock, and
+    ``RP_SUBPROCESS_TIMEOUT`` is the knob. ``subprocess.TimeoutExpired`` must
+    never reach the user in its place.
+    """
+
+    exit_code = 3
+
+
 def envelope_for(exc: BaseException) -> ErrorEnvelope:
     """The envelope for any exception a CLI is willing to report.
 

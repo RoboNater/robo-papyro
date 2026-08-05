@@ -478,3 +478,9 @@ way. `index`, `tables`, and `images` work without poppler, as do
 
 If poppler is not on `PATH` (common on Windows), point at its `bin` directory with
 `--poppler-path DIR` or the `RP_POPPLER_PATH` environment variable.
+
+`pdftotext` runs with a time limit — `RP_SUBPROCESS_TIMEOUT` seconds, 600 by
+default. The limit is generous because a few-hundred-page PDF can legitimately
+take minutes; it exists because poppler can hang outright on malformed input,
+and a hung subprocess behind an agent's tool call gives no signal at all.
+Exceeding it exits **3** with a `SubprocessTimeout`.

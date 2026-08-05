@@ -187,9 +187,11 @@ def _pdftotext_pages(
         if password is not None:
             args += ["-upw", password, "-opw", password]
         args += [str(path), "-"]
-        # timeout=None preserves the pre-refactor behavior: pdftotext has never
-        # been time-limited here, and a large PDF can legitimately take minutes.
-        proc = binaries.run_binary(exe, args, timeout=None)
+        # No explicit timeout: run_binary resolves it to RP_SUBPROCESS_TIMEOUT
+        # or 600s. A large PDF can legitimately take minutes, so the default is
+        # generous, but pdftotext can hang outright on malformed input and this
+        # call site was previously unbounded.
+        proc = binaries.run_binary(exe, args)
         if proc.returncode != 0:
             detail = proc.stderr.decode("utf-8", "replace").strip()
             raise InvalidPdfError(

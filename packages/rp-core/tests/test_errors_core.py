@@ -9,6 +9,7 @@ from rp_core.errors import (
     InputError,
     MissingDependencyError,
     RoboPapyroError,
+    SubprocessTimeout,
     envelope_for,
 )
 from rp_core.ranges import RangeSpecError
@@ -22,6 +23,7 @@ from rp_core.ranges import RangeSpecError
         (MissingDependencyError("x"), 2),
         (CorruptFileError("x"), 3),
         (ConversionError("x"), 3),
+        (SubprocessTimeout("x"), 3),
     ],
 )
 def test_exit_codes(error, expected):

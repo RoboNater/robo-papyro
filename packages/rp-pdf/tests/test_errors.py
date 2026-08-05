@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 
 import pytest
 from conftest import ENCRYPTED_PASSWORD, requires_poppler
@@ -96,3 +97,42 @@ def test_missing_dependency_carries_install_hint():
         require_binary("definitely-not-a-real-binary")
     assert excinfo.value.exit_code == 2
     assert excinfo.value.binary == "definitely-not-a-real-binary"
+
+
+def test_pdftotext_is_time_limited(text_pdf, monkeypatch):
+    """Spec section 4.4: this call site was unbounded through Phase 0. The hang
+    is mocked — no real one is needed to prove the limit is applied."""
+    from rp_core import binaries
+    from rp_core.errors import SubprocessTimeout
+
+    monkeypatch.delenv(binaries.SUBPROCESS_TIMEOUT_ENV, raising=False)
+    monkeypatch.setattr(binaries, "find_binary", lambda name, **kw: Path("/usr/bin/pdftotext"))
+    seen: dict = {}
+
+    def hang(argv, **kwargs):
+        seen.update(kwargs)
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(SubprocessTimeout) as excinfo:
+        core.get_text(text_pdf, "1")
+    assert seen["timeout"] == binaries.DEFAULT_SUBPROCESS_TIMEOUT
+    assert excinfo.value.exit_code == 3
+
+
+def test_pdftotext_timeout_honors_the_environment(text_pdf, monkeypatch):
+    from rp_core import binaries
+    from rp_core.errors import SubprocessTimeout
+
+    monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "5")
+    monkeypatch.setattr(binaries, "find_binary", lambda name, **kw: Path("/usr/bin/pdftotext"))
+    seen: dict = {}
+
+    def hang(argv, **kwargs):
+        seen.update(kwargs)
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(subprocess, "run", hang)
+    with pytest.raises(SubprocessTimeout):
+        core.get_text(text_pdf, "1")
+    assert seen["timeout"] == 5

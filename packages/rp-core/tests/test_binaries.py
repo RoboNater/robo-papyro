@@ -13,7 +13,12 @@ from pathlib import Path
 
 import pytest
 from rp_core import binaries
-from rp_core.errors import ConversionError, MissingDependencyError
+from rp_core.errors import (
+    ConversionError,
+    InputError,
+    MissingDependencyError,
+    SubprocessTimeout,
+)
 
 
 def _completed(returncode: int = 0, stderr: bytes = b"") -> subprocess.CompletedProcess:
@@ -89,9 +94,24 @@ class TestRunBinary:
         proc = binaries.run_binary(Path("/bin/sh"), ["-c", "exit 7"], timeout=10)
         assert proc.returncode == 7
 
-    def test_timeout_raises_conversion_error(self):
-        with pytest.raises(ConversionError, match="did not finish"):
+    def test_timeout_raises_subprocess_timeout(self):
+        with pytest.raises(SubprocessTimeout, match="did not finish") as excinfo:
             binaries.run_binary(Path("/bin/sh"), ["-c", "sleep 5"], timeout=1)
+        assert excinfo.value.exit_code == 3
+        assert binaries.SUBPROCESS_TIMEOUT_ENV in str(excinfo.value)
+
+    def test_no_call_site_runs_unbounded(self, monkeypatch):
+        """Spec section 10: every invocation goes through run_binary with a
+        resolved timeout. `timeout=None` means the default, not "forever"."""
+        seen = {}
+
+        def record(argv, **kwargs):
+            seen.update(kwargs)
+            return _completed()
+
+        monkeypatch.setattr(subprocess, "run", record)
+        binaries.run_binary(Path("/bin/sh"), ["-c", "true"])
+        assert seen["timeout"] == binaries.DEFAULT_SUBPROCESS_TIMEOUT
 
     def test_missing_executable_is_not_a_bare_oserror(self, tmp_path):
         """A raw FileNotFoundError from exec() must never reach the user."""
@@ -106,7 +126,7 @@ class TestSofficeConvert:
         """Stand in for LibreOffice; record the args it was invoked with."""
         calls: list[list[str]] = []
 
-        def fake_run(path, args, *, timeout=120):
+        def fake_run(path, args, *, timeout=300):
             calls.append(args)
             if writes_output:
                 outdir = Path(args[args.index("--outdir") + 1])
@@ -174,18 +194,18 @@ class TestSofficeConvert:
     def test_timeout_propagates(self, monkeypatch, tmp_path, source):
         """LibreOffice hangs indefinitely on some malformed inputs."""
 
-        def hang(path, args, *, timeout=120):
-            raise ConversionError(f"soffice did not finish within {timeout}s and was killed.")
+        def hang(path, args, *, timeout=300):
+            raise SubprocessTimeout(f"soffice did not finish within {timeout}s and was killed.")
 
         monkeypatch.setattr(binaries, "run_binary", hang)
         monkeypatch.setattr(binaries, "require_binary", lambda name, **kw: Path("/usr/bin/soffice"))
-        with pytest.raises(ConversionError, match="did not finish within 30s"):
+        with pytest.raises(SubprocessTimeout, match="did not finish within 30s"):
             binaries.soffice_convert(source, "pdf", tmp_path / "out", timeout=30)
 
     def test_profile_removed_even_when_conversion_fails(self, monkeypatch, tmp_path, source):
         captured: list[str] = []
 
-        def fail(path, args, *, timeout=120):
+        def fail(path, args, *, timeout=300):
             captured.extend(a for a in args if a.startswith("-env:UserInstallation="))
             raise ConversionError("boom")
 
@@ -196,7 +216,7 @@ class TestSofficeConvert:
         assert not Path(captured[0].split("file://", 1)[1]).exists()
 
     def test_qualified_filter_uses_extension_before_colon(self, monkeypatch, tmp_path, source):
-        def fake_run(path, args, *, timeout=120):
+        def fake_run(path, args, *, timeout=300):
             outdir = Path(args[args.index("--outdir") + 1])
             (outdir / "letter.pdf").write_bytes(b"%PDF")
             return _completed()
@@ -211,3 +231,33 @@ class TestSofficeConvert:
         with pytest.raises(MissingDependencyError) as excinfo:
             binaries.soffice_convert(source, "pdf", tmp_path / "out")
         assert excinfo.value.exit_code == 2
+
+
+class TestResolveTimeout:
+    """Spec section 4.4: no subprocess runs unbounded, and the limit is settable."""
+
+    def test_explicit_timeout_wins(self, monkeypatch):
+        monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "42")
+        assert binaries.resolve_timeout(7) == 7
+
+    def test_default_when_unset(self, monkeypatch):
+        monkeypatch.delenv(binaries.SUBPROCESS_TIMEOUT_ENV, raising=False)
+        assert binaries.resolve_timeout() == 600
+
+    def test_environment_override(self, monkeypatch):
+        monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "45")
+        assert binaries.resolve_timeout() == 45
+
+    def test_blank_is_treated_as_unset(self, monkeypatch):
+        monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "  ")
+        assert binaries.resolve_timeout() == 600
+
+    def test_non_numeric_is_an_input_error(self, monkeypatch):
+        monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "soon")
+        with pytest.raises(InputError, match="whole number of seconds"):
+            binaries.resolve_timeout()
+
+    def test_zero_is_rejected_rather_than_meaning_forever(self, monkeypatch):
+        monkeypatch.setenv(binaries.SUBPROCESS_TIMEOUT_ENV, "0")
+        with pytest.raises(InputError, match="must be positive"):
+            binaries.resolve_timeout()

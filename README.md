@@ -43,6 +43,10 @@ If poppler is not on `PATH`, point `RP_POPPLER_PATH` (or `--poppler-path`) at it
 `bin` directory. LibreOffice (`soffice`) is needed only for Office-format
 conversion and rendering; `RP_SOFFICE_PATH` locates it if it is not on `PATH`.
 
+No external tool runs unbounded: every invocation is killed after
+`RP_SUBPROCESS_TIMEOUT` seconds, or 600 if it is unset, and reports exit **3**.
+Raise it for genuinely large documents.
+
 ```sh
 uv run rp doctor         # what is installed, and how to install what is not
 ```
