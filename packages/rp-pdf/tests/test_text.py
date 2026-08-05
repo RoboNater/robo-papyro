@@ -1,8 +1,9 @@
-from conftest import requires_poppler
+import pytest
+
 from rp_pdf import core
 
 # The default text engine shells out to poppler's pdftotext (issue #1).
-pytestmark = requires_poppler
+pytestmark = pytest.mark.requires_poppler
 
 
 def test_all_pages(text_pdf):

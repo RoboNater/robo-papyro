@@ -1,15 +1,14 @@
-from conftest import TABLE_DATA
 from rp_pdf import core
 
 
-def test_extracts_table(table_pdf):
+def test_extracts_table(table_pdf, table_data):
     tables = core.get_tables(table_pdf, "all")
     assert len(tables) == 1
     table = tables[0]
     assert table.physical_page == 1
     assert table.labeled_page is None
     assert table.index == 0
-    assert table.rows == TABLE_DATA
+    assert table.rows == table_data
 
 
 def test_labeled_table(labeled_table_pdf):

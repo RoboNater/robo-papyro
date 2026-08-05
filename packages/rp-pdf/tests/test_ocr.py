@@ -16,7 +16,6 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as rl_canvas
 
-from conftest import requires_poppler
 from rp_pdf.markdown import to_markdown
 from rp_pdf.ocr import (
     MIN_TRANSCRIPTION_CHARS,
@@ -72,7 +71,7 @@ def test_missing_key(scanned_pdf, vlm_env):
         transcribe_pages(scanned_pdf, model="fake-vlm")
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_only_scanned_pages_transcribed(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = TRANSCRIPTION
     result = transcribe_pages(
@@ -91,7 +90,7 @@ def test_no_scanned_pages_no_requests(text_pdf, fake_vlm, vlm_env):
     assert fake_vlm.requests == []  # no render, no API traffic
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_organization_sent_as_header(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     """End-to-end: --organization / RP_PDF_VLM_ORG reaches the wire as the
     OpenAI-Organization header the SDK sets."""
@@ -106,14 +105,14 @@ def test_organization_sent_as_header(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     assert fake_vlm.headers[0].get("openai-organization") == "org-xyz"
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_no_organization_header_by_default(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = TRANSCRIPTION
     transcribe_pages(scanned_pdf, model="fake-vlm", base_url=fake_vlm.base_url, cache_dir=tmp_path)
     assert "openai-organization" not in fake_vlm.headers[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_failure_keeps_placeholder_and_warns(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.queue = [(400, "")]
     warnings: list[str] = []
@@ -128,7 +127,7 @@ def test_failure_keeps_placeholder_and_warns(scanned_pdf, fake_vlm, vlm_env, tmp
     assert len(warnings) == 1 and "OCR failed" in warnings[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_short_response_rejected(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = "tiny"
     warnings: list[str] = []
@@ -143,7 +142,7 @@ def test_short_response_rejected(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     assert len(warnings) == 1 and "rejected" in warnings[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_second_run_served_from_cache(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = TRANSCRIPTION
     args = dict(model="fake-vlm", base_url=fake_vlm.base_url, cache_dir=tmp_path)
@@ -162,7 +161,7 @@ def test_markdown_ocr_requires_ai(scanned_pdf, vlm_env):
         to_markdown(scanned_pdf, engine="pypdf", ocr=True)
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_markdown_ocr_replaces_placeholder(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = TRANSCRIPTION
     result = to_markdown(
@@ -181,7 +180,7 @@ def test_markdown_ocr_replaces_placeholder(scanned_pdf, fake_vlm, vlm_env, tmp_p
     assert result.warnings == []
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_markdown_ocr_failure_keeps_placeholder(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = TRANSCRIPTION
     fake_vlm.queue = [(200, TRANSCRIPTION), (400, "")]  # page 1 refine ok, page 2 OCR fails
@@ -199,7 +198,7 @@ def test_markdown_ocr_failure_keeps_placeholder(scanned_pdf, fake_vlm, vlm_env, 
     assert len(result.warnings) == 1 and "OCR failed" in result.warnings[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_markdown_without_ocr_keeps_placeholder(scanned_pdf, fake_vlm, vlm_env, tmp_path):
     result = to_markdown(
         scanned_pdf,
@@ -226,7 +225,7 @@ def test_validation_pdf_shape(tmp_path):
     assert layered == [True, False, False]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_validate_ocr_pass(fake_vlm, vlm_env):
     from rp_pdf.ocr import VALIDATION_LAYOUT_LINES, VALIDATION_PROSE
 
@@ -240,7 +239,7 @@ def test_validate_ocr_pass(fake_vlm, vlm_env):
     assert len(fake_vlm.requests) == 2  # page 1 skipped: text layer present
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_validate_ocr_warn_on_poor_transcription(fake_vlm, vlm_env):
     from rp_pdf.ocr import VALIDATION_PROSE
 
@@ -254,7 +253,7 @@ def test_validate_ocr_warn_on_poor_transcription(fake_vlm, vlm_env):
     assert report["pages"][2]["similarity"] < 70
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_validate_ocr_fail_when_no_transcription(fake_vlm, vlm_env):
     fake_vlm.queue = [(400, ""), (400, "")]
     report = validate_ocr(model="fake-vlm", base_url=fake_vlm.base_url)

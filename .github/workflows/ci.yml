@@ -112,3 +112,15 @@ jobs:
           expect 3 uv run rp-pdf index fake.pdf
           expect 1 uv run rp-pdf text sample.pdf --pages 99
           expect 0 uv run rp-pdf index sample.pdf
+      - name: Errors are ErrorEnvelopes on stderr, results on stdout
+        run: |
+          uv run rp-pdf index missing.pdf > out.txt 2> err.txt || true
+          if [ -s out.txt ]; then
+            echo "::error::stdout was not empty on a failed run"; exit 1
+          fi
+          tail -n 1 err.txt | uv run python -c "
+          import json, sys
+          detail = json.load(sys.stdin)['error']
+          assert sorted(detail) == ['exit_code', 'hint', 'message', 'type'], detail
+          assert detail['exit_code'] == 1, detail
+          print('envelope ok:', detail['type'])"

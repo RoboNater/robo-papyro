@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ENCRYPTED_PASSWORD, requires_poppler
 from rp_core.binaries import require_binary
 from rp_core.errors import MissingDependencyError
 from rp_pdf import PageSpecError, core
@@ -29,15 +28,15 @@ def test_encrypted_wrong_password(encrypted_pdf):
         core.get_index(encrypted_pdf, password="wrong")
 
 
-@requires_poppler
-def test_encrypted_correct_password(encrypted_pdf):
+@pytest.mark.requires_poppler
+def test_encrypted_correct_password(encrypted_pdf, encrypted_password):
     # default engine: the password must also reach the pdftotext subprocess
-    result = core.get_text(encrypted_pdf, "1", password=ENCRYPTED_PASSWORD)
+    result = core.get_text(encrypted_pdf, "1", password=encrypted_password)
     assert "Chapter One" in result[0].text
 
 
-def test_encrypted_correct_password_pypdf(encrypted_pdf):
-    result = core.get_text(encrypted_pdf, "1", password=ENCRYPTED_PASSWORD, engine="pypdf")
+def test_encrypted_correct_password_pypdf(encrypted_pdf, encrypted_password):
+    result = core.get_text(encrypted_pdf, "1", password=encrypted_password, engine="pypdf")
     assert "Chapter One" in result[0].text
 
 

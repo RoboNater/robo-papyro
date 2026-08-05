@@ -1,18 +1,11 @@
 """CLI tests run against the installed `rp-pdf` entry point via subprocess."""
 
 import json
-import subprocess
 
-from conftest import ENCRYPTED_PASSWORD, TABLE_DATA, requires_poppler
-
-
-def run_cli(*args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        ["rp-pdf", *[str(a) for a in args]], capture_output=True, text=True, encoding="utf-8"
-    )
+import pytest
 
 
-def test_no_json_flag_on_any_command():
+def test_no_json_flag_on_any_command(run_cli):
     """Spec section 10: JSON is the default output and `--plain` is the human
     opt-out, so no `--json` flag exists in the suite."""
     from rp_pdf.cli import COMMAND_NAMES
@@ -21,13 +14,13 @@ def test_no_json_flag_on_any_command():
         assert "--json" not in run_cli(command, "--help").stdout, command
 
 
-def test_doctor_is_json_by_default():
+def test_doctor_is_json_by_default(run_cli):
     report = json.loads(run_cli("doctor").stdout)
     assert {row["name"] for row in report} == {"pdftotext", "pdftoppm", "pdfinfo"}
     assert not run_cli("doctor", "--plain").stdout.lstrip().startswith(("[", "{"))
 
 
-def test_index_json(text_pdf):
+def test_index_json(run_cli, text_pdf):
     result = run_cli("index", text_pdf)
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -36,8 +29,8 @@ def test_index_json(text_pdf):
     assert len(data["outline"]) == 3
 
 
-@requires_poppler
-def test_text_json(text_pdf):
+@pytest.mark.requires_poppler
+def test_text_json(run_cli, text_pdf):
     result = run_cli("text", text_pdf, "--pages", "2")
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -45,36 +38,36 @@ def test_text_json(text_pdf):
     assert "Chapter Two" in data[0]["text"]
 
 
-@requires_poppler
-def test_text_default_engine_spaces_kerned_pdf(kerned_pdf):
+@pytest.mark.requires_poppler
+def test_text_default_engine_spaces_kerned_pdf(run_cli, kerned_pdf):
     result = run_cli("text", kerned_pdf, "--plain")
     assert result.returncode == 0
     assert "Whether you are looking for a" in result.stdout
 
 
-def test_text_engine_pypdf(kerned_pdf):
+def test_text_engine_pypdf(run_cli, kerned_pdf):
     # pure-Python engine: no poppler needed, but mis-segments this PDF (issue #1)
     result = run_cli("text", kerned_pdf, "--engine", "pypdf", "--plain")
     assert result.returncode == 0
     assert "Whetheryouarelooking" in result.stdout
 
 
-@requires_poppler
-def test_text_plain(text_pdf):
+@pytest.mark.requires_poppler
+def test_text_plain(run_cli, text_pdf):
     result = run_cli("text", text_pdf, "--pages", "1", "--plain")
     assert result.returncode == 0
     assert "Chapter One" in result.stdout
     assert not result.stdout.lstrip().startswith(("[", "{"))
 
 
-def test_tables_json(table_pdf):
+def test_tables_json(run_cli, table_pdf, table_data):
     result = run_cli("tables", table_pdf, "--pages", "all")
     assert result.returncode == 0
     data = json.loads(result.stdout)
-    assert data[0]["rows"] == TABLE_DATA
+    assert data[0]["rows"] == table_data
 
 
-def test_tables_csv(table_pdf, tmp_path):
+def test_tables_csv(run_cli, table_pdf, tmp_path):
     result = run_cli("tables", table_pdf, "--csv", tmp_path)
     assert result.returncode == 0
     written = json.loads(result.stdout)["written"]
@@ -83,7 +76,7 @@ def test_tables_csv(table_pdf, tmp_path):
     assert "Name,Qty,Price" in content
 
 
-def test_tables_csv_labeled_names(labeled_table_pdf, tmp_path):
+def test_tables_csv_labeled_names(run_cli, labeled_table_pdf, tmp_path):
     from pathlib import Path
 
     result = run_cli("tables", labeled_table_pdf, "--csv", tmp_path)
@@ -92,7 +85,7 @@ def test_tables_csv_labeled_names(labeled_table_pdf, tmp_path):
     assert Path(written[0]).name == "table_page0030_pp0001_00.csv"
 
 
-def test_images_metadata(image_pdf):
+def test_images_metadata(run_cli, image_pdf):
     result = run_cli("images", image_pdf)
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -100,43 +93,43 @@ def test_images_metadata(image_pdf):
     assert data[0]["saved_path"] is None
 
 
-@requires_poppler
-def test_password_flag(encrypted_pdf):
-    result = run_cli("text", encrypted_pdf, "--pages", "1", "--password", ENCRYPTED_PASSWORD)
+@pytest.mark.requires_poppler
+def test_password_flag(run_cli, encrypted_pdf, encrypted_password):
+    result = run_cli("text", encrypted_pdf, "--pages", "1", "--password", encrypted_password)
     assert result.returncode == 0
     assert "Chapter One" in json.loads(result.stdout)[0]["text"]
 
 
-@requires_poppler
-def test_labels_default_with_notice(labeled_pdf):
+@pytest.mark.requires_poppler
+def test_labels_default_with_notice(run_cli, labeled_pdf):
     result = run_cli("text", labeled_pdf, "--pages", "1", "--plain")
     assert result.returncode == 0
     assert "Physical page 8" in result.stdout
     assert "page labels" in result.stderr
 
 
-@requires_poppler
-def test_physical_flag(labeled_pdf):
+@pytest.mark.requires_poppler
+def test_physical_flag(run_cli, labeled_pdf):
     result = run_cli("text", labeled_pdf, "--pages", "1", "--plain", "--physical")
     assert result.returncode == 0
     assert "Physical page 1" in result.stdout
     assert result.stderr.strip() == ""
 
 
-@requires_poppler
-def test_no_notice_for_unlabeled_pdf(text_pdf):
+@pytest.mark.requires_poppler
+def test_no_notice_for_unlabeled_pdf(run_cli, text_pdf):
     result = run_cli("text", text_pdf, "--pages", "1")
     assert result.returncode == 0
     assert result.stderr.strip() == ""
 
 
-def test_unknown_label_error(labeled_pdf, cli_error):
+def test_unknown_label_error(run_cli, labeled_pdf, cli_error):
     result = run_cli("text", labeled_pdf, "--pages", "42")
     assert result.returncode == 1
     assert "No page labeled" in cli_error(result)["message"]
 
 
-def test_index_shows_labels(labeled_pdf):
+def test_index_shows_labels(run_cli, labeled_pdf):
     result = run_cli("index", labeled_pdf)
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -145,8 +138,8 @@ def test_index_shows_labels(labeled_pdf):
     assert data["pages"][7]["labeled_page"] == "1"
 
 
-@requires_poppler
-def test_unicode_output_is_utf8(unicode_pdf):
+@pytest.mark.requires_poppler
+def test_unicode_output_is_utf8(run_cli, unicode_pdf):
     # run_cli decodes stdout strictly as UTF-8, so this fails if the CLI writes
     # console-code-page bytes (the Windows default for piped output)
     result = run_cli("text", unicode_pdf, "--pages", "1", "--plain")
@@ -154,14 +147,14 @@ def test_unicode_output_is_utf8(unicode_pdf):
     assert "Café — Über naïve résumé" in result.stdout
 
 
-@requires_poppler
-def test_unicode_json_output(unicode_pdf):
+@pytest.mark.requires_poppler
+def test_unicode_json_output(run_cli, unicode_pdf):
     result = run_cli("text", unicode_pdf, "--pages", "1")
     assert result.returncode == 0
     assert "Café" in json.loads(result.stdout)[0]["text"]
 
 
-def test_error_is_structured(tmp_path, cli_error):
+def test_error_is_structured(run_cli, tmp_path, cli_error):
     """Spec section 4.1: the ErrorEnvelope on stderr, nothing on stdout."""
     result = run_cli("index", tmp_path / "missing.pdf")
     assert result.returncode == 1
@@ -174,20 +167,20 @@ def test_error_is_structured(tmp_path, cli_error):
     }
 
 
-def test_page_range_error(text_pdf, cli_error):
+def test_page_range_error(run_cli, text_pdf, cli_error):
     result = run_cli("text", text_pdf, "--pages", "99")
     assert result.returncode == 1
     assert "1-3" in cli_error(result)["message"]
 
 
-def test_markdown_stdout(table_pdf):
+def test_markdown_stdout(run_cli, table_pdf):
     result = run_cli("markdown", table_pdf)
     assert result.returncode == 0
     assert "| Name | Qty | Price |" in result.stdout
     assert "<!-- page 1 -->" in result.stdout
 
 
-def test_markdown_out_file(table_pdf, tmp_path):
+def test_markdown_out_file(run_cli, table_pdf, tmp_path):
     target = tmp_path / "out.md"
     result = run_cli("markdown", table_pdf, "-o", target)
     assert result.returncode == 0
@@ -195,7 +188,7 @@ def test_markdown_out_file(table_pdf, tmp_path):
     assert "| Apple | 3 | 1.20 |" in target.read_text(encoding="utf-8")
 
 
-def test_markdown_full(table_pdf):
+def test_markdown_full(run_cli, table_pdf):
     result = run_cli("markdown", table_pdf, "--full")
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -205,14 +198,14 @@ def test_markdown_full(table_pdf):
     assert data["warnings"] == []
 
 
-def test_markdown_ai_config_error(table_pdf, cli_error):
+def test_markdown_ai_config_error(run_cli, table_pdf, cli_error):
     result = run_cli("markdown", table_pdf, "--ai")
     assert result.returncode == 1
     assert "model" in cli_error(result)["message"]
 
 
-@requires_poppler
-def test_render(text_pdf, tmp_path):
+@pytest.mark.requires_poppler
+def test_render(run_cli, text_pdf, tmp_path):
     result = run_cli("render", text_pdf, "--pages", "1", "--out", tmp_path, "--dpi", "72")
     assert result.returncode == 0
     data = json.loads(result.stdout)
@@ -220,13 +213,13 @@ def test_render(text_pdf, tmp_path):
     assert data[0]["dpi"] == 72
 
 
-def test_markdown_ocr_requires_ai_flag(table_pdf, cli_error):
+def test_markdown_ocr_requires_ai_flag(run_cli, table_pdf, cli_error):
     result = run_cli("markdown", table_pdf, "--ocr")
     assert result.returncode == 1
     assert "--ai" in cli_error(result)["message"]
 
 
-def test_validate_vlm_ocr_config_error(cli_error):
+def test_validate_vlm_ocr_config_error(run_cli, cli_error):
     result = run_cli("validate-vlm-ocr")
     assert result.returncode == 1
     assert "model" in cli_error(result)["message"]

@@ -2,12 +2,10 @@ import json
 
 import pytest
 
-from conftest import requires_poppler
 from rp_pdf import core
-from test_cli import run_cli
 
 # The default text engine shells out to poppler's pdftotext (issue #1).
-pytestmark = requires_poppler
+pytestmark = pytest.mark.requires_poppler
 
 
 class TestSearchCore:
@@ -85,31 +83,31 @@ class TestSearchCore:
 
 
 class TestSearchCli:
-    def test_json_output(self, text_pdf):
+    def test_json_output(self, run_cli, text_pdf):
         result = run_cli("search", text_pdf, "Chapter Two")
         assert result.returncode == 0
         data = json.loads(result.stdout)
         assert data[0]["physical_page"] == 2
         assert data[0]["match"] == "Chapter Two"
 
-    def test_plain_output(self, labeled_pdf):
+    def test_plain_output(self, run_cli, labeled_pdf):
         result = run_cli("search", labeled_pdf, "Physical page 8", "--plain")
         assert result.returncode == 0
         assert result.stdout.startswith("page 1 (pp 8): ")
         assert "[Physical page 8]" in result.stdout
 
-    def test_cap_notice_on_stderr(self, text_pdf):
+    def test_cap_notice_on_stderr(self, run_cli, text_pdf):
         result = run_cli("search", text_pdf, "e", "--max", "2")
         assert result.returncode == 0
         assert len(json.loads(result.stdout)) == 2
         assert "capped" in result.stderr
 
-    def test_no_match_empty_json(self, text_pdf):
+    def test_no_match_empty_json(self, run_cli, text_pdf):
         result = run_cli("search", text_pdf, "zebra quantum")
         assert result.returncode == 0
         assert json.loads(result.stdout) == []
 
-    def test_invalid_regex_error(self, text_pdf, cli_error):
+    def test_invalid_regex_error(self, run_cli, text_pdf, cli_error):
         result = run_cli("search", text_pdf, "(unclosed", "--regex")
         assert result.returncode == 1
         assert "Invalid regular expression" in cli_error(result)["message"]

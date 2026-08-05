@@ -72,8 +72,8 @@ uv run ruff format packages          # line length 100
 | `pdftotext`/`pdftoppm`/`pdfinfo` | default text engine, rendering | `apt install poppler-utils` |
 | `soffice` | Office → PDF conversion, Office rendering | LibreOffice |
 
-Tests needing poppler use the `requires_poppler` marker and skip when absent.
-Tests must **never** require LibreOffice — mock the subprocess.
+Tests needing poppler carry `@pytest.mark.requires_poppler` and skip when it is
+absent. Tests must **never** require LibreOffice — mock the subprocess.
 
 ### Adding a package to the workspace
 
@@ -83,9 +83,23 @@ Tests must **never** require LibreOffice — mock the subprocess.
 3. Register the CLI twice: `[project.scripts]` for the standalone command, and
    `[project.entry-points."robo_papyro.commands"]` pointing at the **typer app
    object** so `rp <name>` finds it. Nothing in `robo_papyro` needs changing.
-4. Give test modules distinct basenames across packages, and prefer not to add
-   a second `tests/conftest.py` — under pytest's default prepend import mode,
-   two same-named test modules (or two `conftest` imports) collide.
+4. Share test helpers through `conftest.py` **fixtures**, not by importing one
+   test module from another — pytest runs in importlib import mode, so a test
+   file's directory is not on `sys.path` and `from conftest import X` fails.
+   Distinct test-module basenames are still good style but no longer
+   load-bearing.
+
+### Workspace invariants — run these, don't memorize them
+
+Three rules the workspace enforces with tests rather than prose. Read the test
+if you trip one; each explains what breaks and why.
+
+| Rule | Test |
+|---|---|
+| Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
+| `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
+| Test modules are imported by path, so same-named ones cannot collide | `ci/test_workspace_invariants.py` |
+| `rp_core` holds no page-label logic and imports no leaf | `ci/test_workspace_invariants.py` |
 
 ## Package notes
 
@@ -132,10 +146,9 @@ Tests must **never** require LibreOffice — mock the subprocess.
 - CLI options must stay config-overridable: booleans are paired
   `--flag/--no-flag` defaulting to `None`, and every option is read through
   `config.resolve(...)` so flag → env → config → default holds. A bare
-  `rp-pdf FILE` runs the `[default].command` (else `index`) — **any new
-  subcommand must be added to `COMMAND_NAMES` in `cli.py`**, or it will be
-  parsed as a filename. Secrets (API key, `--password`) are never read from the
-  config file.
+  `rp-pdf FILE` runs the `[default].command` (else `index`); new subcommands
+  must be registered in `COMMAND_NAMES` — see the invariants table above.
+  Secrets (API key, `--password`) are never read from the config file.
 - Heavy/optional deps are imported lazily — `openai` must never be imported
   unless the AI pass runs.
 - Errors subclass `rp_pdf.errors.RpPdfError`, which is parented onto
@@ -145,10 +158,10 @@ Tests must **never** require LibreOffice — mock the subprocess.
 
 ### robo-papyro
 
-`cli.py` must never import a leaf package — a test enforces this by walking the
-module's AST. `rp <name>` gets whatever the leaf registered as its typer app,
-which means argv preprocessing done by a leaf's console script (rp-pdf's
-`[default].command` rewriting) does not apply to `rp pdf FILE.pdf`.
+`cli.py` reaches leaves through entry-point discovery only — see the
+invariants table above. `rp <name>` gets whatever the leaf registered as its
+typer app, which means argv preprocessing done by a leaf's console script
+(rp-pdf's `[default].command` rewriting) does not apply to `rp pdf FILE.pdf`.
 
 ## Licensing
 

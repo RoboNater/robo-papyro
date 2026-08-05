@@ -17,16 +17,15 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, TableStyle
 from reportlab.platypus import Table as RLTable
 
-from conftest import TABLE_DATA, requires_poppler
 from rp_pdf.markdown import VlmError, _accept_response, _pipe_table, to_markdown
 
 
 @pytest.fixture(scope="module")
-def mixed_pdf(pdf_dir: Path) -> Path:
+def mixed_pdf(pdf_dir: Path, table_data: list[list[str]]) -> Path:
     """One page with prose above and below a ruled table."""
     path = pdf_dir / "mixed.pdf"
     styles = getSampleStyleSheet()
-    table = RLTable(TABLE_DATA)
+    table = RLTable(table_data)
     table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.5, colors.black)]))
     SimpleDocTemplate(str(path), pagesize=letter).build(
         [
@@ -184,7 +183,7 @@ def test_heading_match_is_conservative():
 # --- stage 2: AI review pass against a fake OpenAI-compatible endpoint ---
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_refines_pages(text_pdf, fake_vlm, vlm_env, tmp_path):
     result = to_markdown(
         text_pdf,
@@ -204,7 +203,7 @@ def test_ai_refines_pages(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert user[1]["image_url"]["url"].startswith("data:image/png;base64,")
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_env_config_and_keyless_local_server(text_pdf, fake_vlm, vlm_env, monkeypatch, tmp_path):
     monkeypatch.setenv("RP_PDF_VLM_MODEL", "fake-vlm")
     monkeypatch.setenv("RP_PDF_VLM_BASE_URL", fake_vlm.base_url)
@@ -222,7 +221,7 @@ def test_ai_missing_key(text_pdf, vlm_env):
         to_markdown(text_pdf, ai=True, model="fake-vlm", engine="pypdf")
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_fence_stripped(text_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = "```markdown\nClean page.\n```"
     result = to_markdown(
@@ -236,7 +235,7 @@ def test_ai_fence_stripped(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert result.pages[0].markdown == "Clean page."
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_short_response_rejected(long_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.content = "tiny"
     result = to_markdown(
@@ -247,7 +246,7 @@ def test_ai_short_response_rejected(long_pdf, fake_vlm, vlm_env, tmp_path):
     assert len(result.warnings) == 1 and "short" in result.warnings[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_api_error_falls_back(text_pdf, fake_vlm, vlm_env, tmp_path):
     fake_vlm.queue = [(400, "")]
     result = to_markdown(
@@ -263,7 +262,7 @@ def test_ai_api_error_falls_back(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert len(result.warnings) == 1 and "AI pass failed" in result.warnings[0]
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_second_run_served_from_cache(text_pdf, fake_vlm, vlm_env, tmp_path):
     args = dict(ai=True, model="fake-vlm", base_url=fake_vlm.base_url, cache_dir=tmp_path)
     to_markdown(text_pdf, **args)
@@ -273,7 +272,7 @@ def test_ai_second_run_served_from_cache(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert all(p.ai_refined and p.markdown == "Refined." for p in result.pages)
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_ai_no_cache_flag(text_pdf, fake_vlm, vlm_env, tmp_path):
     args = dict(
         pages="1",
@@ -288,7 +287,7 @@ def test_ai_no_cache_flag(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert len(fake_vlm.requests) == 2
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_outline_context_in_request(text_pdf, fake_vlm, vlm_env, tmp_path):
     result = to_markdown(
         text_pdf,
@@ -305,7 +304,7 @@ def test_outline_context_in_request(text_pdf, fake_vlm, vlm_env, tmp_path):
     assert "Section 2.1 (level 2)" in page2  # on-page entries listed with levels
 
 
-@requires_poppler
+@pytest.mark.requires_poppler
 def test_outline_context_changes_cache_key(text_pdf, fake_vlm, vlm_env, tmp_path):
     args = dict(
         pages="1", ai=True, model="fake-vlm", base_url=fake_vlm.base_url, cache_dir=tmp_path

@@ -31,3 +31,24 @@ select = ["E", "F", "W", "I", "UP", "B"]
 # "ci" holds the license gate and its tests — workspace infrastructure rather
 # than any one package's code.
 testpaths = ["packages/*/tests", "ci"]
+
+# Workspace invariant 3 (spec section 10). Under pytest's default "prepend"
+# import mode, two packages with same-named test modules collide, because each
+# tests/ directory is pushed onto sys.path and the first `test_render` wins.
+# Enforced by ci/test_workspace_invariants.py; do not change without reading it.
+#
+# Spec section 3 shows this as an ini key, `importmode = "importlib"`. There is
+# no such ini key — pytest registers --import-mode as a command-line option
+# only, so the key is silently ignored with a PytestConfigWarning and the
+# collision comes back. addopts is the working spelling.
+addopts = ["--import-mode=importlib"]
+
+# The license gate is a plain module sitting next to its test, and importlib
+# mode does not put its directory on sys.path. This is the only entry that
+# needs to be here: package code is imported from the installed distributions,
+# and test modules no longer import each other.
+pythonpath = ["ci"]
+
+markers = [
+    "requires_poppler: needs pdftoppm/pdftotext on PATH; skipped when absent",
+]
