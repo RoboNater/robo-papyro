@@ -123,7 +123,7 @@ class TestErrorHandler:
         swallowed into a tidy exit code."""
         with pytest.raises(ZeroDivisionError):
             with clikit.error_handler():
-                1 / 0
+                raise ZeroDivisionError("division by zero")
 
     def test_decorator_form(self, capsys):
         @clikit.handle_errors()

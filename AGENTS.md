@@ -174,9 +174,11 @@ if a package outside the approved list appears in `uv.lock`.
 - AI-pass responses are cached keyed on file hash + page + model +
   `PROMPT_VERSION` (+ dpi + outline context). Bump `PROMPT_VERSION` in
   `markdown.py` whenever the prompt or request shape changes.
-- ruff's lint `select` is pinned to `E4, E7, E9, F` at the workspace root. The
-  code predates newer ruff releases that widened the implicit default; widening
-  it is a deliberate follow-up, not something to do incidentally.
+- ruff is **pinned to an exact version** in the root dev group, and its lint
+  `select` is stated explicitly (`E, F, W, I, UP, B`). Both are deliberate: a
+  `>=` floor lets the gate change what it enforces whenever a release widens
+  ruff's implicit default, which is what forced the Phase 0 workaround. Bump the
+  pin in its own commit, with the resulting fixes.
 
 ## Workflow
 
