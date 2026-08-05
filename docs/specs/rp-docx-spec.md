@@ -202,10 +202,13 @@ class StyleMap(BaseModel):
 ```
 
 **[v1.3] `code` is optional, and it is the only role that is.** v1.2 gave it
-`= "Source Code"`, which is a LibreOffice style name. Word ships **no code
-paragraph style at all**, and neither does python-docx's bundled default
-template — so combined with §5.1's "never silently fall back", that default made
-every Markdown document containing a code block fail on the default template.
+`= "Source Code"`, which is [pandoc's name for the style it applies to code
+blocks](https://pandoc.org/MANUAL.html#custom-styles) — not a name Word defines.
+Word ships **no code paragraph style at all**, and neither does python-docx's
+bundled default template, so combined with §5.1's "never silently fall back"
+that default made every Markdown document containing a code block fail on the
+default template. (Pandoc is a forbidden dependency under §7, which is likely
+how the name reached this spec without the style behind it.)
 
 `None` means "this template has no code style", and code blocks render in the
 body style with a monospace font. Naming a style still makes it *required*,

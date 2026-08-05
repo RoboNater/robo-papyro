@@ -164,9 +164,10 @@ class StyleMap(BaseModel):
     #: can express. Naming a style here makes it *required*, exactly like the
     #: others: a stylemap that names a missing style still fails loudly.
     #:
-    #: Spec section 3 gives this as ``code: str = "Source Code"``, which is a
-    #: LibreOffice style name; on Word's own defaults it makes every markdown
-    #: document containing a code block fail. See the spec-corrections list in
+    #: Spec section 3 gives this as ``code: str = "Source Code"``, which is
+    #: pandoc's name for the style it applies to code blocks — not a name Word
+    #: defines. On Word's own defaults it makes every markdown document
+    #: containing a code block fail. See the spec-corrections list in
     #: dev-notes/status-robo-papyro-phase-1.md.
     code: str | None = None
     table: str = "Table Grid"

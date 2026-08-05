@@ -74,11 +74,19 @@ be simplified, which is worth being told about.
 
 ### 2. `StyleMap.code = "Source Code"` breaks Word's own default (§3)
 
-**Spec deviation, deliberate.** §3 gives `code: str = "Source Code"`. That is a
-LibreOffice style name; Word ships **no code paragraph style at all**, and
-neither does python-docx's bundled default template. Combined with §5.1's
-correct "never silently fall back" rule, the specified default makes *every*
-Markdown document containing a fenced code block fail on the default template.
+**Spec deviation, deliberate.** §3 gives `code: str = "Source Code"`. That is
+[pandoc's name for the style it applies to code blocks](https://pandoc.org/MANUAL.html#custom-styles),
+not a name Word defines — pandoc creates it in its output rather than finding it
+there, and it is absent even from pandoc's own `reference.docx`
+([jgm/pandoc#10731](https://github.com/jgm/pandoc/issues/10731)). Word ships
+**no code paragraph style at all**, and neither does python-docx's bundled
+default template. Combined with §5.1's correct "never silently fall back" rule,
+the specified default makes *every* Markdown document containing a fenced code
+block fail on the default template.
+
+Worth noting how the name got in: pandoc is a *forbidden* dependency under §7
+(GPL), so the spec borrowed a convention from a tool the suite cannot use, and
+the style it names does not exist on either side of that line.
 
 Changed to `code: str | None = None`, and only that role. Every other default in
 the StyleMap names a style that genuinely exists; a default for this one could
