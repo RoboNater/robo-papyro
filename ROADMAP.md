@@ -12,8 +12,8 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 |---|---|---|---|
 | **0** | Workspace scaffold, `pdfx` → `rp-pdf` rename, extract `rp-core`, `rp` umbrella | robo-papyro-spec §8 | ✅ |
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
-| **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | next |
-| **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | |
+| **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
+| **2** | `rp-mcp`: FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | next |
 | **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx), same core/CLI split | TBD | |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
@@ -29,9 +29,25 @@ labels back in `rp-pdf`, a bounded timeout on every subprocess, a pinned ruff
 with a wider rule set, the workspace's invariants as tests, and a license gate
 that computes the base install path rather than trusting a comment about it.
 
+Phase 1 added `rp-docx`: reading (index, text, tables, images, comments, tracked
+changes), writing (create from Markdown, append, replace, set properties, accept
+and reject changes), native `{{ placeholder }}` templating, and the template
+manifest/synthesis loop that lets CI exercise a confidential template's shape
+without ever holding the template. `.dotx` support needed real work — python-docx
+does not open one at all.
+
+Phase 1 also corrected two things the spec had wrong in practice: the default
+`StyleMap.code` named a style Word does not ship, which made every Markdown
+document containing a code block fail on the default template, and
+`resolve_template` needed to tell a wrong path from an unknown name. Both, and
+everything else §5–§9 got wrong, are recorded in
+[dev-notes/status-robo-papyro-phase-1.md](dev-notes/status-robo-papyro-phase-1.md).
+
 Open from the spec: `templates/README.md` needs an owner and canonical location
-per template (§11.2), and archiving `w528-pdf-extraction-toolkit` should happen
-now that Phase 0 is green (§11.3).
+per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now
+that Phase 0 is green (§11.3), and `rp-docx` still needs validating against a
+real house template — a separate manual pass, described in
+[rp-docx-spec](docs/specs/rp-docx-spec.md) §13.
 
 ## rp-pdf phases
 

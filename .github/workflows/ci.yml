@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [rp-core, rp-pdf, robo-papyro]
+        package: [rp-core, rp-pdf, rp-docx, robo-papyro]
         python-version: ["3.11", "3.13"]
     name: test ${{ matrix.package }} (py${{ matrix.python-version }})
     steps:
@@ -90,6 +90,9 @@ jobs:
           uv run rp pdf --help
           uv run rp-pdf --help
           uv run rp-pdf doctor
+          uv run rp docx --help
+          uv run rp-docx --help
+          uv run rp-docx doctor
       - name: rp pdf and rp-pdf are the same code path
         run: |
           uv run --with reportlab python -c "
@@ -98,6 +101,29 @@ jobs:
           uv run rp pdf index sample.pdf > through-umbrella.json
           uv run rp-pdf index sample.pdf > direct.json
           diff through-umbrella.json direct.json
+      # The same assertion for the second leaf. `rp <name>` gets whatever the
+      # leaf registered as its typer app, so this is what proves entry-point
+      # discovery still reaches it — a broken registration otherwise shows up
+      # only as a missing subcommand nobody notices.
+      - name: rp docx and rp-docx are the same code path
+        run: |
+          printf '# Title\n\nBody paragraph.\n' > notes.md
+          uv run rp-docx create -o sample.docx --from-markdown notes.md
+          uv run rp docx index sample.docx > docx-umbrella.json
+          uv run rp-docx index sample.docx > docx-direct.json
+          diff docx-umbrella.json docx-direct.json
+      # No external binary is needed for any read or write path (spec §10), so
+      # the whole rp-docx round trip must work on a machine with neither
+      # LibreOffice nor poppler installed. This job has poppler but no
+      # LibreOffice, which is the interesting half.
+      - name: rp-docx needs no external binary to read or write
+        run: |
+          uv run rp-docx replace sample.docx --map '{"Body":"Edited"}' -o edited.docx
+          uv run rp-docx text edited.docx --plain
+          uv run rp-docx markdown edited.docx
+          uv run rp-docx templates manifest sample.docx -o sample.manifest.json
+          uv run rp-docx templates synthesize sample.manifest.json -o rebuilt.dotx
+          uv run rp-docx index rebuilt.dotx > /dev/null
       - name: Exit codes are the suite's, not a flat 1
         run: |
           expect() {
@@ -112,6 +138,12 @@ jobs:
           expect 3 uv run rp-pdf index fake.pdf
           expect 1 uv run rp-pdf text sample.pdf --pages 99
           expect 0 uv run rp-pdf index sample.pdf
+          # Both leaves report the same taxonomy, which is the point of it.
+          echo "not a docx" > fake.docx
+          expect 3 uv run rp-docx index fake.docx
+          expect 1 uv run rp-docx index missing.docx
+          expect 1 uv run rp-docx create -o x.docx --template nonexistent
+          expect 0 uv run rp-docx index sample.docx
       - name: Errors are ErrorEnvelopes on stderr, results on stdout
         run: |
           uv run rp-pdf index missing.pdf > out.txt 2> err.txt || true
@@ -123,4 +155,14 @@ jobs:
           detail = json.load(sys.stdin)['error']
           assert sorted(detail) == ['exit_code', 'hint', 'message', 'type'], detail
           assert detail['exit_code'] == 1, detail
+          print('envelope ok:', detail['type'])"
+          uv run rp-docx index missing.docx > docx-out.txt 2> docx-err.txt || true
+          if [ -s docx-out.txt ]; then
+            echo "::error::rp-docx stdout was not empty on a failed run"; exit 1
+          fi
+          tail -n 1 docx-err.txt | uv run python -c "
+          import json, sys
+          detail = json.load(sys.stdin)['error']
+          assert sorted(detail) == ['exit_code', 'hint', 'message', 'type'], detail
+          assert detail['type'] == 'MissingFileError', detail
           print('envelope ok:', detail['type'])"

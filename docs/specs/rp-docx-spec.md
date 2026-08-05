@@ -1,8 +1,10 @@
 # rp-docx — Word Document Toolkit Specification
 
-**Version:** 1.2
-**Status:** Ready for implementation (Phase 1), blocked only on Phase 0.5 steps 1–4
-**Parent document:** `robo-papyro-spec.md` v1.1 — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
+**Version:** 1.3
+**Status:** **Implemented (Phase 1 complete).** Validation against a real house template (§13) is still outstanding.
+**Parent document:** `robo-papyro-spec.md` v1.2 — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
+
+**Changes from v1.2:** corrections from implementation, each marked **[v1.3]** in place. §3 makes `StyleMap.code` optional, because the specified default named a style Word does not ship · §5.1 adds the wrong-path case and states that style checking is lazy · §5.3 records the answer to its own question: python-docx does not open a `.dotx` at all · §10 adds `--in-place` and makes `images -o` optional · §11.3's hand-made fixture files turned out to be unnecessary. The full list, with reasoning, is in [`dev-notes/status-robo-papyro-phase-1.md`](../../dev-notes/status-robo-papyro-phase-1.md).
 
 **Changes from v1.1:** §5 adds template manifests and synthesis · §5.3 adds the `.dotx` content-type handling · §10 adds `templates manifest` and `templates synthesize` · §11 replaces the corporate-template dependency with three synthetic fixtures and states the no-binary-templates-in-git rule · §12 step 4 no longer blocks on a corporate file; Phase 1 is now fully self-contained.
 
@@ -195,8 +197,25 @@ class StyleMap(BaseModel):
     body: str = "Normal"
     bullet: str = "List Bullet"
     numbered: str = "List Number"
-    code: str = "Source Code"
+    code: str | None = None          # [v1.3] optional; see below
     table: str = "Table Grid"
+```
+
+**[v1.3] `code` is optional, and it is the only role that is.** v1.2 gave it
+`= "Source Code"`, which is [pandoc's name for the style it applies to code
+blocks](https://pandoc.org/MANUAL.html#custom-styles) — not a name Word defines.
+Word ships **no code paragraph style at all**, and neither does python-docx's
+bundled default template, so combined with §5.1's "never silently fall back"
+that default made every Markdown document containing a code block fail on the
+default template. (Pandoc is a forbidden dependency under §7, which is likely
+how the name reached this spec without the style behind it.)
+
+`None` means "this template has no code style", and code blocks render in the
+body style with a monospace font. Naming a style still makes it *required*,
+exactly like every other role: optional means "may be unset", not "may be
+wrong".
+
+```python
 
 class ReplaceResult(BaseModel):
     output: Path
@@ -275,13 +294,20 @@ House templates are the normal path, not the exception. `create()` and `fill_tem
 ### 5.1 Resolution
 
 1. Explicit `Path` that exists → use it
-2. Bare name (e.g. `"memo"`) → resolve against `RP_DOCX_TEMPLATE_DIR`, then `<repo>/templates/`, trying `<name>.dotx` then `<name>.docx`
-3. `None` → the configured default template name, or python-docx's built-in if none configured
-4. Unresolvable name → `InputError` listing available templates
+2. Bare name (e.g. `"memo"`) → resolve against `RP_DOCX_TEMPLATE_DIR`, then `<repo>/templates/local/` and `<repo>/templates/`, trying `<name>.dotx` then `<name>.docx`
+3. `None` → the configured default template name (`RP_DOCX_TEMPLATE`), or python-docx's built-in if none configured
+4. **[v1.3]** A path-shaped argument that does not exist → `InputError` naming the *path*
+5. Unresolvable name → `InputError` listing available templates
+
+**[v1.3] Case 4 is new, and it matters more than it looks.** Without it, `--template ../drafts/memo.dotx` falls through to case 5 and reports "No template called '../drafts/memo.dotx'. Available: memo, letter…" — sending the user to hunt the template directories for a typo in their own path. Anything carrying a suffix or a path separator is a wrong path, not a name to look up.
+
+**[v1.3]** `resolve_template` returns a `Path` in every case, falling back to python-docx's own bundled default rather than to a `None` every caller downstream would have to special-case.
 
 **Style mapping.** House templates rarely use Word's built-in style names. Markdown→docx conversion maps through `StyleMap`, loaded from an optional `<template>.stylemap.json` sitting beside the template — never hardcoded.
 
 If a mapped style is absent from the template, raise `InputError` naming the missing style and listing what the template does have. **Never silently fall back**: that produces documents which look wrong in ways nobody notices until review.
+
+**[v1.3] "Absent" means absent *when needed*.** The check happens per style at the point of use, not eagerly over the whole `StyleMap`. Read eagerly, this rule rejects python-docx's own default template — because Word defines no code style, for a role most documents never use. A document containing no code block does not need a code style. Lazy checking is also what makes an adversarial template fixture meaningful: `hostile` lacks "Heading 1", so markdown *with* a top-level heading fails loudly while markdown without one succeeds.
 
 ### 5.2 Manifests and synthesis
 
@@ -312,7 +338,16 @@ retype_as_document(path: Path, output: Path | None = None) -> Path
 
 so fixtures can produce genuine `.dotx` files and so `synthesize()` can emit the right type.
 
-**Verify early** whether `python-docx` opens `.dotx` without complaint, and whether it round-trips the content type or silently rewrites it. If it does not, that is a real finding and belongs in step 4's report, not discovered in step 7. `resolve_template` must find `.dotx` before `.docx` when both exist — test this.
+**[v1.3] Verified, and the answer changes the design: `python-docx` does not open a `.dotx` at all.** It reads `[Content_Types].xml`, sees the template content type, and raises `ValueError: … is not a Word file`. Retyping is nonetheless **lossless in both directions** — the part list is identical across a retype → open → save → retype cycle.
+
+So the two functions above are not a fixture convenience, as v1.2 framed them; they are load-bearing:
+
+- **On the way in**, every entry point accepting a document goes through `ooxml.opened(path)`, which retypes a template into a temporary copy and opens that. Calling `docx.Document(path)` directly works right up until someone passes a template, which is the normal path in this package rather than the exception. `mammoth` needs the same treatment.
+- **On the way out**, `ooxml.save(document, output)` retypes when the output is named `.dotx`, because python-docx always writes the *document* content type. A file named `.dotx` that is really a document is one Word opens as an ordinary document — silently editing what the user meant to keep as a template.
+
+This is asserted rather than remembered, in `test_ooxml.py::TestContentTypes`: if a future python-docx learns to open templates, that test fails and `opened()` can be simplified, which is worth being told about.
+
+`resolve_template` must find `.dotx` before `.docx` when both exist — test this.
 
 ---
 
@@ -373,19 +408,19 @@ rp-docx index      FILE [--plain]
 rp-docx text       FILE [--style STYLE] [--runs] [--plain]
 rp-docx markdown   FILE [-o OUT] [--embed-images]
 rp-docx tables     FILE [--index N] [--format json|csv|md] [-o DIR]
-rp-docx images     FILE -o DIR [--plain]
+rp-docx images     FILE [-o DIR] [--plain]      # [v1.3] -o optional
 rp-docx comments   FILE [--author NAME] [--plain]
 rp-docx changes    FILE [--author NAME] [--plain]
 rp-docx props      FILE [--plain]
 
 rp-docx create     -o OUT [--from-markdown FILE] [--template NAME|PATH]
                           [--page-size letter|a4]
-rp-docx append     FILE --markdown FILE [-o OUT]
-rp-docx replace    FILE --map JSON [-o OUT] [--no-preserve-formatting]
-                          [--ignore-case]
+rp-docx append     FILE --markdown FILE (-o OUT | --in-place)
+rp-docx replace    FILE --map JSON (-o OUT | --in-place)
+                          [--no-preserve-formatting] [--ignore-case]
 rp-docx template   TEMPLATE --context JSON -o OUT [--no-strict]
-rp-docx accept     FILE [-o OUT] [--author NAME]
-rp-docx reject     FILE [-o OUT] [--author NAME]
+rp-docx accept     FILE (-o OUT | --in-place) [--author NAME]
+rp-docx reject     FILE (-o OUT | --in-place) [--author NAME]
 
 rp-docx templates list                [--plain]
 rp-docx templates inspect NAME        [--plain]
@@ -403,7 +438,16 @@ rp-docx render     FILE -o DIR [--dpi 150] [--pages 1-5]
 - **JSON is the default output** for every read command, emitted via `model_dump_json()`. This is the agent-facing path and must be stable and complete. `--plain` produces human-readable output. There is no `--json` flag — parent §4.6.
 - Errors, exit codes, and the `ErrorEnvelope` payload come from `rp_core.clikit`. Do not construct error output locally.
 - `--pages` accepts the range syntax parsed by `rp_core.ranges`.
-- Never overwrite an input file without `--in-place`.
+- Never overwrite an input file without `--in-place`. **[v1.3]** v1.2's command
+  list omitted the flag its own rules require; every editing command now takes
+  it, and refuses rather than guessing when given neither it nor `-o`. The two
+  plausible defaults — overwrite the input, or invent a filename — are both
+  surprises that surface only afterwards.
+- **[v1.3]** `--map` and `--context` accept either a path to a JSON file or the
+  JSON itself. A person types a filename; a script that already holds the
+  mapping should not have to write it to disk first.
+- **[v1.3]** `--author` is repeatable, on `comments`, `changes`, `accept`, and
+  `reject`.
 - Every new subcommand must be registered wherever the CLI's dispatcher requires it, and the invariant test in parent §10 must cover this CLI too.
 
 ---
@@ -439,7 +483,7 @@ Required assertions:
 ### 11.3 Everything else
 
 - Document fixtures (headings, styled runs, nested tables, images, headers/footers) are generated programmatically in `conftest.py`
-- Tracked-changes and comments fixtures **cannot** be generated by `python-docx`. The implementation should report which hand-made files are needed; expect 2–3 files under `tests/fixtures/`, each < 30 KB
+- ~~Tracked-changes and comments fixtures **cannot** be generated by `python-docx`. The implementation should report which hand-made files are needed; expect 2–3 files under `tests/fixtures/`, each < 30 KB~~ — **[v1.3] none were needed.** True that python-docx cannot produce them, but they can still be *generated*: `conftest.py` replaces a generated document's body with hand-written XML, and for comments appends `comments.xml` / `commentsExtended.xml` with their relationships and content-type overrides. More work than committing two binaries, and the right trade for the same reason §11.1 gives — a generated fixture cannot drift, so a failure is always the code. `tests/fixtures/` stays empty, reserved for the `*.manifest.json` a real template will produce
 - Test module names must not collide with those in other packages. `importmode = "importlib"` at the workspace root makes this non-fatal, but distinct names remain the convention
 - Round-trip tests: create → read → assert; replace → read → assert; accept-changes → assert no `w:ins`/`w:del` remain
 - Explicit test that replacement works in table cells, headers, and footers
@@ -452,7 +496,9 @@ Required assertions:
 
 ## 12. Phase 1 — Execution Plan
 
-Prerequisite: Phase 0.5 steps 1–4 merged. **No corporate template is required at any point.**
+**[v1.3] All nine steps are complete.** The outcome, including the checkpoint reports steps 3, 4 and 6 asked for and the full list of places §5–§9 turned out to be wrong, is in [`dev-notes/status-robo-papyro-phase-1.md`](../../dev-notes/status-robo-papyro-phase-1.md). The plan below is kept as written, as the record of what was asked for.
+
+Prerequisite: Phase 0.5 steps 1–4 merged. **No corporate template is required at any point.** *(Held: none was used.)*
 
 **Step 1.** Scaffold `packages/rp-docx/` as a workspace member depending on `rp-core`. Entry point `rp-docx`, plus the `robo_papyro.commands` entry point registering `docx`. Verify `rp docx --help` resolves through the umbrella before writing further code.
 

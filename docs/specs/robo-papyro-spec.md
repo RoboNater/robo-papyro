@@ -1,8 +1,8 @@
 # robo-papyro — Workspace & Architecture Specification
 
 **Version:** 1.2
-**Status:** Phase 0 complete · Phase 0.5 (remediation) in implementation
-**Companion document:** `rp-docx-spec.md` v1.2
+**Status:** Phases 0, 0.5 and 1 complete · Phase 2 (`rp-mcp`) next
+**Companion document:** `rp-docx-spec.md` v1.3
 
 **Changes from v1.1:** §3 corrects the pytest import-mode setting, which was given as an ini key that does not exist · §4.3 states the semantics of the open-ended range forms it already listed · §4.6 corrects the `emit` signature · §7.1 defines "base install path" and requires the gate to enforce §7.1 in both directions · §8 adds step 8 and moves the base-path check from manual verification to gate enforcement · §9 records `rp-mcp` as a Phase 2 distribution · §11.2 notes what keeps the blast radius small.
 
@@ -360,8 +360,8 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 |---|---|---|---|
 | **0** | Workspace, rename, extract `rp-core`, `rp` umbrella | v1.0 §8 | Complete |
 | **0.5** | Contract decisions and extraction cleanup | §8 above | Ready |
-| **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Blocked on 0.5 steps 1–4 and a house template |
-| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Blocked on 0.5 step 5 |
+| **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
+| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Ready |
 | **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx) | TBD | — |
 
 ---
@@ -390,6 +390,6 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 
 ## 11. Open Decisions
 
-1. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one. **This is on the critical path for Phase 1 step 5.**
+1. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one. ~~**This is on the critical path for Phase 1 step 5.**~~ **No longer on any critical path.** Phase 1 shipped without a house template, and the manifest/synthesis loop (`rp-docx-spec.md` §5.2) means CI depends on committed JSON describing a template's shape rather than on the template itself. Still worth answering before the first real template lands — see `templates/README.md` — but nothing is blocked on it.
 2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting. Keeping the fallback that cheap is the point of the §7.1 gate check, and of putting MCP in its own `rp-mcp` distribution rather than in a leaf: whatever the MCP SDK drags in stays out of the base install path by construction.
 3. **Archiving `w528-pdf-extraction-toolkit`** — unblocked; do it once Phase 0.5 is green.

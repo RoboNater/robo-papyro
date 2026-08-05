@@ -47,10 +47,11 @@ tomli = "MIT"
 # The `ai` extra: the VLM review pass.
 #
 # This extra is also the only route by which any weak-copyleft package enters
-# the graph — see the note above [transitive]. The base install path is 26
-# distributions (3 workspace members and 23 third-party, counting Windows-only
+# the graph — see the note above [transitive]. The base install path is 31
+# distributions (4 workspace members and 27 third-party, counting Windows-only
 # colorama), all fully permissive — computed by the gate from uv.lock rather
-# than recorded here by hand.
+# than recorded here by hand. Phase 1 added five: lxml, mammoth, cobble, and
+# python-docx for rp-docx, plus rp-docx itself.
 openai = "Apache-2.0"
 
 # Two entries below are MPL-2.0 — weak, file-level copyleft rather than fully
@@ -70,6 +71,10 @@ anyio = "MIT"
 certifi = { license = "MPL-2.0", tag = "extra:ai", note = "weak file-level copyleft; a CA-bundle data package, unmodified" }
 cffi = "MIT-0"
 charset-normalizer = "MIT"
+# mammoth's only dependency, by mammoth's own author. The wheel ships no LICENSE
+# file and its metadata says only "BSD License"; the project README names
+# 2-Clause BSD explicitly, which is what is recorded here.
+cobble = "BSD-2-Clause"
 colorama = "BSD-3-Clause"
 cryptography = "Apache-2.0 OR BSD-3-Clause"
 distro = "Apache-2.0"

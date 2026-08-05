@@ -1,0 +1,37 @@
+[project]
+name = "rp-docx"
+version = "0.1.0"
+description = "Word document toolkit: JSON-first library and CLI for reading, creating, and editing .docx files"
+readme = "README.md"
+requires-python = ">=3.11"
+# lxml is python-docx's own dependency, but rp_docx.ooxml uses it directly for
+# the parts python-docx has no API for (comments, tracked changes), so it is
+# declared rather than relied on transitively.
+dependencies = [
+    "lxml>=5.0.0",
+    "mammoth>=1.8.0",
+    "pillow>=10.0.0",
+    "pydantic>=2.13.4",
+    "python-docx>=1.1.2",
+    "rp-core",
+    "typer>=0.26.8",
+]
+
+# Registered twice, deliberately: the first gives the standalone `rp-docx`
+# command, the second is what `rp docx` discovers through the entry-point group.
+# rp-docx has no argv preprocessing, so both point at the same typer app.
+[project.scripts]
+rp-docx = "rp_docx.cli:app"
+
+[project.entry-points."robo_papyro.commands"]
+docx = "rp_docx.cli:app"
+
+[tool.uv.sources]
+rp-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rp_docx"]
