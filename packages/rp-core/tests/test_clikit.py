@@ -54,34 +54,49 @@ class TestErrorHandler:
             result = 1 + 1
         assert result == 2
 
-    def test_envelope_to_stderr_by_default(self, capsys):
+    def test_envelope_to_stderr(self, capsys):
         with pytest.raises(typer.Exit) as excinfo:
             with clikit.error_handler():
                 raise CorruptFileError("not a PDF")
         captured = capsys.readouterr()
         assert excinfo.value.exit_code == 3
         assert captured.out == ""
-        payload = json.loads(captured.err.splitlines()[0])
+        payload = json.loads(captured.err.splitlines()[-1])
         assert payload["error"]["type"] == "CorruptFileError"
         assert payload["error"]["exit_code"] == 3
 
-    def test_flat_shape_to_stdout(self, capsys):
-        """rp-pdf's legacy contract: a flat {"error": message} on stdout."""
-        with pytest.raises(typer.Exit) as excinfo:
-            with clikit.error_handler(envelope=False, stream="stdout"):
+    def test_envelope_is_the_only_shape(self, capsys):
+        """Spec section 4.1: one serialized error shape, no argument selecting
+        another. A flat {"error": message} must not be reachable."""
+        with pytest.raises(typer.Exit):
+            with clikit.error_handler():
                 raise InputError("bad page spec")
-        captured = capsys.readouterr()
-        assert excinfo.value.exit_code == 1
-        assert json.loads(captured.out) == {"error": "bad page spec"}
-        assert "bad page spec" in captured.err
+        payload = json.loads(capsys.readouterr().err.splitlines()[-1])
+        assert payload == {
+            "error": {
+                "type": "InputError",
+                "message": "bad page spec",
+                "hint": None,
+                "exit_code": 1,
+            }
+        }
+
+    def test_hint_travels_in_the_envelope(self, capsys):
+        with pytest.raises(typer.Exit):
+            with clikit.error_handler():
+                raise MissingDependencyError(
+                    "soffice absent", binary="soffice", install_hint="apt install libreoffice"
+                )
+        payload = json.loads(capsys.readouterr().err.splitlines()[-1])
+        assert payload["error"]["hint"] == "apt install libreoffice"
 
     def test_human_message_always_on_stderr(self, capsys):
         with pytest.raises(typer.Exit):
-            with clikit.error_handler(as_json=False):
+            with clikit.error_handler():
                 raise MissingDependencyError("soffice absent")
         captured = capsys.readouterr()
         assert captured.out == ""
-        assert captured.err.strip() == "soffice absent"
+        assert captured.err.splitlines()[0] == "soffice absent"
 
     def test_exit_code_comes_from_the_error(self):
         with pytest.raises(typer.Exit) as excinfo:
@@ -91,10 +106,16 @@ class TestErrorHandler:
 
     def test_also_catches_foreign_exceptions_as_exit_1(self, capsys):
         with pytest.raises(typer.Exit) as excinfo:
-            with clikit.error_handler(envelope=False, stream="stdout", also=(FileNotFoundError,)):
+            with clikit.error_handler(also=(FileNotFoundError,)):
                 raise FileNotFoundError("No such file: x.pdf")
         assert excinfo.value.exit_code == 1
-        assert "x.pdf" in json.loads(capsys.readouterr().out)["error"]
+        payload = json.loads(capsys.readouterr().err.splitlines()[-1])
+        assert payload["error"] == {
+            "type": "FileNotFoundError",
+            "message": "No such file: x.pdf",
+            "hint": None,
+            "exit_code": 1,
+        }
 
     def test_unlisted_exceptions_propagate(self):
         """An unexpected error is a bug, not a user error — it must not be
@@ -104,14 +125,15 @@ class TestErrorHandler:
                 1 / 0
 
     def test_decorator_form(self, capsys):
-        @clikit.handle_errors(envelope=False, stream="stdout")
+        @clikit.handle_errors()
         def command():
             raise InputError("nope")
 
         with pytest.raises(typer.Exit) as excinfo:
             command()
         assert excinfo.value.exit_code == 1
-        assert json.loads(capsys.readouterr().out)["error"] == "nope"
+        payload = json.loads(capsys.readouterr().err.splitlines()[-1])
+        assert payload["error"]["message"] == "nope"
 
     def test_decorator_preserves_metadata(self):
         @clikit.handle_errors()

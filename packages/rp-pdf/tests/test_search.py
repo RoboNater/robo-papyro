@@ -109,7 +109,7 @@ class TestSearchCli:
         assert result.returncode == 0
         assert json.loads(result.stdout) == []
 
-    def test_invalid_regex_error(self, text_pdf):
+    def test_invalid_regex_error(self, text_pdf, cli_error):
         result = run_cli("search", text_pdf, "(unclosed", "--regex")
         assert result.returncode == 1
-        assert "Invalid regular expression" in json.loads(result.stdout)["error"]
+        assert "Invalid regular expression" in cli_error(result)["message"]

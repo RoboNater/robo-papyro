@@ -1,4 +1,3 @@
-import json
 import subprocess
 
 import pytest
@@ -70,21 +69,26 @@ def test_exit_code_input_error(text_pdf):
     assert result.returncode == 1
 
 
-def test_exit_code_corrupt_file(not_a_pdf):
+def test_exit_code_corrupt_file(not_a_pdf, cli_error):
     """Unreadable PDF -> CorruptFileError -> 3."""
     result = _cli("index", not_a_pdf)
     assert result.returncode == 3
-    assert "error" in json.loads(result.stdout)
+    detail = cli_error(result)
+    assert detail["type"] == "InvalidPdfError"
+    assert detail["exit_code"] == 3
 
 
-def test_exit_code_missing_dependency(text_pdf, tmp_path):
+def test_exit_code_missing_dependency(text_pdf, tmp_path, cli_error):
     """Absent poppler -> MissingDependencyError -> 2. An empty --poppler-path
     directory stands in for an uninstalled poppler."""
     empty = tmp_path / "no-poppler"
     empty.mkdir()
     result = _cli("text", text_pdf, "--poppler-path", empty)
     assert result.returncode == 2
-    assert "poppler" in json.loads(result.stdout)["error"]
+    detail = cli_error(result)
+    assert detail["type"] == "PopplerNotFoundError"
+    assert detail["exit_code"] == 2
+    assert "poppler" in detail["message"]
 
 
 def test_missing_dependency_carries_install_hint():

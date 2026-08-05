@@ -268,9 +268,9 @@ def test_config_flag_points_at_explicit_file(text_pdf, tmp_path):
     assert json.loads(result.stdout)["page_count"] == 3
 
 
-def test_malformed_config_is_clean_cli_error(text_pdf, tmp_path):
+def test_malformed_config_is_clean_cli_error(text_pdf, tmp_path, cli_error):
     write(tmp_path / "rp-pdf.toml", "[default\ncommand = 'index'\n")
     result = run_cli("index", text_pdf, cwd=tmp_path)
     assert result.returncode == 1
-    assert "Invalid TOML" in json.loads(result.stdout)["error"]
+    assert "Invalid TOML" in cli_error(result)["message"]
     assert "Traceback" not in result.stderr

@@ -4,12 +4,11 @@ Everything a CLI does that is not specific to its format lives here: the
 ``--json`` flag, serialization, error handling with the suite's exit codes, and
 the ``doctor`` subcommand factory.
 
-**Two error output shapes.** :func:`error_handler` can emit either the
-:class:`~rp_core.models.ErrorEnvelope` from spec section 4.6 (the contract for
-new CLIs) or a flat ``{"error": "<message>"}`` object on stdout. The flat form
-exists because ``rp-pdf`` shipped with it as its agent-facing contract before
-the suite existed; it is preserved deliberately, not by accident. New packages
-use the envelope.
+**One error output shape.** :func:`error_handler` writes the
+:class:`~rp_core.models.ErrorEnvelope` from spec section 4.1 to stderr and exits
+with the error's code. There is no second shape and no argument selecting one:
+the primary consumer is an agent deciding what to do next, and it must not have
+to know which tool failed in order to find ``type`` and ``exit_code``.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ import typer
 from pydantic import BaseModel
 
 from rp_core import doctor as doctor_module
-from rp_core.errors import RoboPapyroError
+from rp_core.errors import RoboPapyroError, envelope_for
 
 #: The standard ``--json`` flag. Use it verbatim so every CLI spells it the same.
 json_option = Annotated[
@@ -88,48 +87,33 @@ def _print_table(rows: list[dict]) -> None:
 
 
 @contextmanager
-def error_handler(
-    *,
-    as_json: bool = True,
-    envelope: bool = True,
-    stream: str = "stderr",
-    also: tuple[type[BaseException], ...] = (),
-) -> Iterator[None]:
-    """Turn a :class:`RoboPapyroError` into structured output and an exit code.
+def error_handler(*, also: tuple[type[BaseException], ...] = ()) -> Iterator[None]:
+    """Turn a :class:`RoboPapyroError` into an ``ErrorEnvelope`` and an exit code.
 
-    ``envelope`` selects the section 4.6 :class:`ErrorEnvelope` shape; set it
-    False for the flat ``{"error": message}`` form. ``stream`` is where the
-    structured output goes (``"stdout"`` or ``"stderr"``); the human-readable
-    message always goes to stderr. ``also`` names extra exception types to
-    treat as user-facing errors — for exceptions that predate the hierarchy,
-    such as ``FileNotFoundError``.
+    Both the human-readable message and the envelope go to stderr, so stdout
+    carries only results. **The envelope is written last**, on a single line, so
+    that it is the final line of stderr no matter what warnings a command
+    printed on its way to failing — that is what makes it findable without
+    parsing the whole stream. ``also`` names extra exception types to treat as
+    user-facing errors — for a third-party exception a leaf package would
+    otherwise let escape as a traceback.
     """
     try:
         yield
     except (RoboPapyroError, *also) as exc:
-        exit_code = getattr(exc, "exit_code", 1)
-        if as_json:
-            if envelope and isinstance(exc, RoboPapyroError):
-                payload = exc.to_envelope().model_dump(mode="json")
-            else:
-                payload = {"error": str(exc)}
-            print(json.dumps(payload), file=sys.stdout if stream == "stdout" else sys.stderr)
+        envelope = envelope_for(exc)
         print(str(exc), file=sys.stderr)
-        raise typer.Exit(exit_code) from exc
+        print(envelope.model_dump_json(), file=sys.stderr)
+        raise typer.Exit(envelope.error.exit_code) from exc
 
 
-def handle_errors(
-    *,
-    envelope: bool = True,
-    stream: str = "stderr",
-    also: tuple[type[BaseException], ...] = (),
-) -> Callable:
+def handle_errors(*, also: tuple[type[BaseException], ...] = ()) -> Callable:
     """Decorator form of :func:`error_handler`, for whole commands."""
 
     def decorate(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            with error_handler(envelope=envelope, stream=stream, also=also):
+            with error_handler(also=also):
                 return func(*args, **kwargs)
 
         return wrapper

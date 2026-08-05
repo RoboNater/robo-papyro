@@ -104,7 +104,9 @@ Tests must **never** require LibreOffice — mock the subprocess.
   wrapper that also routes non-PDF sources through LibreOffice. rp-core has no
   concept of a page *label*; a caller that has them resolves them first.
 - `clikit.py` — `error_handler`/`handle_errors`, `emit`, `json_option`,
-  `doctor_command`. New CLIs use the default `ErrorEnvelope`-on-stderr shape.
+  `doctor_command`. The `ErrorEnvelope` on stderr is the suite's *only* error
+  shape; `error_handler` takes no argument selecting another. The envelope is
+  written last so it is always the final line of stderr.
 
 ### rp-pdf
 
@@ -117,10 +119,9 @@ Tests must **never** require LibreOffice — mock the subprocess.
 - Default text engine is poppler's `pdftotext`, because in-process extractors
   run words together on PDFs that encode gaps as glyph kerning (issue #1).
   Don't quietly switch engines.
-- **rp-pdf's CLI shape is not the suite default**, for backward compatibility:
-  JSON to stdout by *default* with `--plain`/`--csv` opt-outs, and errors emit a
-  flat `{"error": message}` on **stdout**. New packages use `--json` opt-in and
-  the `ErrorEnvelope` on stderr. Both go through `rp_core.clikit`.
+- **rp-pdf's CLI shape is the suite default**: JSON to stdout by *default* with
+  `--plain`/`--csv` opt-outs, and errors as an `ErrorEnvelope` on **stderr**.
+  All of it goes through `rp_core.clikit`; new packages do the same.
 - CLI options must stay config-overridable: booleans are paired
   `--flag/--no-flag` defaulting to `None`, and every option is read through
   `config.resolve(...)` so flag → env → config → default holds. A bare
@@ -131,7 +132,9 @@ Tests must **never** require LibreOffice — mock the subprocess.
 - Heavy/optional deps are imported lazily — `openai` must never be imported
   unless the AI pass runs.
 - Errors subclass `rp_pdf.errors.RpPdfError`, which is parented onto
-  `rp_core.errors`; that is what gives each one its exit code.
+  `rp_core.errors`; that is what gives each one its exit code and the `type` its
+  envelope reports. Nothing raises a bare builtin: a missing file is
+  `MissingFileError`, which is also a `FileNotFoundError` for library callers.
 
 ### robo-papyro
 

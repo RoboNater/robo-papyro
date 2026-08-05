@@ -9,6 +9,7 @@ from rp_core.errors import (
     InputError,
     MissingDependencyError,
     RoboPapyroError,
+    envelope_for,
 )
 from rp_core.pages import PageSpecError
 
@@ -54,3 +55,16 @@ def test_envelope_is_json_serializable():
         MissingDependencyError("absent", binary="soffice").to_envelope().model_dump(mode="json")
     )
     assert payload["error"]["exit_code"] == 2
+
+
+class TestEnvelopeFor:
+    def test_suite_errors_describe_themselves(self):
+        error = CorruptFileError("not a PDF")
+        assert envelope_for(error) == error.to_envelope()
+
+    def test_foreign_exceptions_get_the_same_shape(self):
+        envelope = envelope_for(FileNotFoundError("No such file: x.pdf"))
+        assert envelope.error.type == "FileNotFoundError"
+        assert envelope.error.message == "No such file: x.pdf"
+        assert envelope.error.exit_code == 1
+        assert envelope.error.hint is None

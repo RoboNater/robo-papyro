@@ -2,9 +2,9 @@
 
 Conventions:
 - JSON to stdout by default; --plain/--csv for human/file variants.
-- Errors: message to stderr, structured {"error": ...} on stdout, and the exit
-  code carried by the error class (rp_core.errors): 1 for input errors, 2 for a
-  missing external binary, 3 for an unreadable PDF.
+- Errors: an rp_core ErrorEnvelope plus a human-readable message, both on
+  stderr, and the exit code carried by the error class (rp_core.errors): 1 for
+  input errors, 2 for a missing external binary, 3 for an unreadable PDF.
 
 Options resolve by precedence flag -> env var -> config file -> built-in
 default (see rp_pdf.config). Boolean flags are paired (--x/--no-x) and default to
@@ -28,7 +28,6 @@ from rp_core import clikit
 
 from rp_pdf import config, core
 from rp_pdf import markdown as md
-from rp_pdf.pages import PageSpecError
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -143,19 +142,10 @@ def _announce_labels(file: Path, pages: str, physical: bool, password: Optional[
 
 
 def _errors():
-    """rp-pdf's error contract, expressed in rp_core.clikit's terms.
-
-    The flat `{"error": message}` shape on stdout is deliberate: it is what
-    agents consuming rp-pdf already parse. New CLIs in the suite use clikit's
-    default, the ErrorEnvelope on stderr. Exit codes now come from the error
-    class (rp_core.errors), so a missing poppler exits 2 and an unreadable PDF
-    exits 3 instead of everything exiting 1.
-    """
-    return clikit.error_handler(
-        envelope=False,
-        stream="stdout",
-        also=(PageSpecError, FileNotFoundError),
-    )
+    """The suite's error contract: an ErrorEnvelope on stderr, exit code from
+    the error class (rp_core.errors). Every rp-pdf error subclasses that
+    hierarchy, so nothing extra needs listing here."""
+    return clikit.error_handler()
 
 
 def _dump(result: BaseModel | list[BaseModel] | dict) -> None:

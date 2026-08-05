@@ -13,6 +13,10 @@ Exit codes (spec section 4.7, all CLIs):
 Every error carries :meth:`~RoboPapyroError.to_envelope`, so a CLI can serialize
 it the same way regardless of which package raised it. A raw ``FileNotFoundError``
 from a subprocess must never reach the user — wrap it.
+
+:class:`~rp_core.models.ErrorEnvelope` is the *only* serialized error shape in
+the suite (spec section 4.1). There is no second form and no flag selecting one:
+an agent parsing an ``rp-*`` failure sees the same keys whichever tool failed.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ class RoboPapyroError(Exception):
     hint: str | None = None
 
     def to_envelope(self) -> ErrorEnvelope:
-        """Structured form of this error, for ``--json`` output."""
+        """Structured form of this error, as the CLIs serialize it."""
         return ErrorEnvelope(
             error=ErrorDetail(
                 type=type(self).__name__,
@@ -68,3 +72,23 @@ class ConversionError(RoboPapyroError):
     """An external conversion tool failed, or produced no output file."""
 
     exit_code = 3
+
+
+def envelope_for(exc: BaseException) -> ErrorEnvelope:
+    """The envelope for any exception a CLI is willing to report.
+
+    Suite errors describe themselves. A foreign exception a CLI has opted into
+    catching (see ``clikit.error_handler``'s ``also``) still leaves through the
+    one envelope shape, defaulting to exit code 1 — the caller gets the same
+    keys either way.
+    """
+    if isinstance(exc, RoboPapyroError):
+        return exc.to_envelope()
+    return ErrorEnvelope(
+        error=ErrorDetail(
+            type=type(exc).__name__,
+            message=str(exc),
+            hint=getattr(exc, "hint", None),
+            exit_code=getattr(exc, "exit_code", 1),
+        )
+    )

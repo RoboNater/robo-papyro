@@ -24,9 +24,16 @@ identical across the suite.
   [Page labels](#page-labels) below); otherwise pages are numbered 1-based from
   the first physical page. `--physical` forces 1-based physical numbering either way.
 
-- **Errors** print a human-readable message to stderr and `{"error": "..."}` to
-  stdout, so scripted callers always get parseable JSON. The exit code says what
-  kind of failure it was:
+- **Errors** go to stderr: a human-readable message, then an *error envelope* as
+  the last line, so stdout stays clean for results and scripted callers always
+  have one line of parseable JSON to read.
+
+  ```json
+  {"error": {"type": "PopplerNotFoundError", "message": "…", "hint": "apt install poppler-utils", "exit_code": 2}}
+  ```
+
+  Every CLI in the suite emits exactly this shape — there is no second form.
+  The exit code says what kind of failure it was:
 
   | Code | Meaning |
   |---|---|

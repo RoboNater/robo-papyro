@@ -47,6 +47,21 @@ requires_poppler = pytest.mark.skipif(
 )
 
 
+@pytest.fixture
+def cli_error():
+    """Read the ErrorDetail out of a failed CLI run.
+
+    The suite writes the human-readable message and then an ``rp_core``
+    ErrorEnvelope to stderr, the envelope last so it survives any warnings the
+    command printed first (spec section 4.1).
+    """
+
+    def parse(result) -> dict:
+        return json.loads(result.stderr.splitlines()[-1])["error"]
+
+    return parse
+
+
 @pytest.fixture(scope="session")
 def pdf_dir(tmp_path_factory) -> Path:
     return tmp_path_factory.mktemp("pdfs")

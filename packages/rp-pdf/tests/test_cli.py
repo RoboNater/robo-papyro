@@ -115,10 +115,10 @@ def test_no_notice_for_unlabeled_pdf(text_pdf):
     assert result.stderr.strip() == ""
 
 
-def test_unknown_label_error(labeled_pdf):
+def test_unknown_label_error(labeled_pdf, cli_error):
     result = run_cli("text", labeled_pdf, "--pages", "42")
     assert result.returncode == 1
-    assert "No page labeled" in json.loads(result.stdout)["error"]
+    assert "No page labeled" in cli_error(result)["message"]
 
 
 def test_index_shows_labels(labeled_pdf):
@@ -146,17 +146,23 @@ def test_unicode_json_output(unicode_pdf):
     assert "Café" in json.loads(result.stdout)[0]["text"]
 
 
-def test_error_is_structured(tmp_path):
+def test_error_is_structured(tmp_path, cli_error):
+    """Spec section 4.1: the ErrorEnvelope on stderr, nothing on stdout."""
     result = run_cli("index", tmp_path / "missing.pdf")
     assert result.returncode == 1
-    assert "error" in json.loads(result.stdout)
-    assert result.stderr.strip() != ""
+    assert result.stdout == ""
+    assert cli_error(result) == {
+        "type": "MissingFileError",
+        "message": f"No such file: {tmp_path / 'missing.pdf'}",
+        "hint": None,
+        "exit_code": 1,
+    }
 
 
-def test_page_range_error(text_pdf):
+def test_page_range_error(text_pdf, cli_error):
     result = run_cli("text", text_pdf, "--pages", "99")
     assert result.returncode == 1
-    assert "1-3" in json.loads(result.stdout)["error"]
+    assert "1-3" in cli_error(result)["message"]
 
 
 def test_markdown_stdout(table_pdf):
@@ -184,10 +190,10 @@ def test_markdown_json(table_pdf):
     assert data["warnings"] == []
 
 
-def test_markdown_ai_config_error(table_pdf):
+def test_markdown_ai_config_error(table_pdf, cli_error):
     result = run_cli("markdown", table_pdf, "--ai")
     assert result.returncode == 1
-    assert "model" in json.loads(result.stdout)["error"]
+    assert "model" in cli_error(result)["message"]
 
 
 @requires_poppler
@@ -199,13 +205,13 @@ def test_render(text_pdf, tmp_path):
     assert data[0]["dpi"] == 72
 
 
-def test_markdown_ocr_requires_ai_flag(table_pdf):
+def test_markdown_ocr_requires_ai_flag(table_pdf, cli_error):
     result = run_cli("markdown", table_pdf, "--ocr")
     assert result.returncode == 1
-    assert "--ai" in json.loads(result.stdout)["error"]
+    assert "--ai" in cli_error(result)["message"]
 
 
-def test_validate_vlm_ocr_config_error():
+def test_validate_vlm_ocr_config_error(cli_error):
     result = run_cli("validate-vlm-ocr")
     assert result.returncode == 1
-    assert "model" in json.loads(result.stdout)["error"]
+    assert "model" in cli_error(result)["message"]

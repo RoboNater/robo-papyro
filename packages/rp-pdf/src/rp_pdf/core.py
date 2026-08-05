@@ -21,6 +21,7 @@ from rp_core.pages import contiguous_runs
 
 from rp_pdf.errors import (
     InvalidPdfError,
+    MissingFileError,
     PasswordError,
     PopplerNotFoundError,
     QueryError,
@@ -43,6 +44,7 @@ from rp_pdf.pages import PageSpec, parse_page_labels, parse_pages
 # themselves live in rp_pdf.errors, parented onto rp_core.errors.
 __all__ = [
     "InvalidPdfError",
+    "MissingFileError",
     "PasswordError",
     "PopplerNotFoundError",
     "QueryError",
@@ -65,7 +67,7 @@ TextEngine = Literal["poppler", "pypdf", "pdfplumber"]
 def _open_reader(path: Path, password: str | None) -> PdfReader:
     path = Path(path)
     if not path.is_file():
-        raise FileNotFoundError(f"No such file: {path}")
+        raise MissingFileError(f"No such file: {path}")
     try:
         reader = PdfReader(path)
     except PyPdfError as exc:

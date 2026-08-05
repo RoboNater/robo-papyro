@@ -66,9 +66,10 @@ automatically; nothing in `robo-papyro` changes.
 (ebook-style `cover`, `i`-`xx`, restarting at `1` for content), specs are interpreted
 against those labels — matching what PDF readers display; pass `--physical` for
 plain 1-based physical numbering.
-Output is JSON on stdout by default; errors put `{"error": ...}` on stdout and a
-message on stderr, and exit **1** for an input error, **2** for a missing
-external binary, **3** for an unreadable PDF. Encrypted PDFs take `--password`.
+Output is JSON on stdout by default; errors put a message and then an error
+envelope — `{"error": {"type", "message", "hint", "exit_code"}}` — on stderr, and
+exit **1** for an input error, **2** for a missing external binary, **3** for an
+unreadable PDF. Encrypted PDFs take `--password`.
 
 ```sh
 uv run rp-pdf index  FILE                          # document index as JSON
