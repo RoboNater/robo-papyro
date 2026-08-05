@@ -16,9 +16,10 @@ The suite went from **202 tests to 309**, all passing on Python 3.11 and 3.13.
 the CLI exit-code mapping, and the rename reaching env vars, config filenames,
 and cache directories.
 
-**Three items want a decision before Phase 1 hardens around them** — the error
-payload shape, the pinned ruff rule set, and the untimed `pdftotext` call. All
-three are detailed under [Open questions](#open-questions).
+**One decision is needed at Phase 1 start**: the error payload shape, which
+would otherwise become a shipped contract in two structurally different forms.
+Three further items are worth settling but block nothing — see
+[Open questions](#open-questions).
 
 ## What shipped
 
@@ -163,7 +164,37 @@ diff clean, and CI asserts that on every run.
 | 1 | Should `rp-pdf` adopt the `ErrorEnvelope` payload, or should `rp-docx` adopt the flat shape? | Whichever way it goes, deciding after Phase 1 means changing a shipped contract. Both are one `clikit` argument today. |
 | 2 | Widen ruff's `select` back toward the current default? | ~65 pre-existing findings, mostly auto-fixable. A clean sweep is cheap now and gets expensive as packages multiply. |
 | 3 | Give `pdftotext` a real timeout? | It can hang on malformed input. Preserved as-is because a refactor is the wrong place to change it. |
-| 4 | Two weak-copyleft transitives | `certifi` (MPL-2.0, a CA-bundle data package) and `tqdm` (MPL-2.0 AND MIT, via `openai`) are not on §7's approved list. MPL-2.0 is what §7 already accepts for LibreOffice, so both were allowlisted with the reasoning recorded in `ci/allowed-packages.toml` — flagged because it was not an explicit call. |
+| 4 | Two weak-copyleft transitives, **confined to the `ai` extra** | See below. Lower stakes than the other three, but the only one that may need someone outside the team. |
+
+### On #4, the two MPL-2.0 packages
+
+`certifi` (MPL-2.0, a CA-bundle data package) and `tqdm` (MPL-2.0 AND MIT) are
+weak, file-level copyleft rather than fully permissive, and neither is on §7's
+approved list. Both were allowlisted, with the reasoning recorded in
+`ci/allowed-packages.toml`, on the grounds that MPL-2.0 is the license §7
+already accepts for LibreOffice — flagged here because it was not an explicit
+call.
+
+**Both enter only through the optional `ai` extra** — `openai` → `httpx` →
+`certifi`, and `openai` → `tqdm`. A base install resolves to 24 distributions
+containing neither:
+
+```
+$ uv pip install rp-core rp-pdf     # no --extra ai
+24 distributions, all fully permissive
+```
+
+So the default install is clean, and if anyone objects to MPL-2.0 the blast
+radius is the VLM review pass, not the toolkit. That also means the fallback is
+cheap: drop the `ai` extra rather than re-architect anything.
+
+### Timing
+
+Only **#1** must be settled at Phase 1 start, and not on day one — everything
+through `rp-docx`'s `read.py` and `write.py` is indifferent to the error shape;
+only `cli.py` (spec §12 step 8) depends on it. **#2** and **#3** are independent
+of Phase 1 and can land any time, each as its own small PR. **#4** is the only
+item with an external clock: if compliance has to sign off, start that now.
 
 Still open from the spec itself: `templates/README.md` needs an owner and
 canonical location per template (§11.2), and archiving

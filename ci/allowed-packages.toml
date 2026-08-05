@@ -40,13 +40,24 @@ tomli = "MIT"
 
 [optional]
 # The `ai` extra: the VLM review pass.
+#
+# This extra is also the only route by which any weak-copyleft package enters
+# the graph — see the note above [transitive]. A base `uv pip install rp-pdf`
+# resolves to 24 distributions, all fully permissive.
 openai = "Apache-2.0"
 
+# Two entries below are MPL-2.0 — weak, file-level copyleft rather than fully
+# permissive, and not on the spec's §7 approved list. Both are marked
+# `# ai-extra`, because both enter only through the optional `ai` extra
+# (openai → httpx → certifi, openai → tqdm). A base install of rp-core + rp-pdf
+# contains neither, so the default install is fully permissive and the blast
+# radius of a compliance objection is the VLM review pass, not the toolkit.
+# MPL-2.0 is the license §7 already accepts for LibreOffice.
 [transitive]
 annotated-doc = "MIT"
 annotated-types = "MIT"
 anyio = "MIT"
-certifi = "MPL-2.0"          # weak, file-level copyleft; a CA-bundle data package
+certifi = "MPL-2.0"          # ai-extra; weak file-level copyleft, a CA-bundle data package
 cffi = "MIT-0"
 charset-normalizer = "MIT"
 colorama = "BSD-3-Clause"
@@ -67,6 +78,6 @@ pypdfium2 = "BSD-3-Clause OR Apache-2.0"
 rich = "MIT"
 shellingham = "ISC"
 sniffio = "MIT OR Apache-2.0"
-tqdm = "MPL-2.0 AND MIT"     # weak, file-level copyleft
+tqdm = "MPL-2.0 AND MIT"     # ai-extra; weak file-level copyleft
 typing-extensions = "PSF-2.0"
 typing-inspection = "MIT"
