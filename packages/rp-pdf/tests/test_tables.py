@@ -1,5 +1,4 @@
 from conftest import TABLE_DATA
-
 from rp_pdf import core
 
 

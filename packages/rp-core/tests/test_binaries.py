@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from rp_core import binaries
 from rp_core.errors import (
     ConversionError,

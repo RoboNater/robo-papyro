@@ -35,12 +35,12 @@ same key in ``[vlm]`` for that command.
 from __future__ import annotations
 
 import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
-from rp_core.errors import InputError
+import tomllib
 
+from rp_core.errors import InputError
 from rp_pdf.errors import RpPdfError
 
 CONFIG_FILENAME = "rp-pdf.toml"

@@ -7,6 +7,7 @@ import json
 import pytest
 import typer
 from pydantic import BaseModel
+
 from rp_core import clikit
 from rp_core.errors import CorruptFileError, InputError, MissingDependencyError
 

@@ -16,8 +16,9 @@ Run with no arguments from the repository root. Exits 0 when clean, 1 otherwise.
 from __future__ import annotations
 
 import sys
-import tomllib
 from pathlib import Path
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCKFILE = ROOT / "uv.lock"

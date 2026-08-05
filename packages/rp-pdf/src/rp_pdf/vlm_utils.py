@@ -14,7 +14,6 @@ import re
 from pathlib import Path
 
 from rp_core.errors import InputError
-
 from rp_pdf.errors import RpPdfError
 
 

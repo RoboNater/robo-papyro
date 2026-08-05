@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from conftest import requires_poppler
-
 from rp_pdf import core
 
 pytestmark = requires_poppler

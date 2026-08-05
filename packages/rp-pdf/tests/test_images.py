@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from conftest import IMAGE_SIZE
-
 from rp_pdf import core
 
 

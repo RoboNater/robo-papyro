@@ -6,6 +6,7 @@ from __future__ import annotations
 import shutil
 
 import pytest
+
 from rp_core import render
 from rp_core.errors import MissingDependencyError
 from rp_core.models import RasterImage

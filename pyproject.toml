@@ -11,20 +11,21 @@ dev = [
     "pytest>=8",
     "pytest-cov",
     "reportlab>=5.0.0",
-    "ruff>=0.15.21",
+    # Pinned exactly, not floored. ruff's implicit default rule set widens
+    # between releases, so a floor means the lint gate quietly changes what it
+    # enforces on whichever day a new ruff lands — that was the root cause of
+    # the Phase 0 workaround. Bump this deliberately, in its own commit.
+    "ruff==0.16.1",
 ]
 
 [tool.ruff]
 line-length = 100
 src = ["packages/*/src", "packages/*/tests"]
 
-# Pinned explicitly rather than inherited. The pdfx code was written against
-# ruff's classic default rule set; newer ruff releases widened the implicit
-# default, which flags ~65 pre-existing style findings across the tree. Pinning
-# keeps the CI ruff gate meaningful without rewriting code during a refactor.
-# Widening this set is a deliberate follow-up, not Phase 0 work.
+# Stated explicitly rather than inherited, so the gate does not move when ruff
+# does. E/W pycodestyle, F pyflakes, I import sorting, UP pyupgrade, B bugbear.
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 # "ci" holds the license gate and its tests — workspace infrastructure rather

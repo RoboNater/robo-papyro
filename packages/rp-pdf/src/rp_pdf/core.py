@@ -15,9 +15,9 @@ import pdfplumber
 from pypdf import PasswordType, PdfReader
 from pypdf.errors import PyPdfError
 from pypdf.generic import Destination
+
 from rp_core import binaries, render
 from rp_core.errors import MissingDependencyError
-
 from rp_pdf.errors import (
     InvalidPdfError,
     MissingFileError,

@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import TABLE_DATA, requires_poppler
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
@@ -18,6 +17,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import Paragraph, SimpleDocTemplate, TableStyle
 from reportlab.platypus import Table as RLTable
 
+from conftest import TABLE_DATA, requires_poppler
 from rp_pdf.markdown import VlmError, _accept_response, _pipe_table, to_markdown
 
 

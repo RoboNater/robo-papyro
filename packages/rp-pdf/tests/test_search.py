@@ -1,10 +1,10 @@
 import json
 
 import pytest
-from conftest import requires_poppler
-from test_cli import run_cli
 
+from conftest import requires_poppler
 from rp_pdf import core
+from test_cli import run_cli
 
 # The default text engine shells out to poppler's pdftotext (issue #1).
 pytestmark = requires_poppler

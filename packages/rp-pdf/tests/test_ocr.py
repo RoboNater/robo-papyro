@@ -10,13 +10,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import requires_poppler
 from PIL import Image, ImageDraw
 from pypdf import PdfReader
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as rl_canvas
 
+from conftest import requires_poppler
 from rp_pdf.markdown import to_markdown
 from rp_pdf.ocr import (
     MIN_TRANSCRIPTION_CHARS,

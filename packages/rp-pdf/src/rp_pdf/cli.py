@@ -20,12 +20,12 @@ import csv
 import enum
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from pydantic import BaseModel
-from rp_core import clikit
 
+from rp_core import clikit
 from rp_pdf import config, core
 from rp_pdf import markdown as md
 
@@ -40,13 +40,11 @@ for _stream in (sys.stdout, sys.stderr):
 FileArg = Annotated[Path, typer.Argument(help="Path to the PDF file")]
 # Options default to None so an omitted flag falls through to env/config/default.
 PagesOpt = Annotated[
-    Optional[str], typer.Option("--pages", help="Pages: 'all', '5', '3-7', '1,3-5,9'")
+    str | None, typer.Option("--pages", help="Pages: 'all', '5', '3-7', '1,3-5,9'")
 ]
-PasswordOpt = Annotated[
-    Optional[str], typer.Option("--password", help="Password for encrypted PDFs")
-]
+PasswordOpt = Annotated[str | None, typer.Option("--password", help="Password for encrypted PDFs")]
 PhysicalOpt = Annotated[
-    Optional[bool],
+    bool | None,
     typer.Option(
         "--physical/--no-physical",
         help="Interpret --pages as physical positions (first page = 1), "
@@ -62,7 +60,7 @@ class TextEngine(str, enum.Enum):
 
 
 EngineOpt = Annotated[
-    Optional[TextEngine],
+    TextEngine | None,
     typer.Option(
         "--engine",
         help="Text extractor: poppler (default; correct word spacing, needs poppler "
@@ -71,11 +69,11 @@ EngineOpt = Annotated[
     ),
 ]
 PopplerPathOpt = Annotated[
-    Optional[Path],
+    Path | None,
     typer.Option("--poppler-path", help="Poppler bin directory if not on PATH"),
 ]
 OrgOpt = Annotated[
-    Optional[str],
+    str | None,
     typer.Option(
         "--organization",
         help="VLM API organization ID (or set RP_PDF_VLM_ORG); OpenAI-hosted, "
@@ -100,7 +98,7 @@ COMMAND_NAMES = frozenset(
 )
 
 
-def _resolve_engine(command: str, value: Optional[TextEngine]) -> str:
+def _resolve_engine(command: str, value: TextEngine | None) -> str:
     """Resolve --engine through config to a validated engine string."""
     resolved = config.resolve(
         command, "engine", value.value if value is not None else None, "poppler"
@@ -116,10 +114,10 @@ def _resolve_engine(command: str, value: Optional[TextEngine]) -> str:
 def _resolve_path(
     command: str,
     key: str,
-    value: Optional[Path],
-    default: Optional[Path] = None,
-    env: Optional[str] = None,
-) -> Optional[Path]:
+    value: Path | None,
+    default: Path | None = None,
+    env: str | None = None,
+) -> Path | None:
     """Resolve a path option, expanding ~ on values that come from the config."""
     resolved = config.resolve(command, key, value, default, env=env)
     if resolved is None:
@@ -129,7 +127,7 @@ def _resolve_path(
     return Path(str(resolved)).expanduser()
 
 
-def _announce_labels(file: Path, pages: str, physical: bool, password: Optional[str]) -> None:
+def _announce_labels(file: Path, pages: str, physical: bool, password: str | None) -> None:
     """Tell the user (on stderr) when --pages is interpreted via page labels."""
     if physical or pages.strip().lower() == "all":
         return
@@ -155,7 +153,7 @@ def _dump(result: BaseModel | list[BaseModel] | dict) -> None:
 @app.callback()
 def _configure(
     config_path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--config",
             "-c",
@@ -180,7 +178,7 @@ def text(
     file: FileArg,
     pages: PagesOpt = None,
     layout: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--layout/--no-layout",
             help="Layout-preserving extraction (columns, indentation)",
@@ -188,7 +186,7 @@ def text(
     ] = None,
     engine: EngineOpt = None,
     plain: Annotated[
-        Optional[bool], typer.Option("--plain/--no-plain", help="Raw text instead of JSON")
+        bool | None, typer.Option("--plain/--no-plain", help="Raw text instead of JSON")
     ] = None,
     password: PasswordOpt = None,
     physical: PhysicalOpt = None,
@@ -220,7 +218,7 @@ def tables(
     file: FileArg,
     pages: PagesOpt = None,
     csv_dir: Annotated[
-        Optional[Path], typer.Option("--csv", help="Write one CSV per table to this directory")
+        Path | None, typer.Option("--csv", help="Write one CSV per table to this directory")
     ] = None,
     password: PasswordOpt = None,
     physical: PhysicalOpt = None,
@@ -255,20 +253,20 @@ def search(
     query: Annotated[str, typer.Argument(help="Phrase (or regex with --regex) to search for")],
     pages: PagesOpt = None,
     regex: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--regex/--no-regex", help="Treat QUERY as a regular expression"),
     ] = None,
     case_sensitive: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--case-sensitive/--no-case-sensitive", help="Match case exactly"),
     ] = None,
     context: Annotated[
-        Optional[int], typer.Option("--context", help="Context characters around each match")
+        int | None, typer.Option("--context", help="Context characters around each match")
     ] = None,
-    max_hits: Annotated[Optional[int], typer.Option("--max", help="Maximum number of hits")] = None,
+    max_hits: Annotated[int | None, typer.Option("--max", help="Maximum number of hits")] = None,
     engine: EngineOpt = None,
     plain: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--plain/--no-plain", help="One human-readable line per hit instead of JSON"),
     ] = None,
     password: PasswordOpt = None,
@@ -316,7 +314,7 @@ def images(
     file: FileArg,
     pages: PagesOpt = None,
     out: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--out", help="Save images to this directory (metadata only if omitted)"),
     ] = None,
     password: PasswordOpt = None,
@@ -343,12 +341,12 @@ def images(
 def markdown(
     file: FileArg,
     out: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--out", "-o", help="Write Markdown to this file instead of stdout"),
     ] = None,
     pages: PagesOpt = None,
     images_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--images-dir",
             help="Extract embedded images here and link them (best placed next to the "
@@ -356,7 +354,7 @@ def markdown(
         ),
     ] = None,
     ai: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--ai/--no-ai",
             help="Review each page's draft against its rendered image with a "
@@ -365,18 +363,18 @@ def markdown(
         ),
     ] = None,
     ocr: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--ocr/--no-ocr",
             help="Transcribe scanned (no text layer) pages using the VLM (requires --ai)",
         ),
     ] = None,
     model: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--model", help="VLM model name (or set RP_PDF_VLM_MODEL)"),
     ] = None,
     base_url: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--base-url",
             help="OpenAI-compatible endpoint, e.g. an OpenRouter/Ollama/vLLM URL "
@@ -385,14 +383,14 @@ def markdown(
     ] = None,
     organization: OrgOpt = None,
     jobs: Annotated[
-        Optional[int], typer.Option("--jobs", help="Concurrent VLM requests for the AI pass")
+        int | None, typer.Option("--jobs", help="Concurrent VLM requests for the AI pass")
     ] = None,
     dpi: Annotated[
-        Optional[int], typer.Option("--dpi", help="Render resolution for the AI pass page images")
+        int | None, typer.Option("--dpi", help="Render resolution for the AI pass page images")
     ] = None,
     engine: EngineOpt = None,
     outline_headings: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--outline-headings/--no-outline-headings",
             help="Promote outline (bookmark) titles found on their pages to Markdown "
@@ -400,7 +398,7 @@ def markdown(
         ),
     ] = None,
     outline_context: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--outline-context/--no-outline-context",
             help="Tell the VLM each page's position in the document outline so heading "
@@ -408,7 +406,7 @@ def markdown(
         ),
     ] = None,
     full: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--full/--no-full",
             help="Emit the whole MarkdownResult as JSON — per-page detail and "
@@ -416,11 +414,11 @@ def markdown(
         ),
     ] = None,
     cache_dir: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--cache-dir", help="AI response cache location (default ~/.cache/rp-pdf)"),
     ] = None,
     cache: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option("--cache/--no-cache", help="Use the AI response cache (default on)"),
     ] = None,
     password: PasswordOpt = None,
@@ -471,14 +469,12 @@ def markdown(
 def render(
     file: FileArg,
     out: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--out", help="Output directory for rendered images"),
     ] = None,
     pages: PagesOpt = None,
-    dpi: Annotated[Optional[int], typer.Option("--dpi", help="Render resolution")] = None,
-    fmt: Annotated[
-        Optional[str], typer.Option("--format", help="Image format: png or jpeg")
-    ] = None,
+    dpi: Annotated[int | None, typer.Option("--dpi", help="Render resolution")] = None,
+    fmt: Annotated[str | None, typer.Option("--format", help="Image format: png or jpeg")] = None,
     password: PasswordOpt = None,
     poppler_path: PopplerPathOpt = None,
     physical: PhysicalOpt = None,
@@ -511,11 +507,11 @@ def render(
 @app.command()
 def validate_vlm_ocr(
     model: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--model", help="VLM model name (or set RP_PDF_VLM_MODEL)"),
     ] = None,
     base_url: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--base-url",
             help="OpenAI-compatible endpoint URL (or set RP_PDF_VLM_BASE_URL); "
@@ -524,7 +520,7 @@ def validate_vlm_ocr(
     ] = None,
     organization: OrgOpt = None,
     dpi: Annotated[
-        Optional[int], typer.Option("--dpi", help="Render resolution for the OCR page images")
+        int | None, typer.Option("--dpi", help="Render resolution for the OCR page images")
     ] = None,
     poppler_path: PopplerPathOpt = None,
 ) -> None:
@@ -577,7 +573,7 @@ def _leading_global_options(args: list[str]) -> tuple[list[str], list[str]]:
     return globals_, args[i:]
 
 
-def _config_path_from(globals_: list[str]) -> Optional[str]:
+def _config_path_from(globals_: list[str]) -> str | None:
     for j, token in enumerate(globals_):
         if token in ("--config", "-c") and j + 1 < len(globals_):
             return globals_[j + 1]

@@ -2,10 +2,10 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from conftest import ENCRYPTED_PASSWORD, requires_poppler
 from rp_core.binaries import require_binary
 from rp_core.errors import MissingDependencyError
-
 from rp_pdf import PageSpecError, core
 
 
