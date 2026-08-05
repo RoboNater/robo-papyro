@@ -11,15 +11,22 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | Phase | Scope | Driving doc | Status |
 |---|---|---|---|
 | **0** | Workspace scaffold, `pdfx` → `rp-pdf` rename, extract `rp-core`, `rp` umbrella | robo-papyro-spec §8 | ✅ |
+| **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | next |
 | **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | |
 | **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx), same core/CLI split | TBD | |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
-discovery, rasterization, page specs, CLI conventions), the `rp-pdf` rename, and
+discovery, rasterization, range specs, CLI conventions), the `rp-pdf` rename, and
 the `rp` dispatcher. `rp-pdf`'s behavior is unchanged apart from the rename and
 the CLI exit-code mapping (1 input / 2 missing dependency / 3 corrupt file),
 which replaced a flat exit 1.
+
+Phase 0.5 settled the contract decisions Phase 0 surfaced: one error payload
+(the `ErrorEnvelope`) rather than two, JSON output by default with `--plain`
+rather than a `--json` opt-in, generic range parsing in `rp-core` with PDF page
+labels back in `rp-pdf`, a bounded timeout on every subprocess, a pinned ruff
+with a wider rule set, and the workspace's invariants as tests.
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), and archiving `w528-pdf-extraction-toolkit` should happen
