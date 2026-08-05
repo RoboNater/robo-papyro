@@ -11,7 +11,7 @@ One repository, several independently versioned distributions:
 |---|---|---|---|
 | [`rp-core`](packages/rp-core) | `rp_core` | — | Shared infrastructure |
 | [`rp-pdf`](packages/rp-pdf) | `rp_pdf` | `rp-pdf`, `rp pdf` | PDF read/extract/render |
-| `rp-docx` | `rp_docx` | `rp-docx`, `rp docx` | Phase 1 — not built yet |
+| [`rp-docx`](packages/rp-docx) | `rp_docx` | `rp-docx`, `rp docx` | Word read/create/edit |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
 Dependency direction is strictly one-way: `rp-core` knows nothing about PDF or
@@ -20,8 +20,9 @@ leaves through entry-point discovery. Permissive licenses only — no
 PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries (LibreOffice,
 poppler) are optional and invoked only as subprocesses.
 
-See [docs/usage.md](docs/usage.md) for the full usage guide with examples, and
-[docs/specs/](docs/specs) for the governing specifications.
+Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
+[docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`. The governing
+specifications are in [docs/specs/](docs/specs).
 
 ## Setup
 
@@ -147,6 +148,49 @@ The default-command shortcut lives in the `rp-pdf` console script, so it applies
 to `rp-pdf FILE.pdf` but not to `rp pdf FILE.pdf`, which needs an explicit
 subcommand.
 
+## rp-docx
+
+Reads, creates, and edits Word documents. `.docx` and `.dotx` are accepted
+everywhere; no external binary is needed for any read or write path.
+
+```sh
+uv run rp-docx index report.docx                 # counts, headings, properties
+uv run rp-docx text report.docx --runs           # paragraphs with formatting
+uv run rp-docx tables report.docx --format csv -o ./tables
+uv run rp-docx comments report.docx              # anchors and resolved state
+uv run rp-docx changes report.docx               # tracked insertions/deletions
+
+uv run rp-docx create -o out.docx --from-markdown notes.md --template memo
+uv run rp-docx replace contract.docx --map ./values.json -o filled.docx
+uv run rp-docx template memo --context ./client.json -o letter.docx
+uv run rp-docx accept draft.docx -o final.docx
+```
+
+Two things it does that a naive implementation gets wrong, quietly:
+
+- **Replacement works across run boundaries.** Word routinely stores
+  `{{ client }}` as `{{ cli` + `ent }}` for reasons unrelated to meaning, so a
+  plain string replace finds nothing and reports success. It also reaches table
+  cells, text boxes, headers, footers, footnotes, and endnotes — body-only
+  replacement is the classic silent bug.
+- **A missing style is an error, not a fallback.** House templates rename Word's
+  styles, so Markdown conversion maps through an optional
+  `<template>.stylemap.json`. If a mapped style is absent, `rp-docx` says so and
+  lists what the template has — a silent substitution produces documents that
+  look wrong in ways nobody notices until review.
+
+Templating is native (`{{ key }}` and `{{ key.subkey }}`, no expression
+evaluation and no Jinja) because `docxtpl` is LGPL-2.1-only and therefore a
+blocker rather than a preference.
+
+Confidential templates never enter the repository. `rp-docx templates manifest`
+describes a template's *shape* — style names, page geometry, presence flags, and
+no content whatsoever — and `templates synthesize` rebuilds a structurally
+equivalent `.dotx` from that JSON, so CI exercises the real template's shape
+while the file itself stays where it is.
+
+Full guide: [docs/usage-docx.md](docs/usage-docx.md).
+
 ## Library
 
 ```python
@@ -160,6 +204,17 @@ rendered = core.render_pages("doc.pdf", "1", "out/", dpi=200)  # list[RenderedPa
 
 from rp_pdf.markdown import to_markdown
 result = to_markdown("doc.pdf", images_dir="media")  # MarkdownResult
+```
+
+```python
+from pathlib import Path
+from rp_docx import get_index, get_text, create, replace_text, fill_template
+
+index = get_index(Path("report.docx"))                   # DocumentIndex
+paras = get_text(Path("report.docx"), runs_wanted=True)  # list[Paragraph]
+create(Path("out.docx"), markdown="# Title", template="memo")
+result = replace_text(Path("in.docx"), {"{{ k }}": "v"}, output=Path("out.docx"))
+filled = fill_template("memo", {"client": {"name": "Ada"}}, Path("letter.docx"))
 ```
 
 Core functions return pydantic models; serialize with `.model_dump_json()`. The

@@ -9,7 +9,7 @@ workspace.
 |---|---|---|---|
 | `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, range specs, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
-| `rp-docx` | `rp_docx` | `rp-docx` | Word documents — **Phase 1, not built yet** |
+| `rp-docx` | `rp_docx` | `rp-docx` | Word documents — read, create, edit, template |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
 
 ## Layout
@@ -17,10 +17,11 @@ workspace.
 ```
 packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, cli
+packages/rp-docx/src/rp_docx/     ooxml, templates, models, errors, cli, docx/{read,write,runs,template}
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
-dev-notes/                        investigation write-ups for fixed issues
-templates/                        corporate .dotx/.docx templates (Phase 1)
+dev-notes/                        investigation write-ups and phase status notes
+templates/                        house .dotx/.docx templates; templates/local/ is gitignored
 ```
 
 Each package has its own `pyproject.toml` and its own `tests/`. Shared dev
@@ -73,7 +74,9 @@ uv run ruff format packages          # line length 100
 | `soffice` | Office → PDF conversion, Office rendering | LibreOffice |
 
 Tests needing poppler carry `@pytest.mark.requires_poppler` and skip when it is
-absent. Tests must **never** require LibreOffice — mock the subprocess.
+absent; tests needing LibreOffice carry `@pytest.mark.requires_soffice` and skip
+unless it is present *and demonstrably working*. **No test may require
+LibreOffice to pass** — mock the subprocess, or mark it and let it skip.
 
 ### Adding a package to the workspace
 
@@ -97,6 +100,7 @@ if you trip one; each explains what breaks and why.
 | Rule | Test |
 |---|---|
 | Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
+| `rp-docx`'s command surface matches the one its spec §10 specifies | `packages/rp-docx/tests/test_invariants.py` |
 | `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
 | Test modules are imported by path, so same-named ones cannot collide | `ci/test_workspace_invariants.py` |
 | `rp_core` holds no page-label logic and imports no leaf | `ci/test_workspace_invariants.py` |
@@ -156,6 +160,43 @@ if you trip one; each explains what breaks and why.
   envelope reports. Nothing raises a bare builtin: a missing file is
   `MissingFileError`, which is also a `FileNotFoundError` for library callers.
 
+### rp-docx
+
+- **`ooxml.py` is the only place that knows how a `.docx` is packed** — namespace
+  map, zip repack, xpath, content types. python-docx covers none of comments,
+  tracked changes, or `.dotx`.
+- **python-docx does not open a `.dotx` at all.** It reads
+  `[Content_Types].xml`, sees the template content type, and raises
+  `ValueError`. House templates are the normal path here, so use
+  `ooxml.opened(path)` — never `docx.Document(path)` — and `ooxml.save` on the
+  way out, which retypes when the output is named `.dotx`. Asserted by
+  `tests/test_ooxml.py::TestContentTypes`.
+- **`ooxml.xpath` compiles through `etree.XPath`, deliberately.** python-docx
+  subclasses `_Element` and overrides `xpath` with a single-argument version
+  binding *its* namespace map, which omits several namespaces this package
+  needs. Do not call `element.xpath(...)` directly.
+- **`docx/runs.py` is the highest-risk code; read its docstring before editing
+  anything that replaces text.** Word splits a logical string across `w:r` runs
+  arbitrarily, so a naive `run.text.replace()` finds nothing *and reports
+  success*. Every text edit goes through it, and every text edit walks
+  `write.revisable_parts()` — body, table cells, text boxes, headers, footers,
+  footnotes, endnotes. Body-only replacement is the classic silent bug.
+- **Style resolution never falls back.** `templates.require_style` raises,
+  naming the missing style and listing what the template has. It is called at
+  the point of use rather than eagerly over the whole `StyleMap`, because Word
+  defines no code style and an eager check rejects python-docx's own default
+  template. `StyleMap.code` is the one optional role, for that reason.
+- **`TemplateManifest` carries no content, and that is a correctness property.**
+  No document text, no image bytes, no author names, no path beyond the
+  basename — enforced by `tests/test_templates.py::TestManifest`. It is what
+  lets a confidential template be regression-tested from committed JSON. A new
+  field that would break the assertion does not belong in the model.
+- Fixtures are generated in `conftest.py`, including the tracked-changes and
+  comments documents python-docx cannot produce — those are written as XML.
+  **No binary templates in git.** `@pytest.mark.requires_soffice` probes whether
+  LibreOffice can actually *convert*, not merely whether the binary exists: some
+  containers ship a `soffice` that fails every conversion.
+
 ### robo-papyro
 
 `cli.py` reaches leaves through entry-point discovery only — see the
@@ -190,7 +231,11 @@ moves. Don't add one you haven't verified — the gate will, and it will fail.
 ## Testing notes
 
 - Fixture PDFs are generated at run time with reportlab in
-  `packages/rp-pdf/tests/conftest.py` — never commit binary fixtures.
+  `packages/rp-pdf/tests/conftest.py`, and every docx fixture and template is
+  built in `packages/rp-docx/tests/conftest.py` — never commit binary fixtures.
+  A committed `.dotx` is a licensing question, an opaque diff, and a debugging
+  hazard at once: when a test fails you cannot tell whether the code or the
+  template changed.
 - VLM tests run against a fake OpenAI-compatible HTTP server on a local thread
   (`FakeVlm`) — no network, no real keys. VLM env vars (`RP_PDF_VLM_*`,
   `OPENAI_API_KEY`) are cleared via the `vlm_env` fixture; always pass
