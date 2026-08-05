@@ -26,7 +26,8 @@ Phase 0.5 settled the contract decisions Phase 0 surfaced: one error payload
 (the `ErrorEnvelope`) rather than two, JSON output by default with `--plain`
 rather than a `--json` opt-in, generic range parsing in `rp-core` with PDF page
 labels back in `rp-pdf`, a bounded timeout on every subprocess, a pinned ruff
-with a wider rule set, and the workspace's invariants as tests.
+with a wider rule set, the workspace's invariants as tests, and a license gate
+that computes the base install path rather than trusting a comment about it.
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), and archiving `w528-pdf-extraction-toolkit` should happen

@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.1
-**Status:** Phase 0 complete · Phase 0.5 (remediation) ready for implementation
-**Companion document:** `rp-docx-spec.md` v1.1
+**Version:** 1.2
+**Status:** Phase 0 complete · Phase 0.5 (remediation) in implementation
+**Companion document:** `rp-docx-spec.md` v1.2
+
+**Changes from v1.1:** §3 corrects the pytest import-mode setting, which was given as an ini key that does not exist · §4.3 states the semantics of the open-ended range forms it already listed · §4.6 corrects the `emit` signature · §7.1 defines "base install path" and requires the gate to enforce §7.1 in both directions · §8 adds step 8 and moves the base-path check from manual verification to gate enforcement · §9 records `rp-mcp` as a Phase 2 distribution · §11.2 notes what keeps the blast radius small.
 
 **Changes from v1.0:** §2 settled and expanded to record the full rename surface · §4.1 adopts `ErrorEnvelope` as the single error contract · §4.3 splits page parsing between core and leaf · §4.4 revises timeout policy and narrows the binary split · §4.5 introduces `rasterize` as the primitive beneath `render_pages` · §4.6 switches to JSON-by-default and drops the opt-in path · §5 rewritten to describe what was actually extracted · §7 adds a weak-copyleft policy · §8 marked complete and replaced by a Phase 0.5 plan · §10 adds three enforced workspace invariants.
 
@@ -108,7 +110,7 @@ members = ["packages/*"]
 dev = ["pytest>=8,<9", "pytest-cov", "ruff==<pinned>"]
 
 [tool.pytest.ini_options]
-importmode = "importlib"          # see §10, invariant 3
+addopts = ["--import-mode=importlib"]   # see §10, invariant 3
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
@@ -186,6 +188,8 @@ Plus `ErrorDetail` and `ErrorEnvelope` from §4.1.
 
 `rp_core.ranges` parses 1-based inclusive integer range specs and nothing else: `"3"`, `"1-5"`, `"1,3,7-9"`, `"-4"`, `"7-"` → `list[int]`. It serves PDF pages, docx sections, and future sheet or slide selection.
 
+**An omitted endpoint takes the corresponding bound**: `"-4"` is `1..4` and `"7-"` is `7..count`. These two forms were listed here from v1.0 but never implemented — v1.0 described them as part of a module it was directing us to move rather than rewrite, and the module had never accepted them. Phase 0.5 adds them. A bare `"-"` is rejected: it would mean `1..count`, which `"all"` already says, so it is far likelier a typo, and silently selecting an entire document is an expensive way to discover that. Leaf packages that resolve a spec against their own naming — `rp_pdf.pages` against page labels — support the same two forms, so a spec does not change meaning depending on whether a document happens to be labelled.
+
 **PDF page-label resolution stays in `rp-pdf`.** v1.0 §4.3 said to move `pages.py` wholesale; Phase 0 did so and correctly flagged that `parse_page_labels` is PDF-domain logic sitting in a format-agnostic core. Phase 0.5 splits the module: the generic parser becomes `rp_core.ranges`, and label handling returns to `rp_pdf.pages`. Do this before `rp-docx` imports the module and the misplacement calcifies.
 
 ### 4.4 `binaries.py` — discovery and guarded invocation
@@ -233,7 +237,7 @@ render_pages(source: Path, output_dir: Path, *, dpi: int = 150,
 Shared typer conventions so the CLIs cannot drift:
 
 - `plain_option` — the standard `--plain` flag definition
-- `emit(model, plain: bool)` — JSON to stdout by default; human-readable table when `--plain`
+- `emit(model, plain: bool = False)` — JSON to stdout by default; human-readable table when `--plain`. The default is part of the contract: a caller that passes no flag must get JSON without having to think about it
 - `handle_errors` decorator — catches `RoboPapyroError`, writes `ErrorEnvelope` to stderr, exits with `err.exit_code`
 - `doctor_command(*capabilities)` — factory producing a `doctor` subcommand for any CLI
 
@@ -292,9 +296,18 @@ MPL-2.0 and comparable file-level copyleft are **permitted for unmodified transi
 Reasoning:
 - MPL-2.0 obligations attach to distributing *modified* copies of covered files. The suite does neither.
 - `tqdm`'s expression is `AND`, not `OR` — a mixture, meaning MPL genuinely applies to part of it. It cannot be treated as MIT. It is permitted under this policy, not under the approved list.
-- Both enter only through the optional `ai` extra (`openai` → `httpx` → `certifi`; `openai` → `tqdm`). A base `uv pip install rp-core rp-pdf` resolves to 24 distributions, all fully permissive.
+- Both enter only through the optional `ai` extra (`openai` → `httpx` → `certifi`; `openai` → `tqdm`). A base `uv pip install rp-core rp-pdf` resolves to 24 distributions, all fully permissive. This is asserted by the gate rather than recorded by hand — see the requirements below.
 
 **Requirements:** every weak-copyleft entry in `ci/allowed-packages.toml` records the license, the path by which it enters, and why it is acceptable. A weak-copyleft package appearing in the base install path fails the gate regardless of allowlisting. Strong copyleft (GPL, LGPL, AGPL) is never allowlisted as a Python dependency.
+
+**"Base install path"** means the union of the runtime dependencies of the published distributions, resolved with no optional extras and excluding `dependency-groups.dev`. It is what someone gets from `uv pip install rp-core rp-pdf` with no `--extra`, and it is the only part of the graph this policy is strict about.
+
+The license gate enforces §7.1 **in both directions**:
+
+1. **Base path is clean.** No weak-copyleft package may appear in the base install path. Allowlisting does not exempt it — the allowlist answers "what license is this?", not "may it ship in the default install?".
+2. **Tags are true.** Every allowlist entry tagged `extra:<name>` must be verifiably unreachable from the base path. This fails independently of whether the package is otherwise allowed, so a tag going stale is caught even when nothing else is wrong.
+
+Tags in `ci/allowed-packages.toml` are **checked claims about the dependency graph, not annotations**. The distinction matters because the graph moves and the comment does not: `certifi` and `tqdm` are acceptable today only because nothing in the base path reaches them, and that is a fact about `uv.lock` rather than about either package.
 
 ### 7.2 Subprocess-only external binaries
 
@@ -311,7 +324,7 @@ No linkage, no license propagation. Both optional; every path requiring one sits
 
 Phase 0 (§8 of v1.0) is complete: 309 tests green on Python 3.11 and 3.13, `rp-core` at 98% coverage, clean-checkout definition of done verified.
 
-Phase 0.5 settles the decisions Phase 0 surfaced, before Phase 1 builds on them. Steps 1–4 must land before `rp-docx` work begins; steps 5–7 are independent and can land any time as separate PRs.
+Phase 0.5 settles the decisions Phase 0 surfaced, before Phase 1 builds on them. Steps 1–4 must land before `rp-docx` work begins; steps 5–8 are independent and can land any time as separate PRs.
 
 **Step 1 — Adopt `ErrorEnvelope` in `rp-pdf`.**
 Retire the flat `{"error": "msg"}` payload. Delete the dual-shape support in `clikit` — one shape, no argument. Update `rp-pdf` tests asserting the old payload. Verify the `2` and `3` exit paths emit correct `type` and `exit_code`.
@@ -334,7 +347,10 @@ Pin the ruff version in workspace dev deps — the moving implicit default was t
 **Step 7 — Workspace invariants as tests.**
 Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 
-**Definition of done:** suite green; `rp-pdf` and `rp-core` emit identical error structure; no `--json` flag remains anywhere in the suite; `rp_core` contains no PDF-specific identifier; base install path in `uv.lock` free of weak copyleft.
+**Step 8 — Enforce §7.1 in the license gate.**
+`ci/license_gate.py` computes the base install path and fails on any weak-copyleft package found there. Separately, assert every extra-tagged allowlist entry is unreachable from the base path, so a tag going stale fails the build. Tag format is `extra:<name>`; `certifi` and `tqdm` become `extra:ai`. Independent of Phase 1, same group as steps 5–7.
+
+**Definition of done:** suite green; `rp-pdf` and `rp-core` emit identical error structure; no `--json` flag remains anywhere in the suite; `rp_core` contains no PDF-specific identifier; base install path in `uv.lock` verified by the gate to be free of weak copyleft.
 
 ---
 
@@ -345,14 +361,14 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | **0** | Workspace, rename, extract `rp-core`, `rp` umbrella | v1.0 §8 | Complete |
 | **0.5** | Contract decisions and extraction cleanup | §8 above | Ready |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Blocked on 0.5 steps 1–4 and a house template |
-| **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Blocked on 0.5 step 5 |
+| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Blocked on 0.5 step 5 |
 | **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx) | TBD | — |
 
 ---
 
 ## 10. Constraints for All Phases
 
-- **Permissive licenses only**, per §7. Weak copyleft is transitive-and-optional only. If a forbidden dependency seems necessary, stop and ask.
+- **Permissive licenses only**, per §7. Weak copyleft is transitive-and-optional only, and the license gate proves it rather than trusting a comment. If a forbidden dependency seems necessary, stop and ask.
 - **Core logic never prints and never imports typer.** Library functions return pydantic models; CLI modules do all formatting.
 - **One-way dependencies.** `rp-core` imports no leaf package and contains no format-specific identifier. Leaf packages do not import each other.
 - **Don't reimplement `rp-core`.** Range parsing, binary discovery, rasterization, error envelopes, and exit codes have exactly one implementation.
@@ -366,7 +382,7 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 
 1. **Command registration.** `rp-pdf`'s default-action dispatcher parses an unrecognized subcommand as a filename, so any new subcommand must appear in `COMMAND_NAMES` in `cli.py`. This bit the `doctor` command during Phase 0. A test asserts every registered typer command is present in `COMMAND_NAMES`.
 2. **No leaf imports in the umbrella.** A test walks `robo_papyro/cli.py`'s AST and fails on any import of a leaf package.
-3. **Test module collision.** Same-named test modules in different packages collide under pytest's default prepend import mode — this bit `test_render.py`. Root config sets `importmode = "importlib"`. Distinct names remain good practice but are no longer load-bearing.
+3. **Test module collision.** Same-named test modules in different packages collide under pytest's default prepend import mode — this bit `test_render.py`. Root config sets `addopts = ["--import-mode=importlib"]`; there is no ini key for import mode, so the obvious `importmode = "importlib"` is silently ignored, and the test asserts the *effective* mode rather than the config text. Distinct names remain good practice but are no longer load-bearing. A consequence worth knowing: a test module's directory is no longer on `sys.path`, so test modules share helpers through `conftest.py` fixtures rather than by importing each other.
 
 `AGENTS.md` should reference these tests rather than restate the rules; agents skim prose and run suites.
 
@@ -375,5 +391,5 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 ## 11. Open Decisions
 
 1. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one. **This is on the critical path for Phase 1 step 5.**
-2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting.
+2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting. Keeping the fallback that cheap is the point of the §7.1 gate check, and of putting MCP in its own `rp-mcp` distribution rather than in a leaf: whatever the MCP SDK drags in stays out of the base install path by construction.
 3. **Archiving `w528-pdf-extraction-toolkit`** — unblocked; do it once Phase 0.5 is green.

@@ -5,24 +5,24 @@
 
 ## BLUF
 
-**Phase 0.5 is complete — all seven steps, eight commits.** The suite is at
-**343 tests** (from 309), green on Python 3.11 and 3.13, `ruff check` and
+**Phase 0.5 is complete — all eight steps, ten commits.** The suite is at
+**382 tests** (from 309), green on Python 3.11 and 3.13, `ruff check` and
 `ruff format --check` clean under the widened rule set, and verified from a
 clean `git clone` + `uv sync`. Every item in §8's definition of done is met.
 
-Steps 1–4 (the Phase 1 blockers) and steps 5–7 are separate commits on one
-branch rather than separate PRs, because the session was given a single
-designated branch. They can be reviewed as two halves: `3a11548..218366a` is
-the contract work, `54aad11..bee38c0` is the independent work.
+Steps 1–7 landed first; review of that work settled the four spec questions
+below and added **step 8**, which turns §7.1's base-install-path rule from a
+comment into a gate check. Open-ended range forms (`"-4"`, `"7-"`) were
+approved and implemented rather than left rejected. Spec revised to v1.2.
+
+Everything is on one branch rather than separate PRs, because the session was
+given a single designated branch. It reads in three parts: `3a11548..218366a`
+is the contract work (the Phase 1 blockers), `54aad11..bee38c0` is the
+independent work, and the last two commits are the review outcomes.
 
 **Three user-visible contracts changed** and will break anyone scripting
 against them: the error payload, `doctor`'s default output, and
 `rp-pdf markdown --json`. Details in [Behavior changes](#behavior-changes).
-
-**Three places the revised spec is wrong**, one of which needed a judgement
-call I would like confirmed — §8's "no `--json` flag remains anywhere" reaches
-a flag that is not an output-format flag. See
-[Where the revised spec is wrong](#where-the-revised-spec-is-wrong).
 
 ## What landed
 
@@ -35,6 +35,8 @@ a flag that is not an output-format flag. See
 | 5 | `RP_SUBPROCESS_TIMEOUT`, 600s default, `SubprocessTimeout` | `54aad11` |
 | 6 | ruff pinned, `select` widened — mechanical, then manual | `c9a2ec0`, `1072cd1` |
 | 7 | Workspace invariants as tests; AGENTS.md points at them | `bee38c0` |
+| — | Open-ended range forms `"-4"` and `"7-"` (review outcome) | `c7adea2` |
+| 8 | §7.1 enforced by the license gate; spec to v1.2 | `e50a07e` |
 
 ### Step 1 — one error contract
 
@@ -161,11 +163,11 @@ pytest marker with the skip applied in `conftest`, the shared constants and the
 
 | Suite | Before | After |
 |---|---:|---:|
-| `rp-core` | 106 | 110 |
-| `rp-pdf` | 173 | 200 |
+| `rp-core` | 106 | 117 |
+| `rp-pdf` | 173 | 207 |
 | `robo-papyro` | 14 | 14 |
-| license gate + workspace invariants | 16 | 19 |
-| **Total** | **309** | **343** |
+| license gate + workspace invariants | 16 | 44 |
+| **Total** | **309** | **382** |
 
 - Green on **Python 3.11 and 3.13**.
 - Green from a **clean `git clone` + `uv sync`**, with `rp --help`, `rp doctor`,
@@ -213,88 +215,122 @@ but they are the kind of thing that should be in a release note.
 6. **`Optional[X]` is now `X | None`** throughout, from ruff UP045. Runtime
    behavior is identical; typer resolves both.
 
+7. **`--pages` accepts open-ended ranges**: `-4` is "up to 4" and `7-` is "7 to
+   the end", against page labels as well as physical positions. Purely
+   additive — every spec that parsed before still parses the same way. A bare
+   `-` is rejected rather than read as "everything".
+
+8. **Allowlist entries may be tables.** `ci/allowed-packages.toml` now takes
+   `certifi = { license = "MPL-2.0", tag = "extra:ai" }` alongside the bare
+   strings. Only the two weak-copyleft entries need it.
+
 Everything else is unchanged. `rp pdf index FILE` and `rp-pdf index FILE` still
 diff clean, and CI still asserts it.
 
-## Where the revised spec is wrong
+## Where the revised spec was wrong — and how it was resolved
+
+All four went to review on the PR. Every one was accepted; the spec is now
+v1.2 and carries the corrections.
 
 ### 1. §3 and §10 invariant 3 — `importmode` is not a pytest ini key
 
-§3's workspace-configuration block shows:
+§3 showed `importmode = "importlib"` under `[tool.pytest.ini_options]`. pytest
+registers `--import-mode` as a **command-line option only**; there is no
+matching `addini`. Setting that key produces `PytestConfigWarning: Unknown
+config option: importmode` and leaves prepend mode in force — the invariant
+would have looked satisfied while doing nothing.
 
-```toml
-[tool.pytest.ini_options]
-importmode = "importlib"          # see §10, invariant 3
-```
+**Resolved:** the working spelling `addopts = ["--import-mode=importlib"]` is
+what landed, and §3 and §10 now say so.
+`ci/test_workspace_invariants.py` asserts the *effective* mode
+(`pytestconfig.getoption("importmode")`), so a wrong spelling fails rather than
+passing quietly.
 
-pytest registers `--import-mode` as a **command-line option only**; there is no
-matching `addini`. Setting that key produces
-`PytestConfigWarning: Unknown config option: importmode` and leaves prepend
-mode in force — the invariant would have looked satisfied while doing nothing.
-The working spelling is `addopts = ["--import-mode=importlib"]`, which is what
-landed. `ci/test_workspace_invariants.py` asserts the *effective* mode
-(`pytestconfig.getoption("importmode")`) rather than the config text, so a
-wrong spelling fails rather than passing quietly. **§3 should be corrected.**
+### 2. §4.3 — `"-4"` and `"7-"` had never been accepted
 
-### 2. §4.3 — `"-4"` and `"7-"` have never been accepted
+The list of forms was inherited verbatim from v1.0 §4.3, which described a
+module it was directing us to move rather than rewrite — and that module had
+never taken open-ended ranges. Step 3's "no behavior change" meant they had to
+stay rejected for the moment.
 
-§4.3 lists the forms `rp_core.ranges` parses as `"3"`, `"1-5"`, `"1,3,7-9"`,
-`"-4"`, `"7-"`. The last two are open-ended ranges, and no implementation has
-ever taken them: `parse_pages("-4", 10)` raises `PageSpecError`, and a test has
-asserted that since the `pdfx` days. The list is inherited verbatim from v1.0
-§4.3, which described the module it was telling us to *move without rewriting* —
-so it was wrong then too, and step 3's "no behavior change" says it must stay
-wrong for now.
+**Resolved: implemented.** An omitted endpoint now takes the corresponding
+bound — `"-4"` is `1..4`, `"7-"` is `7..count`.
 
-I kept them rejected and pinned it with two named tests
-(`test_open_ended_low_is_rejected`, `test_open_ended_high_is_rejected`) that
-point at this note. **This needs a decision:** either §4.3 drops the two forms,
-or open-ended ranges become a small feature with its own step. They are cheap
-to add (`"-4"` → 1..4, `"7-"` → 7..count) and genuinely useful for "everything
-from here on", but adding them silently inside a move would have been wrong.
+Two judgement calls inside that, both pinned by tests:
 
-### 3. §8's definition of done reaches a flag that is not an output-format flag
+- **A bare `"-"` is rejected.** It would mean `1..count`, which `"all"` already
+  says, so it is far likelier a typo — and silently selecting a 500-page
+  document is an expensive way to find that out. The error names `all`.
+- **`rp_pdf.pages` supports the same two forms against page labels.** The
+  generic parser alone would have made `--pages 7-` work on an unlabelled PDF
+  and fail on a labelled one, which is exactly the kind of "depends what
+  document you point it at" behavior the suite is supposed to avoid. Exact
+  label matching still wins, so a document labelled `A-1` keeps addressing it.
 
-"No `--json` flag remains anywhere in the suite" collided with
-`rp-pdf markdown --json`. That flag does not select a *format*: `markdown`
-emits a document, and `--json` asked for the whole `MarkdownResult` — per-page
-detail and warnings as well as the Markdown body — instead of just the body.
+### 3. §8's definition of done reached a flag that is not an output-format flag
 
-The two readings lead to different work:
+`rp-pdf markdown --json` selected *what* to emit (the whole `MarkdownResult`)
+rather than *how*. Renaming it to `--full` satisfied the constraint without
+flipping the command's default output, which would have silently filled
+`out.md` with JSON for anyone redirecting stdout.
 
-- *Literal §4.6 reading:* make `markdown` JSON-by-default with `--plain` for
-  the Markdown. This silently breaks `rp-pdf markdown f.pdf > out.md`, the
-  command's primary documented use, by filling the file with JSON. It is also
-  not in any step.
-- *What I did:* rename the flag to `--full`, keeping its meaning and
-  `markdown`'s default output. The literal constraint is satisfied — a test
-  walks every subcommand's `--help` and fails on `--json` — and the break is
-  loud (unknown option) rather than silent (wrong file contents).
+**Resolved:** approach confirmed on review, no change needed.
 
-I took the second because the risk is asymmetric, but it is a contract change
-made on my own reading of intent, so **please confirm**. If you want the first,
-it is a small follow-up.
+### 4. §7.1's base-install rule was documented but not enforced
 
-### 4. §7.1's base-install rule is documented but not enforced
+"A weak-copyleft package appearing in the base install path fails the gate" was
+a comment in `ci/allowed-packages.toml`, not a check. Nothing stopped the base
+path from silently stopping being clean.
 
-§7.1 says "A weak-copyleft package appearing in the base install path fails the
-gate regardless of allowlisting." `ci/allowed-packages.toml` records the policy
-and tags `certifi` and `tqdm` as `ai-extra`, but `ci/license_gate.py` does not
-compute the base install path, so the rule is a comment rather than a check.
-No step in §8 assigns it, so I did not add it — flagging it as a gap rather
-than doing unrequested work.
-
-I did **verify** the current state, which is what §8's definition of done asks
-for: a base `uv pip install rp-core rp-pdf` resolves to **24 distributions**,
-none of them `certifi`, `tqdm`, `httpx`, or `openai`. The base path is clean
-today; nothing stops it from silently stopping being clean.
+**Resolved: step 8.** §7.1 now defines the term and requires enforcement in
+both directions, and `ci/license_gate.py` implements it — see
+[Step 8](#step-8--71-enforced-by-the-license-gate) below.
 
 ### 5. Minor: §4.6's `emit` signature
 
-§4.6 gives `emit(model, plain: bool)`. Implemented as
-`emit(result, plain: bool = False)` — the default matters, because "JSON by
-default" should be what a caller gets from `emit(result)` with no thought at
-all. Noted only for exactness.
+§4.6 gave `emit(model, plain: bool)`; the implementation is
+`emit(result, plain: bool = False)`, because "JSON by default" should be what a
+caller gets from `emit(result)` with no thought at all. **Resolved:** §4.6
+carries the default and says why.
+
+## Step 8 — §7.1 enforced by the license gate
+
+Two checks, deliberately independent, because they fail for different reasons.
+
+**Base path is clean.** `base_install_path()` walks each locked package's
+`dependencies` from the published distributions. uv keeps extras under
+`optional-dependencies` and the dev group under `dev-dependencies`, so
+following the one key *is* "no extras, no dev group" — nothing to filter, and
+nothing to fall out of step with how the extras happen to be declared. Any
+weak-copyleft license found on a package in that set fails the build, and
+allowlisting does not exempt it: the allowlist answers "what license is this?",
+not "may it ship in the default install?".
+
+**Tags are true.** Allowlist entries may now be tables carrying
+`tag = "extra:ai"`. Every tagged entry must be unreachable from the base path,
+must use the `extra:<name>` form, and must name an extra some distribution
+actually declares. This fires independently of the license — an MIT package
+with a false tag still fails, because the claim about the graph is what is
+being checked. `certifi` and `tqdm` carry the tags; the comment that used to
+assert their reachability is gone.
+
+On the weak-copyleft classifier: any weak identifier in an SPDX expression
+counts, **including inside an `OR`**. A permissive alternative may well make a
+package fine, but that is a judgement for a human to record rather than
+something the gate should decide silently. No current dependency has such an
+expression.
+
+The gate now reports the base path in its success line:
+
+```
+license gate passed: 46 packages, all reviewed; base install path is
+26 distributions, free of weak copyleft.
+```
+
+26, not the 24 the earlier note quoted: that count was a Linux
+`uv pip install rp-core rp-pdf`. The gate's figure adds `robo-papyro` and
+Windows-only `colorama`, and is platform-independent by construction — which is
+what a license check should be.
 
 ## Definition of done (§8)
 
@@ -304,19 +340,19 @@ all. Noted only for exactness.
 | `rp-pdf` and `rp-core` emit identical error structure | One `ErrorEnvelope`, one code path; asserted in unit tests and CI smoke |
 | No `--json` flag remains anywhere in the suite | `test_no_json_flag_on_any_command` walks every subcommand's `--help`; see spec note 3 |
 | `rp_core` contains no PDF-specific identifier | `test_rp_core_models_no_page_labels`, AST-based |
-| Base install path in `uv.lock` free of weak copyleft | Verified: 24 distributions, none weak-copyleft; see spec note 4 |
+| Base install path in `uv.lock` verified by the gate to be free of weak copyleft | Enforced by `ci/license_gate.py`, in both directions; 26 distributions, none weak-copyleft |
 
 ## Still open
 
 - **§11.1 template provenance** — unchanged, and on the critical path for
   Phase 1 step 5.
 - **§11.2 compliance sign-off on §7.1** — unchanged; the only item with an
-  external clock.
+  external clock. The gate check added in step 8 does not change the policy,
+  only whether the repo can drift out of compliance with it unnoticed.
 - **§11.3 archiving `w528-pdf-extraction-toolkit`** — was blocked on Phase 0.5
   being green. It is green.
-- The four spec corrections above, of which **spec note 3 wants an explicit
-  yes/no** and note 2 wants a decision before `rp-docx` starts using
-  `rp_core.ranges`.
+- **`rp-mcp`** is recorded in §9 as a Phase 2 distribution isolating MCP's
+  dependency tree; the larger spec change for it is a future PR.
 
 ## Next
 

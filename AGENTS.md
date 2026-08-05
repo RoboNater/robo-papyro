@@ -173,8 +173,19 @@ pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer
 `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
 
 LibreOffice (MPL-2.0) and poppler (GPL-2.0) are fine because they are only ever
-invoked as subprocesses — no linkage, no license propagation. CI fails the build
-if a package outside the approved list appears in `uv.lock`.
+invoked as subprocesses — no linkage, no license propagation.
+
+`ci/license_gate.py` fails the build on four things: a forbidden package
+anywhere in `uv.lock`; a package not in `ci/allowed-packages.toml`; **weak
+copyleft (MPL and friends) anywhere in the base install path**; and an
+allowlist entry tagged `extra:<name>` that turns out to be reachable from the
+base path anyway. The *base install path* is the runtime dependencies of the
+published distributions with no extras and no dev group — what `uv pip install
+rp-core rp-pdf` gives you.
+
+That last check is why tags are written `tag = "extra:ai"` in a table rather
+than as a comment: a tag is a claim about the dependency graph, and the graph
+moves. Don't add one you haven't verified — the gate will, and it will fail.
 
 ## Testing notes
 
