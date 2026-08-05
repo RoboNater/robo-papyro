@@ -40,9 +40,11 @@ def parse_page_labels(spec: PageSpec, labels: Sequence[str]) -> list[int]:
     """Parse a page spec against a PDF's page labels (one label per physical page).
 
     Items are labels ("iv", "FM2", "5") or label ranges ("i-xx", "1-30"); ranges
-    cover the physical span between their endpoints. Returns sorted, de-duplicated
-    1-based physical page numbers. An item that exactly matches a label wins over
-    range interpretation, so labels containing hyphens stay addressable.
+    cover the physical span between their endpoints, and an omitted endpoint
+    takes the document's ("-iv" is the first page through "iv", "7-" is "7"
+    through the last page). Returns sorted, de-duplicated 1-based physical page
+    numbers. An item that exactly matches a label wins over range
+    interpretation, so labels containing hyphens stay addressable.
     """
     spec = spec.strip()
     if not spec:
@@ -73,9 +75,31 @@ def _resolve_label_item(item: str, labels: Sequence[str], spec: str) -> tuple[in
             reversed_range = (start, end)
     if reversed_range is not None:
         raise PageSpecError(f"Reversed range {item!r} in page spec {spec!r}")
+    open_ended = _resolve_open_ended(item, labels, spec)
+    if open_ended is not None:
+        return open_ended
     raise PageSpecError(
         f"No page labeled {item!r} in this PDF (labels run from {labels[0]!r} to {labels[-1]!r})"
     )
+
+
+def _resolve_open_ended(item: str, labels: Sequence[str], spec: str) -> tuple[int, int] | None:
+    """Label equivalents of rp_core.ranges' open endpoints: "-iv" and "7-".
+
+    Tried only after an exact label match and a closed label range have both
+    failed, so a document whose labels contain hyphens keeps addressing them.
+    """
+    if item == "-":
+        raise PageSpecError(
+            f"Ambiguous item '-' in page spec {spec!r}; write 'all' to select every page"
+        )
+    if item.startswith("-"):
+        end = _find_label(item[1:], labels)
+        return (1, end) if end is not None else None
+    if item.endswith("-"):
+        start = _find_label(item[:-1], labels)
+        return (start, len(labels)) if start is not None else None
+    return None
 
 
 def _find_label(label: str, labels: Sequence[str]) -> int | None:

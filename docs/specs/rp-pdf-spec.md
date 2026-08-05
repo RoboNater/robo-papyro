@@ -99,7 +99,8 @@ def render_pages(path: Path, pages: PageSpec, out_dir: Path,
     # wraps rp_core.render.rasterize, resolving page labels and naming files by label
 ```
 
-`PageSpec` accepts: `"all"`, single page `"5"`, range `"3-7"`, mixed list `"1,3-5,9"`.
+`PageSpec` accepts: `"all"`, single page `"5"`, range `"3-7"`, open-ended range
+`"-4"` or `"7-"`, mixed list `"1,3-5,9"`.
 Specs are interpreted against the document's page labels when it has them, and against
 1-based physical positions otherwise or with `--physical`. Every per-page result carries
 both `physical_page` and `labeled_page`.

@@ -77,3 +77,33 @@ class TestParsePageLabels:
     def test_empty_list_item(self):
         with pytest.raises(PageSpecError):
             parse_page_labels("cover,,1", LABELS)
+
+
+class TestOpenEndedLabelRanges:
+    """The label equivalents of rp_core.ranges' open endpoints, so `--pages 7-`
+    does not mean different things depending on whether the PDF has labels."""
+
+    def test_omitted_start_runs_from_the_first_physical_page(self):
+        assert parse_page_labels("-ii", LABELS) == [1, 2, 3, 4, 5, 6]
+
+    def test_omitted_end_runs_to_the_last_physical_page(self):
+        assert parse_page_labels("2-", LABELS) == [9, 10]
+
+    def test_mixed_with_closed_forms(self):
+        assert parse_page_labels("-FM1,i-ii,3-", LABELS) == [1, 2, 5, 6, 10]
+
+    def test_exact_hyphenated_label_still_wins(self):
+        """A document labeled "A-1" must keep addressing it, not read a trailing
+        hyphen as an open range."""
+        assert parse_page_labels("A-1", HYPHEN_LABELS) == [1]
+
+    def test_open_ended_over_hyphenated_labels(self):
+        assert parse_page_labels("A-2-", HYPHEN_LABELS) == [2, 3]
+
+    def test_unknown_label_in_an_open_range(self):
+        with pytest.raises(PageSpecError, match="No page labeled"):
+            parse_page_labels("xyz-", LABELS)
+
+    def test_bare_hyphen_is_rejected(self):
+        with pytest.raises(PageSpecError, match="Ambiguous"):
+            parse_page_labels("-", LABELS)

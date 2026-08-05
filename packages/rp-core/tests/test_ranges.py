@@ -67,16 +67,43 @@ class TestParseRangeSpecErrors:
         with pytest.raises(RangeSpecError):
             parse_range_spec("1-2-3", 10)
 
-    def test_open_ended_low_is_rejected(self):
-        """Spec section 4.3 lists "-4" and "7-" among the accepted forms, but no
-        implementation has ever taken them and Phase 0.5 step 3 is a move, not a
-        rewrite. See dev-notes/status-robo-papyro-phase-0.5.md."""
-        with pytest.raises(RangeSpecError):
-            parse_range_spec("-4", 10)
 
-    def test_open_ended_high_is_rejected(self):
+class TestOpenEndedRanges:
+    """Spec section 4.3: an omitted endpoint takes the corresponding bound."""
+
+    def test_omitted_start(self):
+        assert parse_range_spec("-4", 10) == [1, 2, 3, 4]
+
+    def test_omitted_end(self):
+        assert parse_range_spec("7-", 10) == [7, 8, 9, 10]
+
+    def test_omitted_end_at_the_last_item(self):
+        assert parse_range_spec("10-", 10) == [10]
+
+    def test_whitespace_tolerated(self):
+        assert parse_range_spec(" - 4 , 9 - ", 10) == [1, 2, 3, 4, 9, 10]
+
+    def test_mixed_with_closed_forms(self):
+        assert parse_range_spec("-2,5,8-", 10) == [1, 2, 5, 8, 9, 10]
+
+    def test_out_of_range_start_reports_the_bound_not_a_reversed_range(self):
+        """ "7-" against a 5-item document is out of range, not backwards."""
+        with pytest.raises(RangeSpecError, match="7 is out of range"):
+            parse_range_spec("7-", 5)
+
+    def test_out_of_range_end(self):
+        with pytest.raises(RangeSpecError, match="12 is out of range"):
+            parse_range_spec("-12", 10)
+
+    def test_bare_hyphen_is_rejected(self):
+        """It would mean 1..count, which "all" already says; far likelier a typo,
+        and silently selecting everything is an expensive way to find out."""
+        with pytest.raises(RangeSpecError, match="Ambiguous"):
+            parse_range_spec("-", 10)
+
+    def test_still_rejects_a_malformed_open_range(self):
         with pytest.raises(RangeSpecError):
-            parse_range_spec("7-", 10)
+            parse_range_spec("-4-6", 10)
 
 
 class TestNoun:

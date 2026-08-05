@@ -1,8 +1,10 @@
 """Range-specification parsing — generic, and generic only.
 
-A range spec is a string of comma-separated items, each either a single number
-("5") or an inclusive range ("3-7"). The literal "all" (any case) selects
-everything. Numbers are 1-based, matching every user-facing index in the suite.
+A range spec is a string of comma-separated items, each a single number ("5"),
+an inclusive range ("3-7"), or a range with one end omitted — "-4" is
+"everything up to 4" and "7-" is "7 to the end". The literal "all" (any case)
+selects everything. Numbers are 1-based, matching every user-facing index in
+the suite.
 
 This serves PDF pages, docx sections, and whatever sheet or slide selection
 comes later, so it knows nothing about any of them. ``noun`` only shapes the
@@ -33,8 +35,9 @@ class RangeSpecError(InputError, ValueError):
 def parse_range_spec(spec: RangeSpec, count: int, *, noun: str = "item") -> list[int]:
     """Parse a range spec into a sorted, de-duplicated list of 1-based numbers.
 
-    Raises :class:`RangeSpecError` for malformed specs or values outside
-    ``1..count``.
+    An omitted endpoint takes the corresponding bound: ``"-4"`` is ``1..4`` and
+    ``"7-"`` is ``7..count``. Raises :class:`RangeSpecError` for malformed specs
+    or values outside ``1..count``.
     """
     spec = spec.strip()
     if not spec:
@@ -49,18 +52,36 @@ def parse_range_spec(spec: RangeSpec, count: int, *, noun: str = "item") -> list
         item = item.strip()
         if not item:
             raise RangeSpecError(f"Empty item in {noun} spec {spec!r}")
-        first, sep, last = item.partition("-")
-        start = _parse_number(first, spec, noun)
-        end = _parse_number(last, spec, noun) if sep else start
-        if end < start:
-            raise RangeSpecError(f"Reversed range {item!r} in {noun} spec {spec!r}")
+        start, end = _endpoints(item, count, spec, noun)
+        # Bounds before ordering: for "7-" against a 5-page document, "page 7 is
+        # out of range" is the true diagnosis and "reversed range" is not.
         for number in (start, end):
             if not 1 <= number <= count:
                 raise RangeSpecError(
                     f"{noun.capitalize()} {number} is out of range; valid {noun}s are 1-{count}"
                 )
+        if end < start:
+            raise RangeSpecError(f"Reversed range {item!r} in {noun} spec {spec!r}")
         numbers.update(range(start, end + 1))
     return sorted(numbers)
+
+
+def _endpoints(item: str, count: int, spec: str, noun: str) -> tuple[int, int]:
+    """The inclusive (start, end) an item denotes, before bounds checking."""
+    first, sep, last = item.partition("-")
+    if not sep:
+        number = _parse_number(first, spec, noun)
+        return number, number
+    if not first.strip() and not last.strip():
+        # "-" would mean 1..count, which is what "all" already says. Far more
+        # likely a typo, and silently selecting everything is an expensive way
+        # to find that out.
+        raise RangeSpecError(
+            f"Ambiguous item '-' in {noun} spec {spec!r}; write 'all' to select every {noun}"
+        )
+    start = _parse_number(first, spec, noun) if first.strip() else 1
+    end = _parse_number(last, spec, noun) if last.strip() else count
+    return start, end
 
 
 def contiguous_runs(numbers: Sequence[int]) -> list[tuple[int, int]]:

@@ -18,7 +18,14 @@ identical across the suite.
   | `all`       | every page (default)             |
   | `5`         | page 5                           |
   | `3-7`       | pages 3 through 7, inclusive     |
+  | `-4`        | everything up to page 4          |
+  | `7-`        | page 7 through the end           |
   | `1,3-5,9`   | mixed list; deduplicated, sorted |
+
+  An omitted endpoint takes the document's. A bare `-` is rejected rather than
+  read as "everything" — `all` already says that, and a lone hyphen is far more
+  likely a typo. Open-ended forms work against page labels too, so `--pages 7-`
+  means the same thing whether or not the PDF is labelled.
 
 - **Page numbering follows the document's page labels when it has them** (see
   [Page labels](#page-labels) below); otherwise pages are numbered 1-based from

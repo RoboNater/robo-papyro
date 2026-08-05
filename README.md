@@ -66,7 +66,8 @@ automatically; nothing in `robo-papyro` changes.
 
 ## rp-pdf
 
-`--pages` accepts `all`, `5`, `3-7`, or `1,3-5,9`. When the PDF defines page labels
+`--pages` accepts `all`, `5`, `3-7`, `-4` (up to 4), `7-` (7 to the end), or
+`1,3-5,9`. When the PDF defines page labels
 (ebook-style `cover`, `i`-`xx`, restarting at `1` for content), specs are interpreted
 against those labels — matching what PDF readers display; pass `--physical` for
 plain 1-based physical numbering.
