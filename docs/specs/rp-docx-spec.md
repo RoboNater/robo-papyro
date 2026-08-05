@@ -1,8 +1,12 @@
 # rp-docx — Word Document Toolkit Specification
 
-**Version:** 1.0
-**Status:** Ready for implementation (Phase 1)
-**Parent document:** `robo-papyro-spec.md` — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
+**Version:** 1.2
+**Status:** Ready for implementation (Phase 1), blocked only on Phase 0.5 steps 1–4
+**Parent document:** `robo-papyro-spec.md` v1.1 — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
+
+**Changes from v1.1:** §5 adds template manifests and synthesis · §5.3 adds the `.dotx` content-type handling · §10 adds `templates manifest` and `templates synthesize` · §11 replaces the corporate-template dependency with three synthetic fixtures and states the no-binary-templates-in-git rule · §12 step 4 no longer blocks on a corporate file; Phase 1 is now fully self-contained.
+
+**Changes from v1.0:** layout and §4 updated for the `rasterize` / `render_pages` split · §3 drops models now owned by `rp-core` · §10 switches to JSON-by-default with `--plain`.
 
 ---
 
@@ -29,8 +33,8 @@ packages/rp-docx/
 ├── src/rp_docx/
 │   ├── __init__.py         # public API re-exports
 │   ├── models.py           # docx-specific pydantic models only
-│   ├── ooxml.py            # namespace map, zip unpack/repack, xpath helpers
-│   ├── templates.py        # resolution, inspection, StyleMap
+│   ├── ooxml.py            # namespace map, zip unpack/repack, xpath, content types
+│   ├── templates.py        # resolution, inspection, StyleMap, manifest, synthesis
 │   ├── docx/
 │   │   ├── read.py
 │   │   ├── write.py
@@ -39,12 +43,14 @@ packages/rp-docx/
 │   ├── cli.py              # typer — formatting and printing only
 │   └── mcp_server.py       # Phase 2 stub
 └── tests/
-    ├── conftest.py         # fixture generators (build .docx via python-docx)
-    ├── fixtures/           # hand-made files for tracked-changes/comments
+    ├── conftest.py         # generates all fixture documents and templates
+    ├── fixtures/
+    │   ├── *.manifest.json # template shapes — text, not binaries
+    │   └── *.docx          # ONLY the hand-made tracked-changes/comments files
     └── test_*.py
 ```
 
-`Capability`, `ErrorEnvelope`, the error hierarchy, page-spec parsing, rendering, and CLI conventions come from `rp_core`. Do not redefine them.
+**Owned by `rp-core`, never redefined here:** `Capability`, `ErrorDetail`, `ErrorEnvelope`, the exception hierarchy, range parsing (`rp_core.ranges`), binary discovery, rasterization, and all CLI conventions.
 
 `runs.py` is its own module because both `write.replace_text` and `template.fill_template` depend on it, and it is the highest-risk code in the package.
 
@@ -54,6 +60,7 @@ packages/rp-docx/
 - All paths in and out are `pathlib.Path`
 - User-facing indices are 1-based
 - No in-place mutation unless an explicit `output` path or `--in-place` is given
+- Package-specific settings use the `RP_DOCX_*` prefix (parent §2)
 
 ### Dependencies
 `rp-core`, `python-docx` (MIT), `lxml` (BSD-3, transitive), `mammoth` (BSD-2), `typer` (MIT), `pydantic` (MIT), `Pillow` (MIT-CMU).
@@ -147,13 +154,38 @@ class CoreProperties(BaseModel):
     category: str | None
     keywords: str | None
 
+class StyleDef(BaseModel):
+    name: str
+    type: Literal["paragraph", "character", "table", "numbering"]
+    builtin: bool
+    base_style: str | None
+
 class TemplateInfo(BaseModel):
     name: str
     path: Path
     format: Literal["dotx", "docx"]
-    styles: list[str]            # paragraph + character styles available
+    styles: list[StyleDef]
     page_size: str
     has_letterhead: bool
+
+class TemplateManifest(BaseModel):
+    """Redacted-by-construction description of a template's shape.
+
+    Carries structure only — style names, page geometry, presence flags.
+    Never document text, never image bytes. Safe to commit and to share
+    outside the environment holding the original template.
+    """
+    name: str
+    format: Literal["dotx", "docx"]
+    styles: list[StyleDef]
+    page_size: str
+    page_margins_twips: dict[str, int] | None
+    default_paragraph_style: str | None
+    has_letterhead: bool
+    header_image_count: int
+    footer_present: bool
+    section_count: int
+    stylemap: StyleMap | None      # if a .stylemap.json sits beside the template
 
 class StyleMap(BaseModel):
     h1: str = "Heading 1"
@@ -224,23 +256,26 @@ list_templates() -> list[TemplateInfo]
 resolve_template(name_or_path: str | Path | None) -> Path
 inspect_template(path: Path) -> TemplateInfo
 load_stylemap(template: Path) -> StyleMap
+build_manifest(path: Path) -> TemplateManifest
+synthesize(manifest: TemplateManifest, output: Path) -> Path
 fill_template(template: str | Path, context: dict, output: Path, *,
               strict: bool = True) -> FillResult
 ```
 
 ### Render / convert
 
-Thin re-exports of `rp_core.render.render_pages` and `rp_core.binaries.soffice_convert`. No implementation in this package.
+Thin re-exports of `rp_core.render.render_pages` and `rp_core.binaries.soffice_convert`. `rp-docx` has no numbering or naming requirements beyond the default, so it uses the convenience wrapper and never touches `rasterize` directly. No rendering implementation lives in this package.
 
 ---
 
-## 5. Templates Are First-Class
+## 5. Templates
 
-House templates exist and are the normal path, not the exception. `create()` and `fill_template()` default to a house template rather than python-docx's built-in default.
+House templates are the normal path, not the exception. `create()` and `fill_template()` default to a house template rather than python-docx's built-in default.
 
-**Resolution order:**
+### 5.1 Resolution
+
 1. Explicit `Path` that exists → use it
-2. Bare name (e.g. `"memo"`) → resolve against `RP_TEMPLATE_DIR`, then `<repo>/templates/`, trying `<name>.dotx` then `<name>.docx`
+2. Bare name (e.g. `"memo"`) → resolve against `RP_DOCX_TEMPLATE_DIR`, then `<repo>/templates/`, trying `<name>.dotx` then `<name>.docx`
 3. `None` → the configured default template name, or python-docx's built-in if none configured
 4. Unresolvable name → `InputError` listing available templates
 
@@ -248,7 +283,36 @@ House templates exist and are the normal path, not the exception. `create()` and
 
 If a mapped style is absent from the template, raise `InputError` naming the missing style and listing what the template does have. **Never silently fall back**: that produces documents which look wrong in ways nobody notices until review.
 
-**Required test:** create from a template → read back → assert house styles survive round-trip and header/section content is preserved.
+### 5.2 Manifests and synthesis
+
+The real house templates are confidential and cannot enter this repository. `TemplateManifest` solves this: it captures a template's *shape* — style names, page geometry, presence flags — and no content whatsoever.
+
+**The loop:**
+1. `build_manifest()` runs against the real template, wherever it lives, and emits JSON
+2. That JSON is committed to `tests/fixtures/` — it is text, diffable, and carries nothing confidential
+3. `synthesize()` reconstructs a structurally equivalent `.dotx` from the manifest at test time
+4. CI exercises the real template's shape without the file ever leaving the machine that holds it
+
+This also makes debugging shareable: a manifest can be pasted into an issue or a conversation where the template itself could not.
+
+**Redaction is a correctness property, not a convention.** `TemplateManifest` must never carry document text, image bytes, author names, or file paths outside the template's own basename. Add a test asserting that a manifest built from a template containing distinctive body text does not contain that text anywhere in its serialized form. If a future field would violate this, it does not belong in the manifest.
+
+`synthesize()` reproduces: style definitions (name, type, base style), page size and margins, section count, and a placeholder header image when `has_letterhead` is set. It does not attempt to reproduce fonts, colors, or spacing — the goal is structural equivalence for testing style resolution, not visual fidelity.
+
+### 5.3 `.dotx` handling
+
+`.dotx` and `.docx` differ chiefly in `[Content_Types].xml`: the template content type is `application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml`.
+
+`ooxml.py` provides:
+
+```python
+retype_as_template(path: Path, output: Path | None = None) -> Path
+retype_as_document(path: Path, output: Path | None = None) -> Path
+```
+
+so fixtures can produce genuine `.dotx` files and so `synthesize()` can emit the right type.
+
+**Verify early** whether `python-docx` opens `.dotx` without complaint, and whether it round-trips the content type or silently rewrites it. If it does not, that is a real finding and belongs in step 4's report, not discovered in step 7. `resolve_template` must find `.dotx` before `.docx` when both exist — test this.
 
 ---
 
@@ -286,7 +350,7 @@ Minimal, safe substitution:
 - Syntax: `{{ key }}` and `{{ key.subkey }}` only. **No expression evaluation, no Jinja.**
 - Loops and conditionals are out of scope — generate from markdown instead
 - Reuses `runs.py`; the same run-splitting problem applies to placeholders
-- `strict=True` raises on unresolved placeholders; `strict=False` leaves them and reports them in `FillResult.unresolved`
+- `strict=True` raises `InputError` on unresolved placeholders; `strict=False` leaves them and reports them in `FillResult.unresolved`
 
 ---
 
@@ -303,16 +367,16 @@ Minimal, safe substitution:
 ## 10. CLI Design
 
 ```
-rp-docx doctor                                # delegates to rp_core.doctor
+rp-docx doctor                                # via rp_core.clikit.doctor_command
 
-rp-docx index      FILE [--json]
-rp-docx text       FILE [--style STYLE] [--runs] [--json]
+rp-docx index      FILE [--plain]
+rp-docx text       FILE [--style STYLE] [--runs] [--plain]
 rp-docx markdown   FILE [-o OUT] [--embed-images]
 rp-docx tables     FILE [--index N] [--format json|csv|md] [-o DIR]
-rp-docx images     FILE -o DIR [--json]
-rp-docx comments   FILE [--json] [--author NAME]
-rp-docx changes    FILE [--json] [--author NAME]
-rp-docx props      FILE [--json]
+rp-docx images     FILE -o DIR [--plain]
+rp-docx comments   FILE [--author NAME] [--plain]
+rp-docx changes    FILE [--author NAME] [--plain]
+rp-docx props      FILE [--plain]
 
 rp-docx create     -o OUT [--from-markdown FILE] [--template NAME|PATH]
                           [--page-size letter|a4]
@@ -323,25 +387,64 @@ rp-docx template   TEMPLATE --context JSON -o OUT [--no-strict]
 rp-docx accept     FILE [-o OUT] [--author NAME]
 rp-docx reject     FILE [-o OUT] [--author NAME]
 
-rp-docx templates list [--json]
-rp-docx templates inspect NAME [--json]
+rp-docx templates list                [--plain]
+rp-docx templates inspect NAME        [--plain]
+rp-docx templates manifest FILE       [-o OUT.manifest.json]
+rp-docx templates synthesize MANIFEST -o OUT.dotx
+rp-docx templates stylemap FILE       [-o OUT.stylemap.json]   # scaffold, best-effort
 
 rp-docx convert    FILE --to pdf|odt|html [-o OUT]
 rp-docx render     FILE -o DIR [--dpi 150] [--pages 1-5]
 ```
 
-**Rules.** `--json` on every read command emits the model via `model_dump_json()` — this is the agent-facing path and must be stable and complete. Default output is human-readable. Errors, exit codes, and `--json` handling all come from `rp_core.clikit`. Never overwrite an input file without `--in-place`.
+`templates stylemap` emits a best-effort `StyleMap` scaffold by matching a template's style names against common patterns, for a human to correct. It is a convenience, never authoritative — a generated stylemap must be reviewed before use, and the command says so in its output.
+
+**Rules.**
+- **JSON is the default output** for every read command, emitted via `model_dump_json()`. This is the agent-facing path and must be stable and complete. `--plain` produces human-readable output. There is no `--json` flag — parent §4.6.
+- Errors, exit codes, and the `ErrorEnvelope` payload come from `rp_core.clikit`. Do not construct error output locally.
+- `--pages` accepts the range syntax parsed by `rp_core.ranges`.
+- Never overwrite an input file without `--in-place`.
+- Every new subcommand must be registered wherever the CLI's dispatcher requires it, and the invariant test in parent §10 must cover this CLI too.
 
 ---
 
 ## 11. Testing
 
-- `conftest.py` generates fixture `.docx` files programmatically with `python-docx`: headings, styled runs, nested tables, images, headers/footers
-- Tracked-changes and comments fixtures **cannot** be generated by `python-docx`. The implementation should report which hand-made files are needed; expect 2–3 small files under `tests/fixtures/`, each < 30 KB
+### 11.1 No binary templates in git
+
+Template fixtures are **generated at test time**, not committed. A downloaded or corporate `.dotx` in the repo is a licensing question, an opaque diff, and a debugging hazard all at once — when a test fails you cannot tell whether the code or the template changed.
+
+`templates/local/` is gitignored and documented in `templates/README.md` as the drop point for real templates during manual testing. Nothing there is ever required for CI.
+
+The only committed binaries are the two or three hand-made tracked-changes/comments files in §11.3, which `python-docx` genuinely cannot produce.
+
+### 11.2 Three synthetic templates, built in `conftest.py`
+
+Fixtures should be **adversarial**, not realistic. Realism is not what catches bugs here.
+
+| Fixture | Purpose |
+|---|---|
+| `minimal` | Built-in style names only, Letter, no header. The happy path and the default-`StyleMap` path. |
+| `house_like` | Non-Word style names (`"RP Body Text"`, `"House Heading 1"`), a style name containing a space and a non-ASCII character (`"Résumé Heading"`), A4 page size, a header containing an image, a linked character style, and a `.stylemap.json` beside it. |
+| `hostile` | Missing a style the `StyleMap` maps to; no `.stylemap.json`; a style whose name differs from another only by case. Exists to prove failures are loud. |
+
+Required assertions:
+- `house_like` round-trips: create → read → house styles preserved, header and section content intact
+- `hostile` raises `InputError` naming the missing style and listing what the template does have — never a silent fallback
+- A4 from `house_like` wins over `create()`'s Letter default
+- `resolve_template` prefers `.dotx` over `.docx` when both exist
+- A manifest built from a template containing distinctive body text does not contain that text (§5.2)
+- `synthesize(build_manifest(t))` produces a template whose `TemplateInfo.styles` equals the original's
+
+### 11.3 Everything else
+
+- Document fixtures (headings, styled runs, nested tables, images, headers/footers) are generated programmatically in `conftest.py`
+- Tracked-changes and comments fixtures **cannot** be generated by `python-docx`. The implementation should report which hand-made files are needed; expect 2–3 files under `tests/fixtures/`, each < 30 KB
+- Test module names must not collide with those in other packages. `importmode = "importlib"` at the workspace root makes this non-fatal, but distinct names remain the convention
 - Round-trip tests: create → read → assert; replace → read → assert; accept-changes → assert no `w:ins`/`w:del` remain
 - Explicit test that replacement works in table cells, headers, and footers
 - Explicit test for a placeholder split across runs
-- Explicit test that a template's house styles survive create → read
+- Explicit test that read commands emit JSON with no flag, and human output with `--plain`
 - Mark LibreOffice-dependent tests `@pytest.mark.requires_soffice` and skip cleanly when absent
 - Target > 85% coverage on `docx/`, `ooxml.py`, and `templates.py`
 
@@ -349,22 +452,38 @@ rp-docx render     FILE -o DIR [--dpi 150] [--pages 1-5]
 
 ## 12. Phase 1 — Execution Plan
 
-**Step 1.** Scaffold `packages/rp-docx/` as a workspace member depending on `rp-core`. Entry point `rp-docx`, plus the `robo_papyro.commands` entry point registering `docx`.
+Prerequisite: Phase 0.5 steps 1–4 merged. **No corporate template is required at any point.**
 
-**Step 2.** Implement `models.py` per §3, minus anything already in `rp_core` — import those.
+**Step 1.** Scaffold `packages/rp-docx/` as a workspace member depending on `rp-core`. Entry point `rp-docx`, plus the `robo_papyro.commands` entry point registering `docx`. Verify `rp docx --help` resolves through the umbrella before writing further code.
 
-**Step 3.** Implement `ooxml.py`: namespace map, zip unpack/repack, xpath helpers. Tests first.
+**Step 2.** Implement `models.py` per §3, minus anything owned by `rp_core` — import those.
 
-**Step 4.** Implement `docx/runs.py` per §6 as a standalone, unit-tested function, before anything depends on it. Cover all four required cases.
+**Step 3.** Implement `ooxml.py`: namespace map, zip unpack/repack, xpath helpers, and the content-type retyping from §5.3. Tests first. Report whether `python-docx` opens and round-trips `.dotx` cleanly.
 
-**Step 5.** Implement `templates.py` per §5. Then **stop and report**: run `rp-docx templates inspect` against the real house template and show the style list, so the first `.stylemap.json` can be authored by hand before the rest hardens around guesses.
+**Step 4.** Implement `templates.py` per §5, and build the three synthetic fixtures from §11.2 in `conftest.py`. Then **report**: show `inspect_template` output for `house_like`, the manifest built from it, and the result of synthesizing that manifest back into a template. Continue without waiting — this checkpoint exists to surface surprises, not to block.
 
-**Step 6.** Implement `docx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_comments`, `get_tracked_changes`. Tests alongside each. Report which fixture files need to be supplied by hand.
+**Step 5.** Implement `docx/runs.py` per §6 as a standalone, unit-tested function, before anything depends on it. Cover all four required cases.
 
-**Step 7.** Implement `docx/write.py`, then `docx/template.py`. Both build on `runs.py`.
+**Step 6.** Implement `docx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_comments`, `get_tracked_changes`. Tests alongside each. Report which hand-made fixture files are needed.
+
+**Step 7.** Implement `docx/write.py`, then `docx/template.py`. Both build on `runs.py` and the resolved `StyleMap`.
 
 **Step 8.** Implement `cli.py` per §10 using `rp_core.clikit`. Leave `mcp_server.py` as a documented stub.
 
-**Step 9.** Run the full suite. Then run each CLI command against a generated sample document, and verify `rp docx index FILE` works through the umbrella.
+**Step 9.** Run the full suite. Then run each CLI command against a generated sample document, and verify `rp docx index FILE` and `rp-docx index FILE` produce identical output.
 
-**Definition of done:** suite green, coverage target met, both `rp-docx` and `rp docx` functional, nothing outside the approved license list in `uv.lock`, and a written list of any place §6–§9 turned out to be wrong in practice.
+**Definition of done:** suite green with no binary template committed; coverage target met; both `rp-docx` and `rp docx` functional; JSON emitted by default with `--plain` working; errors matching `ErrorEnvelope`; nothing outside the approved license list in `uv.lock`; and a written list of any place §5–§9 turned out to be wrong in practice.
+
+---
+
+## 13. After Phase 1 — Validating Against the Real Template
+
+Phase 1 ships without ever seeing a corporate template. Validation is a separate, manual pass:
+
+1. Drop the real `.dotx` into `templates/local/`
+2. `rp-docx templates inspect` → confirm the style list is read correctly
+3. `rp-docx templates stylemap` → scaffold, then hand-correct into the real `.stylemap.json`
+4. `rp-docx create --from-markdown ... --template <real>` → open in Word, confirm house styles applied
+5. `rp-docx templates manifest` → commit the manifest to `tests/fixtures/` so CI regression-tests the real template's shape from then on
+
+Only step 5 produces a repository artifact, and it carries no confidential content by construction (§5.2). Everything discovered in steps 2–4 comes back as a defect report or a spec correction, not as a file.

@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.0
-**Status:** Ready for implementation
-**Companion document:** `rp-docx-spec.md`
+**Version:** 1.1
+**Status:** Phase 0 complete · Phase 0.5 (remediation) ready for implementation
+**Companion document:** `rp-docx-spec.md` v1.1
+
+**Changes from v1.0:** §2 settled and expanded to record the full rename surface · §4.1 adopts `ErrorEnvelope` as the single error contract · §4.3 splits page parsing between core and leaf · §4.4 revises timeout policy and narrows the binary split · §4.5 introduces `rasterize` as the primitive beneath `render_pages` · §4.6 switches to JSON-by-default and drops the opt-in path · §5 rewritten to describe what was actually extracted · §7 adds a weak-copyleft policy · §8 marked complete and replaced by a Phase 0.5 plan · §10 adds three enforced workspace invariants.
 
 ---
 
@@ -12,8 +14,8 @@
 
 | Distribution | Import name | CLI | Purpose |
 |---|---|---|---|
-| `rp-core` | `rp_core` | — | Shared infrastructure: external-binary wrappers, capability detection, error/exit-code conventions, page-spec parsing, JSON output contract |
-| `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (existing `pdfx` code) |
+| `rp-core` | `rp_core` | — | Shared infrastructure: binary discovery, rasterization primitive, error/exit-code contract, range parsing, CLI conventions |
+| `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the others, provides the umbrella `rp` dispatcher |
 
@@ -29,17 +31,23 @@
 
 ---
 
-## 2. Naming Decision
+## 2. Naming (settled in Phase 0)
 
-The existing code uses the import name `pdfx` and CLI `pdfx`. Phase 0 renames these to `rp_pdf` / `rp-pdf` for consistency with the suite.
+The former `pdfx` import name and CLI are now `rp_pdf` and `rp-pdf`. The rename was taken to the full user-facing surface, on the grounds that a fresh repo with no external consumers is the only cheap moment:
 
-This is a mechanical rename, and this is the only moment it is cheap — a fresh repo with no external consumers. If you would rather keep `pdfx` as the import name and only change the CLI, say so before Phase 0 starts; mixed naming is tolerable but should be a deliberate choice, not drift.
+| Was | Now |
+|---|---|
+| `PDFX_VLM_*`, `PDFX_CACHE_DIR`, `PDFX_CONFIG` | `RP_PDF_VLM_*`, `RP_PDF_CACHE_DIR`, `RP_PDF_CONFIG` |
+| `PDFX_POPPLER_PATH` | `RP_POPPLER_PATH` (suite-wide, lives in `rp-core`) |
+| `pdfx.toml` | `rp-pdf.toml` |
+| `~/.config/pdfx/`, `~/.cache/pdfx/` | `~/.config/rp-pdf/`, `~/.cache/rp-pdf/` |
+| `PdfxError` | `RpPdfError` |
+
+**Convention going forward:** suite-wide settings are `RP_*` and live in `rp-core`; package-specific settings are `RP_PDF_*` / `RP_DOCX_*` and live in the leaf. `rp-docx` follows this without exception.
 
 ---
 
 ## 3. Repository Layout
-
-Target state after Phase 0:
 
 ```
 robo-papyro/
@@ -47,28 +55,31 @@ robo-papyro/
 ├── uv.lock                         # single lockfile for the whole workspace
 ├── .gitignore
 ├── .python-version
-├── README.md                       # workspace overview
+├── README.md
 ├── ROADMAP.md
-├── AGENTS.md                       # rewritten for the workspace layout
+├── AGENTS.md                       # workspace rules for agentic tooling
 ├── LICENSE
-├── .github/workflows/ci.yml        # matrix over packages + license gate
+├── .github/workflows/ci.yml        # lint, test matrix, license gate, smoke
+├── ci/
+│   ├── allowed-packages.toml       # license allowlist + recorded reasoning
+│   └── tests/
 ├── dev-notes/
 ├── docs/
 │   ├── specs/
 │   │   ├── robo-papyro-spec.md     # this document
 │   │   ├── rp-docx-spec.md
-│   │   └── rp-pdf-spec.md          # the original pdfx-spec.md, renamed
-│   └── ...
+│   │   └── rp-pdf-spec.md
+│   └── usage.md
 ├── packages/
 │   ├── rp-core/
 │   │   ├── pyproject.toml
 │   │   ├── src/rp_core/
 │   │   │   ├── __init__.py
-│   │   │   ├── errors.py           # exception hierarchy + exit-code mapping
-│   │   │   ├── models.py           # Capability, ErrorEnvelope
-│   │   │   ├── pages.py            # 1-based page-spec parsing (moved from pdfx)
-│   │   │   ├── binaries.py         # soffice / pdftoppm discovery + invocation
-│   │   │   ├── render.py           # any-file → PNG pipeline
+│   │   │   ├── errors.py           # exception hierarchy + envelope conversion
+│   │   │   ├── models.py           # Capability, ErrorDetail, ErrorEnvelope
+│   │   │   ├── ranges.py           # generic 1-based range parsing
+│   │   │   ├── binaries.py         # discovery + guarded invocation
+│   │   │   ├── render.py           # rasterize primitive + render_pages wrapper
 │   │   │   ├── doctor.py           # capability report
 │   │   │   └── clikit.py           # shared typer conventions
 │   │   └── tests/
@@ -76,12 +87,10 @@ robo-papyro/
 │   │   ├── pyproject.toml
 │   │   ├── src/rp_pdf/
 │   │   └── tests/
-│   ├── rp-docx/                    # created in Phase 1
+│   ├── rp-docx/                    # Phase 1
 │   └── robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
-│       │   ├── __init__.py
-│       │   └── cli.py              # `rp` dispatcher
 │       └── tests/
 └── templates/                      # corporate .dotx / .docx style templates
     └── README.md                   # provenance + owner per template
@@ -89,19 +98,20 @@ robo-papyro/
 
 ### Workspace configuration
 
-Root `pyproject.toml` — no code, no `[project]` section beyond metadata:
+Root `pyproject.toml` holds no code. It carries workspace members, the dev dependency group, and shared lint/test configuration:
 
 ```toml
 [tool.uv.workspace]
 members = ["packages/*"]
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-cov", "ruff"]
+dev = ["pytest>=8,<9", "pytest-cov", "ruff==<pinned>"]
 
-[tool.ruff]
-# workspace-wide lint config lives here
 [tool.pytest.ini_options]
-# workspace-wide test config lives here
+importmode = "importlib"          # see §10, invariant 3
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
 ```
 
 Each member declares workspace dependencies explicitly — do not rely on inheritance:
@@ -122,209 +132,248 @@ docx = "rp_docx.cli:app"
 rp-core = { workspace = true }
 ```
 
-`uv sync` at the root installs everything editable. `uv build --package rp-docx` produces a wheel with a normal version-pinned `rp-core` requirement.
-
 ---
 
 ## 4. `rp-core` Specification
 
-### 4.1 `errors.py`
+### 4.1 `errors.py` — one error contract for the suite
 
 ```python
 class RoboPapyroError(Exception):
     exit_code: int = 1
+    def to_envelope(self) -> ErrorEnvelope: ...
 
-class InputError(RoboPapyroError):            # bad args, bad page spec    -> 1
-class MissingDependencyError(RoboPapyroError):  # soffice/pdftoppm absent  -> 2
+class InputError(RoboPapyroError):              # bad args, bad range spec   -> 1
+class MissingDependencyError(RoboPapyroError):  # external binary absent     -> 2
     binary: str
     install_hint: str
-class CorruptFileError(RoboPapyroError):      # unreadable/unsupported     -> 3
-class ConversionError(RoboPapyroError):       # external tool failed       -> 3
+class CorruptFileError(RoboPapyroError):        # unreadable/unsupported     -> 3
+class ConversionError(RoboPapyroError):         # external tool failed       -> 3
+class SubprocessTimeout(RoboPapyroError):       # external tool timed out    -> 3
 ```
 
-Every error carries `.to_envelope() -> ErrorEnvelope` for `--json` output. A raw `FileNotFoundError` from a subprocess must never reach the user.
+Leaf packages subclass these where format-specific context helps (`RpPdfError`, `RpDocxError`), but must not introduce a parallel hierarchy.
+
+**`ErrorEnvelope` is the single serialized error shape across every CLI in the suite.** `rp-pdf`'s legacy flat `{"error": "msg"}` payload is retired in Phase 0.5.
+
+```python
+class ErrorDetail(BaseModel):
+    type: str          # "InputError", "MissingDependencyError", ...
+    message: str
+    hint: str | None
+    exit_code: int
+
+class ErrorEnvelope(BaseModel):
+    error: ErrorDetail
+```
+
+Rationale: the primary consumer is an agent deciding what to do next. A flat string discards the `type` and `exit_code` that the taxonomy in §4.7 exists to expose, and two shapes would force every skill and MCP wrapper to branch on which tool failed. A raw `FileNotFoundError` or `subprocess.TimeoutExpired` must never reach the user.
 
 ### 4.2 `models.py`
 
 ```python
 class Capability(BaseModel):
-    name: str                 # "soffice" | "pdftoppm"
+    name: str                 # "soffice" | "pdftoppm" | "pdftotext"
     available: bool
     version: str | None
     path: Path | None
     install_hint: str
-
-class ErrorEnvelope(BaseModel):
-    error: ErrorDetail        # type, message, hint, exit_code
 ```
 
-### 4.3 `pages.py` — moved verbatim from pdfx
+Plus `ErrorDetail` and `ErrorEnvelope` from §4.1.
 
-1-based inclusive page-spec parsing: `"3"`, `"1-5"`, `"1,3,7-9"`, `"-4"`, `"7-"`. Returns `list[int]`. Already written and tested — **move the module and its tests, do not rewrite.**
+### 4.3 `ranges.py` — generic only
 
-### 4.4 `binaries.py`
+`rp_core.ranges` parses 1-based inclusive integer range specs and nothing else: `"3"`, `"1-5"`, `"1,3,7-9"`, `"-4"`, `"7-"` → `list[int]`. It serves PDF pages, docx sections, and future sheet or slide selection.
+
+**PDF page-label resolution stays in `rp-pdf`.** v1.0 §4.3 said to move `pages.py` wholesale; Phase 0 did so and correctly flagged that `parse_page_labels` is PDF-domain logic sitting in a format-agnostic core. Phase 0.5 splits the module: the generic parser becomes `rp_core.ranges`, and label handling returns to `rp_pdf.pages`. Do this before `rp-docx` imports the module and the misplacement calcifies.
+
+### 4.4 `binaries.py` — discovery and guarded invocation
 
 ```python
 find_binary(name: str) -> Path | None
 require_binary(name: str) -> Path              # raises MissingDependencyError
-run_binary(path: Path, args: list[str], *, timeout: int = 120) -> CompletedProcess
-soffice_convert(source: Path, to: str, outdir: Path) -> Path
+run_binary(path: Path, args: list[str], *,
+           timeout: int | None = None) -> CompletedProcess
+soffice_convert(source: Path, to: str, outdir: Path, *,
+                timeout: int = 300) -> Path
 ```
+
+**Discovery only.** `rp-core` locates binaries and wraps invocation with timeout and error handling. It does not know any tool's flags. `pdftotext`'s `-f/-l/-enc/-upw` handling and form-feed page splitting live in `rp-pdf`, where the PDF-specific knowledge belongs. v1.0 §5 implied otherwise; Phase 0 drew the line correctly and this revision ratifies it.
+
+**Timeout policy.** No subprocess may run unbounded. `timeout=None` resolves to `RP_SUBPROCESS_TIMEOUT` if set, otherwise **600 seconds** — generous enough for a large legitimate `pdftotext` run, bounded enough that a hang surfaces. v1.0's 120s default was too aggressive for real PDFs and was correctly rejected during Phase 0; unbounded is nonetheless not an acceptable end state, because a hung subprocess behind an MCP tool call blocks an agent with no signal and no Ctrl-C. Timeouts raise `SubprocessTimeout`, never `subprocess.TimeoutExpired`.
 
 **`soffice_convert` requirements:**
 - Always pass `-env:UserInstallation=file:///tmp/robo-papyro-<uuid4>` and clean up the profile dir afterward. Parallel invocations sharing a profile collide silently and return success with no output file — the worst failure mode in the pipeline, and agents parallelize.
 - Always pass `--headless --norestore --invisible`.
 - Verify the expected output file exists after the call. A zero exit code is not sufficient evidence of success — raise `ConversionError` if the file is missing.
-- Enforce a timeout. LibreOffice hangs indefinitely on some malformed inputs.
 
-### 4.5 `render.py`
+### 4.5 `render.py` — primitive plus convenience wrapper
 
 ```python
+rasterize(pdf: Path, output_dir: Path, *, dpi: int = 150,
+          pages: list[int] | None = None,
+          name_for: Callable[[int], str] | None = None,
+          fmt: str = "png") -> list[Path]
+
 render_pages(source: Path, output_dir: Path, *, dpi: int = 150,
              pages: str | None = None, fmt: str = "png") -> list[Path]
 ```
 
-If `source` is already `.pdf`, go straight to `pdftoppm`. Otherwise route through `soffice_convert(..., to="pdf")` into a temp dir first. `pages` is parsed by `pages.py`. Both `rp-pdf render` and `rp-docx render` become one-line delegations.
+`rasterize` is the primitive: physical page numbers only, caller-injected file naming, one pdf2image call site. Leaf packages build on it when they need control over numbering or output names.
 
-### 4.6 `clikit.py`
+`render_pages` is a convenience wrapper for the simple case — parse a range spec via `ranges.py`, rasterize, return paths. If `source` is not a PDF, route through `soffice_convert(..., to="pdf")` into a temp dir first.
+
+`rp-pdf`'s own render command resolves page *labels*, names files by label, and returns `RenderedPage` models carrying both numbering schemes. None of that can live in a format-agnostic core, so it wraps `rasterize` in roughly twenty lines rather than delegating in one. This is expected, not a defect — v1.0 §4.5 was wrong to describe it as a thin delegation.
+
+`rp-docx` uses `render_pages` directly and needs nothing more.
+
+### 4.6 `clikit.py` — JSON by default
 
 Shared typer conventions so the CLIs cannot drift:
-- `json_option` — the standard `--json` flag definition
-- `emit(model, as_json: bool)` — dump pydantic to stdout as JSON, or a human-readable table
-- `handle_errors` decorator — catches `RoboPapyroError`, writes `ErrorEnvelope` to stderr when `--json`, exits with `err.exit_code`
+
+- `plain_option` — the standard `--plain` flag definition
+- `emit(model, plain: bool)` — JSON to stdout by default; human-readable table when `--plain`
+- `handle_errors` decorator — catches `RoboPapyroError`, writes `ErrorEnvelope` to stderr, exits with `err.exit_code`
 - `doctor_command(*capabilities)` — factory producing a `doctor` subcommand for any CLI
+
+**The suite is JSON-by-default with `--plain` opt-out**, matching `rp-pdf`'s existing shape. v1.0 specified `--json` opt-in for `rp-docx`, which would have made the two tools differ on the shape of every *successful* call — a worse inconsistency for agent consumers than differing error payloads, since it affects the common path rather than the exception path. The unused opt-in `json_option` and `emit(as_json=...)` variants written in Phase 0 are deleted in Phase 0.5 rather than carried as dead code.
 
 ### 4.7 Exit codes (all CLIs)
 
-`0` success · `1` user/input error · `2` missing external dependency · `3` corrupt or unsupported file.
+`0` success · `1` user/input error · `2` missing external dependency · `3` corrupt file, failed conversion, or timeout.
 
 ---
 
-## 5. `rp-pdf` Migration
+## 5. `rp-pdf` — What Was Extracted
 
-`rp-pdf` keeps its public API and CLI surface unchanged apart from the rename. This is a refactor, not a redesign.
+For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and gained a `doctor` command.
 
-**Moves out to `rp-core`:**
-- `pages.py` and its tests
-- poppler / `pdftoppm` invocation → `binaries.py`
-- `render_pages` body → `render.py`; `rp_pdf.render_pages` becomes a thin delegation
-- error classes → `errors.py`, subclassed in `rp_pdf` only where PDF-specific context is needed
-- CLI `--json` handling and exit codes → `clikit.py`
+| Concern | Disposition |
+|---|---|
+| Range parsing | Moved to `rp_core.ranges`; PDF label logic returns to `rp_pdf.pages` in Phase 0.5 |
+| Error classes | Moved to `rp_core.errors`; `RpPdfError` subclasses it |
+| Binary discovery | Moved to `rp_core.binaries` |
+| Rasterization | Moved to `rp_core.render.rasterize`; `rp-pdf` wraps it |
+| CLI error handling and exit codes | Moved to `rp_core.clikit` |
+| `pdftotext` invocation and flags | **Stayed** in `rp-pdf` — PDF-specific |
+| pypdf / pdfplumber logic, `rp_pdf/models.py`, command surface | **Stayed** |
 
-**Stays:** everything pypdf / pdfplumber / pdf2image-specific, all models in `rp_pdf/models.py`, the whole command surface.
-
-**Acceptance test:** the existing pdfx test suite passes with no changes beyond import paths and the package rename.
+`rp-pdf`'s public behavior is unchanged apart from the rename surface in §2, the exit-code taxonomy in §4.7, and the error payload change in §4.1.
 
 ---
 
 ## 6. The `rp` Umbrella CLI
 
-`robo-papyro` is a meta-distribution: it depends on `rp-core`, `rp-pdf`, and `rp-docx`, and provides a single `rp` command that dispatches to each.
+`robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, and `rp-docx`, providing a single `rp` command that dispatches to each.
 
-**Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf` or `rp_docx` directly.
+**Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf` or `rp_docx` directly — enforced by a test that walks the module's AST.
 
-Consequences, all of them desirable:
-- `rp pdf index FILE` and `rp-pdf index FILE` are the same code path
+Consequences, all desirable:
+- `rp pdf index FILE` and `rp-pdf index FILE` are the same code path, asserted by CI
 - If only `rp-pdf` is installed, `rp` exposes just `pdf` and says so in `--help`
 - Adding `rp-xlsx` later requires no change to `robo_papyro`
-- A broken leaf package degrades to a warning in `rp --help` rather than breaking the whole CLI
+- A broken leaf degrades to a warning in `rp --help` rather than breaking the CLI
 
 `rp doctor` aggregates capability reports across all discovered subcommands.
-
-Build this at the end of Phase 0, with only `rp-pdf` registered, so the discovery mechanism is proven before a second leaf exists.
 
 ---
 
 ## 7. Licensing (repo-wide)
 
-Permissive licenses only. Copyleft in the dependency graph is a blocker in this environment.
-
-**Approved:** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
+**Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
 
 **Forbidden:** `docxtpl` (LGPL-2.1-only), `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
 
-**Subprocess-only external binaries** — no linkage, no license propagation, both optional:
+### 7.1 Weak-copyleft policy
+
+MPL-2.0 and comparable file-level copyleft are **permitted for unmodified transitive dependencies** and **barred from the base install path**. This ratifies the Phase 0 allowlisting of `certifi` (MPL-2.0) and `tqdm` (`MPL-2.0 AND MIT`) as explicit policy rather than an undocumented exception.
+
+Reasoning:
+- MPL-2.0 obligations attach to distributing *modified* copies of covered files. The suite does neither.
+- `tqdm`'s expression is `AND`, not `OR` — a mixture, meaning MPL genuinely applies to part of it. It cannot be treated as MIT. It is permitted under this policy, not under the approved list.
+- Both enter only through the optional `ai` extra (`openai` → `httpx` → `certifi`; `openai` → `tqdm`). A base `uv pip install rp-core rp-pdf` resolves to 24 distributions, all fully permissive.
+
+**Requirements:** every weak-copyleft entry in `ci/allowed-packages.toml` records the license, the path by which it enters, and why it is acceptable. A weak-copyleft package appearing in the base install path fails the gate regardless of allowlisting. Strong copyleft (GPL, LGPL, AGPL) is never allowlisted as a Python dependency.
+
+### 7.2 Subprocess-only external binaries
+
+No linkage, no license propagation. Both optional; every path requiring one sits behind a capability check and raises `MissingDependencyError` with install instructions.
 
 | Binary | License | Needed for |
 |---|---|---|
 | LibreOffice (`soffice`) | MPL-2.0 | `convert`, `render` of Office formats |
-| `pdftoppm` (poppler-utils) | GPL-2.0 | `render` |
-
-Any code path requiring an external binary must sit behind a capability check and raise `MissingDependencyError` with install instructions.
-
-**CI gate:** a job that fails the build if a package outside the approved list appears in `uv.lock`.
+| poppler-utils (`pdftoppm`, `pdftotext`) | GPL-2.0 | rasterization, text extraction |
 
 ---
 
-## 8. Phase 0 — Execution Plan
+## 8. Phase 0.5 — Remediation Plan
 
-Starting state: a new `robo-papyro` repo with two commits — the pdfx source verbatim at root, then the spec documents at root.
+Phase 0 (§8 of v1.0) is complete: 309 tests green on Python 3.11 and 3.13, `rp-core` at 98% coverage, clean-checkout definition of done verified.
 
-Work in this order, running the existing test suite after each structural step:
+Phase 0.5 settles the decisions Phase 0 surfaced, before Phase 1 builds on them. Steps 1–4 must land before `rp-docx` work begins; steps 5–7 are independent and can land any time as separate PRs.
 
-**Step 1 — Workspace scaffold.**
-Create the root `pyproject.toml` per §3 (workspace members, dev dependency group, shared ruff/pytest config). Create `packages/`, `docs/specs/`, and `templates/` with a placeholder `README.md` recording that templates are pending.
+**Step 1 — Adopt `ErrorEnvelope` in `rp-pdf`.**
+Retire the flat `{"error": "msg"}` payload. Delete the dual-shape support in `clikit` — one shape, no argument. Update `rp-pdf` tests asserting the old payload. Verify the `2` and `3` exit paths emit correct `type` and `exit_code`.
 
-**Step 2 — Relocate the existing package.**
-`git mv` the pdfx tree into `packages/rp-pdf/`: `src/pdfx/` → `packages/rp-pdf/src/rp_pdf/`, `tests/` → `packages/rp-pdf/tests/`, and the existing `pyproject.toml` → `packages/rp-pdf/pyproject.toml`. Move `pdfx-spec.md` → `docs/specs/rp-pdf-spec.md` and this document plus `rp-docx-spec.md` → `docs/specs/`. Leave `.gitignore`, `.python-version`, `README.md`, `ROADMAP.md`, `AGENTS.md`, and `dev-notes/` at root.
+**Step 2 — Switch `clikit` to JSON-by-default.**
+Delete `json_option` and the opt-in `emit` variant. `plain_option` and `emit(model, plain=...)` become the only surface. `rp-pdf` already behaves this way; this makes it the enforced suite convention rather than a leaf's local habit.
 
-**Step 3 — Rename.**
-`pdfx` → `rp_pdf` throughout imports, `pdfx` → `rp-pdf` for the CLI entry point and distribution name. Update the moved `pyproject.toml`: strip dev dependencies and shared tool config (those live at root now), set `[project.scripts] rp-pdf = "rp_pdf.cli:app"`, and add the `robo_papyro.commands` entry point. Delete the old `uv.lock` and regenerate with `uv sync` at root. Confirm the suite passes and `rp-pdf --help` works.
+**Step 3 — Split `pages.py`.**
+Generic range parsing → `rp_core.ranges` per §4.3. PDF page-label resolution → `rp_pdf.pages`. Move tests with their subjects. No behavior change.
 
-**Step 4 — Create `rp-core`.**
-Scaffold `packages/rp-core/` per §3 with no code beyond empty modules, wired as a workspace dependency of `rp-pdf`.
+**Step 4 — Reconcile specs.**
+This document and `rp-docx-spec.md` are revised to v1.1. Confirm `docs/specs/rp-pdf-spec.md` reflects the rename surface, the exit-code taxonomy, and the error payload change.
 
-**Step 5 — Extract shared modules.**
-Move, do not rewrite, in this order, running the `rp-pdf` suite after each:
-1. `pages.py` and its tests → `rp_core/pages.py`
-2. error classes → `rp_core/errors.py` per §4.1
-3. poppler invocation → `rp_core/binaries.py` per §4.4
-4. `render_pages` body → `rp_core/render.py` per §4.5
-5. CLI `--json` handling and exit codes → `rp_core/clikit.py` per §4.6
+**Step 5 — Subprocess timeout policy.**
+Implement §4.4: `RP_SUBPROCESS_TIMEOUT`, 600s default, `SubprocessTimeout` raised as exit code 3. Apply at the `pdftotext` call site, currently unbounded. Test with a mocked subprocess; do not require a real hang.
 
-Replace each moved implementation in `rp_pdf` with a thin delegation.
+**Step 6 — ruff.**
+Pin the ruff version in workspace dev deps — the moving implicit default was the root cause of the Phase 0 workaround, and pinning `select` only treated the symptom. Then widen `select` to `["E", "F", "W", "I", "UP", "B"]` in two commits: `--fix` mechanical first, manual remainder second, so review stays tractable.
 
-**Step 6 — New `rp-core` behavior.**
-Write tests in `packages/rp-core/tests/` for the capabilities that did not exist before: `soffice_convert`'s `UserInstallation` isolation, output-file verification, and timeout handling; `require_binary` raising `MissingDependencyError`; `doctor` output. Mock the subprocess — do not require LibreOffice to be installed.
+**Step 7 — Workspace invariants as tests.**
+Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 
-**Step 7 — Umbrella CLI.**
-Create `packages/robo-papyro/` per §6 with entry-point discovery. Verify `rp pdf index FILE` and `rp-pdf index FILE` produce identical output, and that `rp --help` lists only what is installed.
-
-**Step 8 — Docs and agent instructions.**
-Rewrite `AGENTS.md` for the workspace layout: where packages live, the one-way dependency rule, the "import from `rp-core`, don't reimplement" rule, how to run tests per package, and the approved/forbidden license lists. Update `README.md` and `ROADMAP.md` to describe the suite rather than a single tool.
-
-**Step 9 — CI.**
-Add `.github/workflows/ci.yml`: a matrix over package directories running ruff and pytest, plus the license gate from §7.
-
-**Definition of done:** `uv sync` succeeds from a clean checkout; the full suite passes; `rp --help`, `rp doctor`, `rp pdf --help`, and `rp-pdf --help` all work; no package outside the approved list appears in `uv.lock`.
+**Definition of done:** suite green; `rp-pdf` and `rp-core` emit identical error structure; no `--json` flag remains anywhere in the suite; `rp_core` contains no PDF-specific identifier; base install path in `uv.lock` free of weak copyleft.
 
 ---
 
 ## 9. Phasing
 
-| Phase | Scope | Driving doc |
-|---|---|---|
-| **0** | Workspace scaffold, rename, extract `rp-core`, `rp` umbrella | This document §8 |
-| **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §10 |
-| **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD |
-| **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx), same core/CLI split | TBD |
+| Phase | Scope | Driving doc | Status |
+|---|---|---|---|
+| **0** | Workspace, rename, extract `rp-core`, `rp` umbrella | v1.0 §8 | Complete |
+| **0.5** | Contract decisions and extraction cleanup | §8 above | Ready |
+| **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Blocked on 0.5 steps 1–4 and a house template |
+| **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Blocked on 0.5 step 5 |
+| **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx) | TBD | — |
 
 ---
 
 ## 10. Constraints for All Phases
 
-- **Permissive licenses only.** If a forbidden dependency seems necessary, stop and ask rather than adding it.
+- **Permissive licenses only**, per §7. Weak copyleft is transitive-and-optional only. If a forbidden dependency seems necessary, stop and ask.
 - **Core logic never prints and never imports typer.** Library functions return pydantic models; CLI modules do all formatting.
-- **One-way dependencies.** `rp-core` imports no leaf package. Leaf packages do not import each other.
-- **Don't reimplement `rp-core`.** Page-spec parsing, binary discovery, rendering, error envelopes, and exit codes have exactly one implementation.
+- **One-way dependencies.** `rp-core` imports no leaf package and contains no format-specific identifier. Leaf packages do not import each other.
+- **Don't reimplement `rp-core`.** Range parsing, binary discovery, rasterization, error envelopes, and exit codes have exactly one implementation.
 - **All user-facing indices are 1-based** — pages, paragraphs, tables, sections.
+- **JSON is the default output**; `--plain` is the human opt-out. No `--json` flag exists in the suite.
 - **Never overwrite an input file** unless `--in-place` is passed explicitly.
 - **No external binary is required** for any core read/write path.
+- **No unbounded subprocess.** Every invocation goes through `run_binary` with a resolved timeout.
+
+### Workspace invariants (enforced by tests, not documentation)
+
+1. **Command registration.** `rp-pdf`'s default-action dispatcher parses an unrecognized subcommand as a filename, so any new subcommand must appear in `COMMAND_NAMES` in `cli.py`. This bit the `doctor` command during Phase 0. A test asserts every registered typer command is present in `COMMAND_NAMES`.
+2. **No leaf imports in the umbrella.** A test walks `robo_papyro/cli.py`'s AST and fails on any import of a leaf package.
+3. **Test module collision.** Same-named test modules in different packages collide under pytest's default prepend import mode — this bit `test_render.py`. Root config sets `importmode = "importlib"`. Distinct names remain good practice but are no longer load-bearing.
+
+`AGENTS.md` should reference these tests rather than restate the rules; agents skim prose and run suites.
 
 ---
 
 ## 11. Open Decisions
 
-1. **Import-name rename** (§2) — confirm or veto before Phase 0 starts.
-2. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one.
-3. **Archiving `w528-pdf-extraction-toolkit`** — do it after Phase 0 merges and the suite is green in the new repo, not before.
+1. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one. **This is on the critical path for Phase 1 step 5.**
+2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting.
+3. **Archiving `w528-pdf-extraction-toolkit`** — unblocked; do it once Phase 0.5 is green.
