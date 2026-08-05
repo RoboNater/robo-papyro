@@ -18,15 +18,29 @@ identical across the suite.
   | `all`       | every page (default)             |
   | `5`         | page 5                           |
   | `3-7`       | pages 3 through 7, inclusive     |
+  | `-4`        | everything up to page 4          |
+  | `7-`        | page 7 through the end           |
   | `1,3-5,9`   | mixed list; deduplicated, sorted |
+
+  An omitted endpoint takes the document's. A bare `-` is rejected rather than
+  read as "everything" — `all` already says that, and a lone hyphen is far more
+  likely a typo. Open-ended forms work against page labels too, so `--pages 7-`
+  means the same thing whether or not the PDF is labelled.
 
 - **Page numbering follows the document's page labels when it has them** (see
   [Page labels](#page-labels) below); otherwise pages are numbered 1-based from
   the first physical page. `--physical` forces 1-based physical numbering either way.
 
-- **Errors** print a human-readable message to stderr and `{"error": "..."}` to
-  stdout, so scripted callers always get parseable JSON. The exit code says what
-  kind of failure it was:
+- **Errors** go to stderr: a human-readable message, then an *error envelope* as
+  the last line, so stdout stays clean for results and scripted callers always
+  have one line of parseable JSON to read.
+
+  ```json
+  {"error": {"type": "PopplerNotFoundError", "message": "…", "hint": "apt install poppler-utils", "exit_code": 2}}
+  ```
+
+  Every CLI in the suite emits exactly this shape — there is no second form.
+  The exit code says what kind of failure it was:
 
   | Code | Meaning |
   |---|---|
@@ -56,8 +70,8 @@ the `rp-pdf` console script rather than in the command group `rp` discovers.
 ### `rp-pdf doctor` — check external tools
 
 ```sh
-uv run rp-pdf doctor            # table of poppler tools, versions, and paths
-uv run rp-pdf doctor --json     # list[Capability] for programmatic callers
+uv run rp-pdf doctor            # list[Capability] as JSON — the default everywhere
+uv run rp-pdf doctor --plain    # table of poppler tools, versions, and paths
 ```
 
 Reports whether each optional external binary is installed, its version, and
@@ -169,7 +183,7 @@ files are saved and `saved_path` is filled in.
 uv run rp-pdf markdown report.pdf                        # Markdown on stdout
 uv run rp-pdf markdown report.pdf -o report.md           # write a file
 uv run rp-pdf markdown report.pdf -o report.md --images-dir media
-uv run rp-pdf markdown report.pdf --json                 # full MarkdownResult as JSON
+uv run rp-pdf markdown report.pdf --full                 # whole MarkdownResult as JSON
 uv run rp-pdf markdown report.pdf -o report.md --ai --model gpt-4o-mini
 uv run rp-pdf markdown report.pdf --ai --ocr --model gpt-4o-mini  # with OCR for scanned pages
 ```
@@ -471,3 +485,9 @@ way. `index`, `tables`, and `images` work without poppler, as do
 
 If poppler is not on `PATH` (common on Windows), point at its `bin` directory with
 `--poppler-path DIR` or the `RP_POPPLER_PATH` environment variable.
+
+`pdftotext` runs with a time limit — `RP_SUBPROCESS_TIMEOUT` seconds, 600 by
+default. The limit is generous because a few-hundred-page PDF can legitimately
+take minutes; it exists because poppler can hang outright on malformed input,
+and a hung subprocess behind an agent's tool call gives no signal at all.
+Exceeding it exits **3** with a `SubprocessTimeout`.

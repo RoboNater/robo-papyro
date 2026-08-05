@@ -23,7 +23,7 @@ from pathlib import Path
 from rp_core.binaries import POPPLER_INSTALL_HINT, soffice_convert
 from rp_core.errors import MissingDependencyError
 from rp_core.models import RasterImage
-from rp_core.pages import contiguous_runs, parse_pages
+from rp_core.ranges import contiguous_runs, parse_range_spec
 
 
 def normalize_format(fmt: str) -> tuple[str, str]:
@@ -170,7 +170,7 @@ def _render_pdf(
             poppler_path=poppler_path,
         )
     else:
-        numbers = parse_pages(pages, _page_count(source, poppler_path))
+        numbers = parse_range_spec(pages, _page_count(source, poppler_path), noun="page")
         images = rasterize_pages(
             source,
             output_dir,

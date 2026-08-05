@@ -15,12 +15,12 @@ import pdfplumber
 from pypdf import PasswordType, PdfReader
 from pypdf.errors import PyPdfError
 from pypdf.generic import Destination
+
 from rp_core import binaries, render
 from rp_core.errors import MissingDependencyError
-from rp_core.pages import contiguous_runs
-
 from rp_pdf.errors import (
     InvalidPdfError,
+    MissingFileError,
     PasswordError,
     PopplerNotFoundError,
     QueryError,
@@ -37,12 +37,13 @@ from rp_pdf.models import (
     SearchHit,
     Table,
 )
-from rp_pdf.pages import PageSpec, parse_page_labels, parse_pages
+from rp_pdf.pages import PageSpec, contiguous_runs, parse_page_labels, parse_pages
 
 # Re-exported so `core.InvalidPdfError` and friends keep resolving; the classes
 # themselves live in rp_pdf.errors, parented onto rp_core.errors.
 __all__ = [
     "InvalidPdfError",
+    "MissingFileError",
     "PasswordError",
     "PopplerNotFoundError",
     "QueryError",
@@ -65,7 +66,7 @@ TextEngine = Literal["poppler", "pypdf", "pdfplumber"]
 def _open_reader(path: Path, password: str | None) -> PdfReader:
     path = Path(path)
     if not path.is_file():
-        raise FileNotFoundError(f"No such file: {path}")
+        raise MissingFileError(f"No such file: {path}")
     try:
         reader = PdfReader(path)
     except PyPdfError as exc:
@@ -186,9 +187,11 @@ def _pdftotext_pages(
         if password is not None:
             args += ["-upw", password, "-opw", password]
         args += [str(path), "-"]
-        # timeout=None preserves the pre-refactor behavior: pdftotext has never
-        # been time-limited here, and a large PDF can legitimately take minutes.
-        proc = binaries.run_binary(exe, args, timeout=None)
+        # No explicit timeout: run_binary resolves it to RP_SUBPROCESS_TIMEOUT
+        # or 600s. A large PDF can legitimately take minutes, so the default is
+        # generous, but pdftotext can hang outright on malformed input and this
+        # call site was previously unbounded.
+        proc = binaries.run_binary(exe, args)
         if proc.returncode != 0:
             detail = proc.stderr.decode("utf-8", "replace").strip()
             raise InvalidPdfError(

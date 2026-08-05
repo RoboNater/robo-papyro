@@ -8,6 +8,11 @@
 #
 # Workspace members (rp-core, rp-pdf, rp-docx, robo-papyro) are allowed
 # automatically and do not need listing.
+#
+# An entry is either a bare license string or a table. The table form adds a
+# `tag`, which is a *checked claim*: `extra:ai` asserts the package is
+# unreachable from the base install path (§7.1), and the gate fails if that
+# stops being true. Do not add a tag you have not verified — it is load-bearing.
 
 [direct]
 # Named in the spec's approved list.
@@ -42,22 +47,27 @@ tomli = "MIT"
 # The `ai` extra: the VLM review pass.
 #
 # This extra is also the only route by which any weak-copyleft package enters
-# the graph — see the note above [transitive]. A base `uv pip install rp-pdf`
-# resolves to 24 distributions, all fully permissive.
+# the graph — see the note above [transitive]. The base install path is 26
+# distributions (3 workspace members and 23 third-party, counting Windows-only
+# colorama), all fully permissive — computed by the gate from uv.lock rather
+# than recorded here by hand.
 openai = "Apache-2.0"
 
 # Two entries below are MPL-2.0 — weak, file-level copyleft rather than fully
-# permissive, and not on the spec's §7 approved list. Both are marked
-# `# ai-extra`, because both enter only through the optional `ai` extra
+# permissive, and not on the spec's §7 approved list. Both carry `tag =
+# "extra:ai"`, because both enter only through the optional `ai` extra
 # (openai → httpx → certifi, openai → tqdm). A base install of rp-core + rp-pdf
 # contains neither, so the default install is fully permissive and the blast
 # radius of a compliance objection is the VLM review pass, not the toolkit.
 # MPL-2.0 is the license §7 already accepts for LibreOffice.
+#
+# The gate enforces that in both directions: weak copyleft may not appear in
+# the base path, and these two tags must stay true.
 [transitive]
 annotated-doc = "MIT"
 annotated-types = "MIT"
 anyio = "MIT"
-certifi = "MPL-2.0"          # ai-extra; weak file-level copyleft, a CA-bundle data package
+certifi = { license = "MPL-2.0", tag = "extra:ai", note = "weak file-level copyleft; a CA-bundle data package, unmodified" }
 cffi = "MIT-0"
 charset-normalizer = "MIT"
 colorama = "BSD-3-Clause"
@@ -78,6 +88,6 @@ pypdfium2 = "BSD-3-Clause OR Apache-2.0"
 rich = "MIT"
 shellingham = "ISC"
 sniffio = "MIT OR Apache-2.0"
-tqdm = "MPL-2.0 AND MIT"     # ai-extra; weak file-level copyleft
+tqdm = { license = "MPL-2.0 AND MIT", tag = "extra:ai", note = "AND, not OR — MPL genuinely applies to part of it" }
 typing-extensions = "PSF-2.0"
 typing-inspection = "MIT"

@@ -26,6 +26,15 @@ class InvalidPdfError(RpPdfError, CorruptFileError):
     """The file is not a readable PDF."""
 
 
+class MissingFileError(RpPdfError, InputError, FileNotFoundError):
+    """The named file does not exist.
+
+    Also a ``FileNotFoundError`` so library callers that predate the suite-wide
+    hierarchy keep catching it; ``InputError`` is what gives it exit code 1 and
+    a ``type`` the error envelope can name.
+    """
+
+
 class PasswordError(RpPdfError, InputError):
     """The PDF is encrypted and the password is missing or wrong."""
 
@@ -43,6 +52,7 @@ class QueryError(RpPdfError, InputError):
 
 __all__ = [
     "InvalidPdfError",
+    "MissingFileError",
     "PasswordError",
     "PopplerNotFoundError",
     "QueryError",

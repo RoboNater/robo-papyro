@@ -29,7 +29,7 @@ class ErrorDetail(BaseModel):
 
 
 class ErrorEnvelope(BaseModel):
-    """The structured form of an error, for ``--json`` output."""
+    """The structured form of an error — the suite's only serialized error shape."""
 
     error: ErrorDetail
 

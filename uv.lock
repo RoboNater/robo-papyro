@@ -15,7 +15,7 @@ dev = [
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov" },
     { name = "reportlab", specifier = ">=5.0.0" },
-    { name = "ruff", specifier = ">=0.15.21" },
+    { name = "ruff", specifier = "==0.16.1" },
 ]
 
 [[package]]

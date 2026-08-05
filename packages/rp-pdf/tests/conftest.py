@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -42,9 +43,69 @@ def poppler_available() -> bool:
     return _has_poppler_tool("pdftoppm") and _has_poppler_tool("pdftotext")
 
 
-requires_poppler = pytest.mark.skipif(
-    not poppler_available(), reason="poppler (pdftoppm/pdftotext) not installed"
-)
+def pytest_collection_modifyitems(config, items):
+    """Skip @pytest.mark.requires_poppler tests when poppler is absent.
+
+    A marker rather than an importable `pytest.mark.skipif` object, because
+    `from conftest import ...` only works when the tests directory happens to be
+    on sys.path — which pytest's importlib import mode deliberately stops doing
+    (see ci/test_workspace_invariants.py).
+    """
+    if poppler_available():
+        return
+    skip = pytest.mark.skip(reason="poppler (pdftoppm/pdftotext) not installed")
+    for item in items:
+        if "requires_poppler" in item.keywords:
+            item.add_marker(skip)
+
+
+@pytest.fixture(scope="session")
+def encrypted_password() -> str:
+    return ENCRYPTED_PASSWORD
+
+
+@pytest.fixture(scope="session")
+def table_data() -> list[list[str]]:
+    return TABLE_DATA
+
+
+@pytest.fixture(scope="session")
+def image_size() -> tuple[int, int]:
+    return IMAGE_SIZE
+
+
+@pytest.fixture(scope="session")
+def run_cli():
+    """Run the installed `rp-pdf` console script and capture its output.
+
+    A fixture rather than an importable helper: test modules must not import
+    each other (see ci/test_workspace_invariants.py).
+    """
+
+    def run(*args) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            ["rp-pdf", *[str(a) for a in args]],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+
+    return run
+
+
+@pytest.fixture
+def cli_error():
+    """Read the ErrorDetail out of a failed CLI run.
+
+    The suite writes the human-readable message and then an ``rp_core``
+    ErrorEnvelope to stderr, the envelope last so it survives any warnings the
+    command printed first (spec section 4.1).
+    """
+
+    def parse(result) -> dict:
+        return json.loads(result.stderr.splitlines()[-1])["error"]
+
+    return parse
 
 
 @pytest.fixture(scope="session")
@@ -117,6 +178,11 @@ def encrypted_pdf(pdf_dir: Path, text_pdf: Path) -> Path:
 
 
 LABELED_PDF_LABELS = ["cover", "FM1", "FM2", "FM3", "i", "ii", "iii", "1", "2", "3"]
+
+
+@pytest.fixture(scope="session")
+def labeled_pdf_labels() -> list[str]:
+    return LABELED_PDF_LABELS
 
 
 def _with_decimal_labels(src: Path, dst: Path, start: int) -> Path:

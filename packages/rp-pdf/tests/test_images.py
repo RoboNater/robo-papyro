@@ -1,18 +1,16 @@
 from pathlib import Path
 
-from conftest import IMAGE_SIZE
-
 from rp_pdf import core
 
 
-def test_metadata_only(image_pdf):
+def test_metadata_only(image_pdf, image_size):
     images = core.get_images(image_pdf, "all", out_dir=None)
     assert len(images) == 1
     info = images[0]
     assert info.physical_page == 1
     assert info.labeled_page is None
     assert info.index == 0
-    assert (info.width, info.height) == IMAGE_SIZE
+    assert (info.width, info.height) == image_size
     assert info.saved_path is None
 
 

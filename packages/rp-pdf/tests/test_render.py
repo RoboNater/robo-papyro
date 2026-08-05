@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from conftest import requires_poppler
+import pytest
 
 from rp_pdf import core
 
-pytestmark = requires_poppler
+pytestmark = pytest.mark.requires_poppler
 
 
 def test_render_range(text_pdf, tmp_path):

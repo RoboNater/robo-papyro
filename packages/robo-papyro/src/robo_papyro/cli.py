@@ -25,6 +25,7 @@ import sys
 from importlib.metadata import entry_points
 
 import typer
+
 from rp_core import clikit
 
 COMMAND_GROUP = "robo_papyro.commands"

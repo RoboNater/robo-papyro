@@ -43,6 +43,10 @@ If poppler is not on `PATH`, point `RP_POPPLER_PATH` (or `--poppler-path`) at it
 `bin` directory. LibreOffice (`soffice`) is needed only for Office-format
 conversion and rendering; `RP_SOFFICE_PATH` locates it if it is not on `PATH`.
 
+No external tool runs unbounded: every invocation is killed after
+`RP_SUBPROCESS_TIMEOUT` seconds, or 600 if it is unset, and reports exit **3**.
+Raise it for genuinely large documents.
+
 ```sh
 uv run rp doctor         # what is installed, and how to install what is not
 ```
@@ -62,13 +66,15 @@ automatically; nothing in `robo-papyro` changes.
 
 ## rp-pdf
 
-`--pages` accepts `all`, `5`, `3-7`, or `1,3-5,9`. When the PDF defines page labels
+`--pages` accepts `all`, `5`, `3-7`, `-4` (up to 4), `7-` (7 to the end), or
+`1,3-5,9`. When the PDF defines page labels
 (ebook-style `cover`, `i`-`xx`, restarting at `1` for content), specs are interpreted
 against those labels — matching what PDF readers display; pass `--physical` for
 plain 1-based physical numbering.
-Output is JSON on stdout by default; errors put `{"error": ...}` on stdout and a
-message on stderr, and exit **1** for an input error, **2** for a missing
-external binary, **3** for an unreadable PDF. Encrypted PDFs take `--password`.
+Output is JSON on stdout by default; errors put a message and then an error
+envelope — `{"error": {"type", "message", "hint", "exit_code"}}` — on stderr, and
+exit **1** for an input error, **2** for a missing external binary, **3** for an
+unreadable PDF. Encrypted PDFs take `--password`.
 
 ```sh
 uv run rp-pdf index  FILE                          # document index as JSON

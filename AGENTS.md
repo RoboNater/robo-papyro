@@ -7,7 +7,7 @@ workspace.
 
 | Distribution | Import | CLI | Purpose |
 |---|---|---|---|
-| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, page specs, CLI conventions |
+| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, range specs, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word documents — **Phase 1, not built yet** |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
@@ -15,7 +15,7 @@ workspace.
 ## Layout
 
 ```
-packages/rp-core/src/rp_core/     errors, models, pages, binaries, render, doctor, clikit
+packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, cli
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
@@ -33,7 +33,7 @@ dependencies, ruff config, and pytest config live in the **root**
    packages (`rp-pdf`, `rp-docx`, …) never import each other. Only
    `robo-papyro` depends on leaves, and it reaches them through entry-point
    discovery rather than imports.
-2. **Import from `rp-core`, don't reimplement.** Page-spec parsing, binary
+2. **Import from `rp-core`, don't reimplement.** Range-spec parsing, binary
    discovery, rasterization, error envelopes, and exit codes have exactly one
    implementation. If you are about to write `shutil.which`, a page-range
    parser, or an exception with an exit code, look in `rp_core` first.
@@ -72,8 +72,8 @@ uv run ruff format packages          # line length 100
 | `pdftotext`/`pdftoppm`/`pdfinfo` | default text engine, rendering | `apt install poppler-utils` |
 | `soffice` | Office → PDF conversion, Office rendering | LibreOffice |
 
-Tests needing poppler use the `requires_poppler` marker and skip when absent.
-Tests must **never** require LibreOffice — mock the subprocess.
+Tests needing poppler carry `@pytest.mark.requires_poppler` and skip when it is
+absent. Tests must **never** require LibreOffice — mock the subprocess.
 
 ### Adding a package to the workspace
 
@@ -83,9 +83,23 @@ Tests must **never** require LibreOffice — mock the subprocess.
 3. Register the CLI twice: `[project.scripts]` for the standalone command, and
    `[project.entry-points."robo_papyro.commands"]` pointing at the **typer app
    object** so `rp <name>` finds it. Nothing in `robo_papyro` needs changing.
-4. Give test modules distinct basenames across packages, and prefer not to add
-   a second `tests/conftest.py` — under pytest's default prepend import mode,
-   two same-named test modules (or two `conftest` imports) collide.
+4. Share test helpers through `conftest.py` **fixtures**, not by importing one
+   test module from another — pytest runs in importlib import mode, so a test
+   file's directory is not on `sys.path` and `from conftest import X` fails.
+   Distinct test-module basenames are still good style but no longer
+   load-bearing.
+
+### Workspace invariants — run these, don't memorize them
+
+Three rules the workspace enforces with tests rather than prose. Read the test
+if you trip one; each explains what breaks and why.
+
+| Rule | Test |
+|---|---|
+| Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
+| `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
+| Test modules are imported by path, so same-named ones cannot collide | `ci/test_workspace_invariants.py` |
+| `rp_core` holds no page-label logic and imports no leaf | `ci/test_workspace_invariants.py` |
 
 ## Package notes
 
@@ -99,12 +113,21 @@ Tests must **never** require LibreOffice — mock the subprocess.
   `-env:UserInstallation` profile (a shared one makes parallel calls exit zero
   and write nothing), its output-file verification (a zero exit code is not
   evidence of success), and its timeout.
+- **No subprocess runs unbounded.** `run_binary(timeout=None)` means "the suite
+  default" — `RP_SUBPROCESS_TIMEOUT` or 600s — not "wait forever"; there is no
+  way to spell forever. Expiry raises `SubprocessTimeout` (exit 3), never
+  `subprocess.TimeoutExpired`.
 - `render.py` — `rasterize` is the primitive: one PDF, one contiguous physical
   page range, caller-supplied file naming. `render_pages` is the convenience
   wrapper that also routes non-PDF sources through LibreOffice. rp-core has no
   concept of a page *label*; a caller that has them resolves them first.
-- `clikit.py` — `error_handler`/`handle_errors`, `emit`, `json_option`,
-  `doctor_command`. New CLIs use the default `ErrorEnvelope`-on-stderr shape.
+- `clikit.py` — `error_handler`/`handle_errors`, `emit`, `plain_option`,
+  `doctor_command`. Two shapes are fixed suite-wide and take no argument
+  selecting an alternative: results are JSON unless `--plain`, and errors are an
+  `ErrorEnvelope` on stderr, written *after* the human-readable message so the
+  envelope is always the final line. **There is no `--json` flag** anywhere —
+  `packages/rp-pdf/tests/test_cli.py::test_no_json_flag_on_any_command`
+  enforces that.
 
 ### rp-pdf
 
@@ -117,28 +140,28 @@ Tests must **never** require LibreOffice — mock the subprocess.
 - Default text engine is poppler's `pdftotext`, because in-process extractors
   run words together on PDFs that encode gaps as glyph kerning (issue #1).
   Don't quietly switch engines.
-- **rp-pdf's CLI shape is not the suite default**, for backward compatibility:
-  JSON to stdout by *default* with `--plain`/`--csv` opt-outs, and errors emit a
-  flat `{"error": message}` on **stdout**. New packages use `--json` opt-in and
-  the `ErrorEnvelope` on stderr. Both go through `rp_core.clikit`.
+- **rp-pdf's CLI shape is the suite default**: JSON to stdout by *default* with
+  `--plain`/`--csv` opt-outs, and errors as an `ErrorEnvelope` on **stderr**.
+  All of it goes through `rp_core.clikit`; new packages do the same.
 - CLI options must stay config-overridable: booleans are paired
   `--flag/--no-flag` defaulting to `None`, and every option is read through
   `config.resolve(...)` so flag → env → config → default holds. A bare
-  `rp-pdf FILE` runs the `[default].command` (else `index`) — **any new
-  subcommand must be added to `COMMAND_NAMES` in `cli.py`**, or it will be
-  parsed as a filename. Secrets (API key, `--password`) are never read from the
-  config file.
+  `rp-pdf FILE` runs the `[default].command` (else `index`); new subcommands
+  must be registered in `COMMAND_NAMES` — see the invariants table above.
+  Secrets (API key, `--password`) are never read from the config file.
 - Heavy/optional deps are imported lazily — `openai` must never be imported
   unless the AI pass runs.
 - Errors subclass `rp_pdf.errors.RpPdfError`, which is parented onto
-  `rp_core.errors`; that is what gives each one its exit code.
+  `rp_core.errors`; that is what gives each one its exit code and the `type` its
+  envelope reports. Nothing raises a bare builtin: a missing file is
+  `MissingFileError`, which is also a `FileNotFoundError` for library callers.
 
 ### robo-papyro
 
-`cli.py` must never import a leaf package — a test enforces this by walking the
-module's AST. `rp <name>` gets whatever the leaf registered as its typer app,
-which means argv preprocessing done by a leaf's console script (rp-pdf's
-`[default].command` rewriting) does not apply to `rp pdf FILE.pdf`.
+`cli.py` reaches leaves through entry-point discovery only — see the
+invariants table above. `rp <name>` gets whatever the leaf registered as its
+typer app, which means argv preprocessing done by a leaf's console script
+(rp-pdf's `[default].command` rewriting) does not apply to `rp pdf FILE.pdf`.
 
 ## Licensing
 
@@ -150,8 +173,19 @@ pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer
 `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
 
 LibreOffice (MPL-2.0) and poppler (GPL-2.0) are fine because they are only ever
-invoked as subprocesses — no linkage, no license propagation. CI fails the build
-if a package outside the approved list appears in `uv.lock`.
+invoked as subprocesses — no linkage, no license propagation.
+
+`ci/license_gate.py` fails the build on four things: a forbidden package
+anywhere in `uv.lock`; a package not in `ci/allowed-packages.toml`; **weak
+copyleft (MPL and friends) anywhere in the base install path**; and an
+allowlist entry tagged `extra:<name>` that turns out to be reachable from the
+base path anyway. The *base install path* is the runtime dependencies of the
+published distributions with no extras and no dev group — what `uv pip install
+rp-core rp-pdf` gives you.
+
+That last check is why tags are written `tag = "extra:ai"` in a table rather
+than as a comment: a tag is a claim about the dependency graph, and the graph
+moves. Don't add one you haven't verified — the gate will, and it will fail.
 
 ## Testing notes
 
@@ -164,9 +198,11 @@ if a package outside the approved list appears in `uv.lock`.
 - AI-pass responses are cached keyed on file hash + page + model +
   `PROMPT_VERSION` (+ dpi + outline context). Bump `PROMPT_VERSION` in
   `markdown.py` whenever the prompt or request shape changes.
-- ruff's lint `select` is pinned to `E4, E7, E9, F` at the workspace root. The
-  code predates newer ruff releases that widened the implicit default; widening
-  it is a deliberate follow-up, not something to do incidentally.
+- ruff is **pinned to an exact version** in the root dev group, and its lint
+  `select` is stated explicitly (`E, F, W, I, UP, B`). Both are deliberate: a
+  `>=` floor lets the gate change what it enforces whenever a release widens
+  ruff's implicit default, which is what forced the Phase 0 workaround. Bump the
+  pin in its own commit, with the resulting fixes.
 
 ## Workflow
 

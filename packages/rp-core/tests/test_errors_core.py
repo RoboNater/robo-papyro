@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import pytest
+
 from rp_core.errors import (
     ConversionError,
     CorruptFileError,
     InputError,
     MissingDependencyError,
     RoboPapyroError,
+    SubprocessTimeout,
+    envelope_for,
 )
-from rp_core.pages import PageSpecError
+from rp_core.ranges import RangeSpecError
 
 
 @pytest.mark.parametrize(
@@ -21,16 +24,17 @@ from rp_core.pages import PageSpecError
         (MissingDependencyError("x"), 2),
         (CorruptFileError("x"), 3),
         (ConversionError("x"), 3),
+        (SubprocessTimeout("x"), 3),
     ],
 )
 def test_exit_codes(error, expected):
     assert error.exit_code == expected
 
 
-def test_page_spec_error_is_an_input_error():
+def test_range_spec_error_is_an_input_error():
     """Exit code 1, while staying a ValueError for callers that predate the
     suite-wide hierarchy."""
-    error = PageSpecError("bad spec")
+    error = RangeSpecError("bad spec")
     assert isinstance(error, InputError)
     assert isinstance(error, ValueError)
     assert error.exit_code == 1
@@ -54,3 +58,16 @@ def test_envelope_is_json_serializable():
         MissingDependencyError("absent", binary="soffice").to_envelope().model_dump(mode="json")
     )
     assert payload["error"]["exit_code"] == 2
+
+
+class TestEnvelopeFor:
+    def test_suite_errors_describe_themselves(self):
+        error = CorruptFileError("not a PDF")
+        assert envelope_for(error) == error.to_envelope()
+
+    def test_foreign_exceptions_get_the_same_shape(self):
+        envelope = envelope_for(FileNotFoundError("No such file: x.pdf"))
+        assert envelope.error.type == "FileNotFoundError"
+        assert envelope.error.message == "No such file: x.pdf"
+        assert envelope.error.exit_code == 1
+        assert envelope.error.hint is None
