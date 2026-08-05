@@ -1,0 +1,29 @@
+"""MCP server for rp-docx — **a documented stub, deliberately empty (Phase 2).**
+
+Nothing here is wired up yet, and importing this module must stay free: it is a
+placeholder that records the shape Phase 2 fills in, not a partial
+implementation to build on.
+
+**Why it is empty rather than started.** Suite Phase 2 puts the MCP servers in
+their own distribution, `rp-mcp`, rather than in each leaf (parent spec section
+9). The reason is the license gate: whatever the MCP SDK drags in stays out of
+`rp-docx`'s base install path by construction, which is what keeps the fallback
+in parent spec section 11.2 cheap. Adding a FastMCP dependency here to get a
+head start would undo exactly that.
+
+**What Phase 2 will do here.** Roughly three lines per tool, because the work is
+already done: every function in :mod:`rp_docx` returns a pydantic model, so a
+tool definition is a name, a docstring, and a call. The read surface
+(``get_index``, ``get_text``, ``get_tables``, ``get_comments``,
+``get_tracked_changes``) maps one-to-one; the write surface needs a decision
+about where an MCP client is allowed to write, which is a Phase 2 question and
+not one to guess at now.
+"""
+
+from __future__ import annotations
+
+#: Phase 2 replaces this with the FastMCP app. Named here so the entry point it
+#: will be registered under is obvious from this file alone.
+app = None
+
+__all__ = ["app"]

@@ -51,4 +51,5 @@ pythonpath = ["ci"]
 
 markers = [
     "requires_poppler: needs pdftoppm/pdftotext on PATH; skipped when absent",
+    "requires_soffice: needs LibreOffice on PATH; skipped when absent",
 ]

@@ -8,6 +8,7 @@ requires-python = ">=3.11"
 # robo_papyro.commands entry-point group rather than importing them.
 dependencies = [
     "rp-core",
+    "rp-docx",
     "rp-pdf",
     "typer>=0.26.8",
 ]
@@ -17,6 +18,7 @@ rp = "robo_papyro.cli:main"
 
 [tool.uv.sources]
 rp-core = { workspace = true }
+rp-docx = { workspace = true }
 rp-pdf = { workspace = true }
 
 [build-system]
