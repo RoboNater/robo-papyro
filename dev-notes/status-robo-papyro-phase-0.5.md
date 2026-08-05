@@ -36,7 +36,7 @@ against them: the error payload, `doctor`'s default output, and
 | 6 | ruff pinned, `select` widened — mechanical, then manual | `c9a2ec0`, `1072cd1` |
 | 7 | Workspace invariants as tests; AGENTS.md points at them | `bee38c0` |
 | — | Open-ended range forms `"-4"` and `"7-"` (review outcome) | `c7adea2` |
-| 8 | §7.1 enforced by the license gate; spec to v1.2 | `e50a07e` |
+| 8 | §7.1 enforced by the license gate; spec to v1.2 | `7b180f0` |
 
 ### Step 1 — one error contract
 
