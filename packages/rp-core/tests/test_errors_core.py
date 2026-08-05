@@ -11,7 +11,7 @@ from rp_core.errors import (
     RoboPapyroError,
     envelope_for,
 )
-from rp_core.pages import PageSpecError
+from rp_core.ranges import RangeSpecError
 
 
 @pytest.mark.parametrize(
@@ -28,10 +28,10 @@ def test_exit_codes(error, expected):
     assert error.exit_code == expected
 
 
-def test_page_spec_error_is_an_input_error():
+def test_range_spec_error_is_an_input_error():
     """Exit code 1, while staying a ValueError for callers that predate the
     suite-wide hierarchy."""
-    error = PageSpecError("bad spec")
+    error = RangeSpecError("bad spec")
     assert isinstance(error, InputError)
     assert isinstance(error, ValueError)
     assert error.exit_code == 1

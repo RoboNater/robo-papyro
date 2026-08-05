@@ -7,7 +7,7 @@ its own, no format-specific knowledge.
 |---|---|
 | `errors.py` | `RoboPapyroError` hierarchy and its exit-code mapping |
 | `models.py` | `Capability`, `ErrorEnvelope`, `RasterImage` |
-| `pages.py` | 1-based inclusive page-spec parsing |
+| `ranges.py` | 1-based inclusive range-spec parsing (pages, sections, sheets) |
 | `binaries.py` | `soffice` / poppler discovery and invocation |
 | `render.py` | any-file → PNG rasterization |
 | `doctor.py` | capability report |

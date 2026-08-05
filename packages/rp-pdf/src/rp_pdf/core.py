@@ -17,7 +17,6 @@ from pypdf.errors import PyPdfError
 from pypdf.generic import Destination
 from rp_core import binaries, render
 from rp_core.errors import MissingDependencyError
-from rp_core.pages import contiguous_runs
 
 from rp_pdf.errors import (
     InvalidPdfError,
@@ -38,7 +37,7 @@ from rp_pdf.models import (
     SearchHit,
     Table,
 )
-from rp_pdf.pages import PageSpec, parse_page_labels, parse_pages
+from rp_pdf.pages import PageSpec, contiguous_runs, parse_page_labels, parse_pages
 
 # Re-exported so `core.InvalidPdfError` and friends keep resolving; the classes
 # themselves live in rp_pdf.errors, parented onto rp_core.errors.

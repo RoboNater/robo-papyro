@@ -7,7 +7,7 @@ workspace.
 
 | Distribution | Import | CLI | Purpose |
 |---|---|---|---|
-| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, page specs, CLI conventions |
+| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, range specs, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word documents — **Phase 1, not built yet** |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
@@ -15,7 +15,7 @@ workspace.
 ## Layout
 
 ```
-packages/rp-core/src/rp_core/     errors, models, pages, binaries, render, doctor, clikit
+packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, cli
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
@@ -33,7 +33,7 @@ dependencies, ruff config, and pytest config live in the **root**
    packages (`rp-pdf`, `rp-docx`, …) never import each other. Only
    `robo-papyro` depends on leaves, and it reaches them through entry-point
    discovery rather than imports.
-2. **Import from `rp-core`, don't reimplement.** Page-spec parsing, binary
+2. **Import from `rp-core`, don't reimplement.** Range-spec parsing, binary
    discovery, rasterization, error envelopes, and exit codes have exactly one
    implementation. If you are about to write `shutil.which`, a page-range
    parser, or an exception with an exit code, look in `rp_core` first.
