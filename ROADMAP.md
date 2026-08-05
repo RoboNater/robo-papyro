@@ -1,14 +1,40 @@
-# pdfx Roadmap
+# robo-papyro Roadmap
 
-Plan for the next phases of pdfx development. Each phase lands on its own
-feature branch, fully tested and documented, before the next begins. Version
-bumps: 0.2.0 after Phase 1, 0.3.0 after Phase 2, 0.4.0 after Phase 3 (OCR),
-0.5.0 after Phase 4 (quality of life), 0.6.0 after Phase 5 (RAG), 0.7.0 after
-Phase 6 (MCP).
+Two plans live here: the suite's phasing, and `rp-pdf`'s own roadmap, which
+predates the suite and continues under it. Each phase lands on its own feature
+branch, fully tested and documented, before the next begins.
 
-## Phase 1 — Search ✅ (shipped in 0.2.0)
+## Suite phases
 
-A `pdfx search` command so finding content in a large document doesn't require
+Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9.
+
+| Phase | Scope | Driving doc | Status |
+|---|---|---|---|
+| **0** | Workspace scaffold, `pdfx` → `rp-pdf` rename, extract `rp-core`, `rp` umbrella | robo-papyro-spec §8 | ✅ |
+| **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | next |
+| **2** | FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | |
+| **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx), same core/CLI split | TBD | |
+
+Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
+discovery, rasterization, page specs, CLI conventions), the `rp-pdf` rename, and
+the `rp` dispatcher. `rp-pdf`'s behavior is unchanged apart from the rename and
+the CLI exit-code mapping (1 input / 2 missing dependency / 3 corrupt file),
+which replaced a flat exit 1.
+
+Open from the spec: `templates/README.md` needs an owner and canonical location
+per template (§11.2), and archiving `w528-pdf-extraction-toolkit` should happen
+now that Phase 0 is green (§11.3).
+
+## rp-pdf phases
+
+Version bumps: 0.2.0 after Phase 1, 0.3.0 after Phase 2, 0.4.0 after Phase 3
+(OCR), 0.5.0 after Phase 4 (quality of life), 0.6.0 after Phase 5 (RAG), 0.7.0
+after Phase 6 (MCP). Phase 6 below is superseded by suite Phase 2, which covers
+MCP servers for every package rather than `rp-pdf` alone.
+
+### Phase 1 — Search ✅ (shipped in 0.2.0)
+
+A `rp-pdf search` command so finding content in a large document doesn't require
 extracting text and grepping it manually — with results reported in both
 numbering schemes, closing the loop with page labels.
 
@@ -31,7 +57,7 @@ def search(path, query, pages="all", regex=False, ignore_case=True,
 **CLI:**
 
 ```sh
-pdfx search FILE QUERY [--pages SPEC] [--regex] [--case-sensitive]
+rp-pdf search FILE QUERY [--pages SPEC] [--regex] [--case-sensitive]
                        [--context N] [--max N] [--plain] [--password PW] [--physical]
 ```
 
@@ -45,9 +71,9 @@ Landed as designed. Also fixed along the way: text extraction now defaults to
 `pdftotext` for correct word spacing (issue #1), and CLI stdout/stderr are
 forced to UTF-8 on Windows.
 
-## Phase 2 — Markdown conversion ✅ (shipped in 0.3.0)
+### Phase 2 — Markdown conversion ✅ (shipped in 0.3.0)
 
-A `pdfx markdown` command that turns a PDF (or page range) into clean Markdown,
+A `rp-pdf markdown` command that turns a PDF (or page range) into clean Markdown,
 in two stages: a fast programmatic pass built from the existing extractors, and
 an optional AI pass where a vision-language model reviews each page's draft
 Markdown against the rendered page image and corrects it.
@@ -97,8 +123,8 @@ def to_markdown(path, pages="all", images_dir=None, ai=False, model=None,
   + prompt version (under the images/output dir or a cache dir), so an
   interrupted run on a 300-page document resumes instead of re-billing.
 - **OpenAI-compatible API only** — works against OpenAI, OpenRouter, Ollama,
-  LM Studio, vLLM, etc. Configuration: `--model`/`PDFX_VLM_MODEL`,
-  `--base-url`/`PDFX_VLM_BASE_URL`, key from `PDFX_VLM_API_KEY` falling back to
+  LM Studio, vLLM, etc. Configuration: `--model`/`RP_PDF_VLM_MODEL`,
+  `--base-url`/`RP_PDF_VLM_BASE_URL`, key from `RP_PDF_VLM_API_KEY` falling back to
   `OPENAI_API_KEY`. Clear error when model or key is missing.
 - The `openai` client lives in an optional dependency group (`uv sync --extra
   ai`); the base install stays light and stage 1 never imports it.
@@ -109,7 +135,7 @@ def to_markdown(path, pages="all", images_dir=None, ai=False, model=None,
 **CLI:**
 
 ```sh
-pdfx markdown FILE [-o OUT.md] [--pages SPEC] [--images-dir DIR]
+rp-pdf markdown FILE [-o OUT.md] [--pages SPEC] [--images-dir DIR]
                    [--ai] [--model NAME] [--base-url URL] [--jobs N] [--dpi N]
                    [--password PW] [--physical]
 ```
@@ -141,7 +167,7 @@ AI pass assigns levels matching the document hierarchy. Both are no-ops on
 documents without an outline. **Open decision:** evaluate on real documents,
 then promote one or both to default-on.
 
-## Phase 3 — OCR for scanned pages (in progress)
+### Phase 3 — OCR for scanned pages (in progress)
 
 The line the "out of scope" note said Phase 2 would make nearly free, now
 crossed deliberately: the VLM that reviews pages also transcribes the scanned
@@ -166,11 +192,11 @@ def transcribe_pages(path, pages="all", model=None, base_url=None, jobs=1,
   too-short responses rejected as likely refusals) and cached under an
   OCR-specific key (file hash + page + model + prompt version + dpi).
 
-**`pdfx markdown --ocr`** (requires `--ai`): a third stage after refinement
+**`rp-pdf markdown --ocr`** (requires `--ai`): a third stage after refinement
 replaces `no text layer` placeholders with transcriptions and marks those pages
 `ocr_transcribed: true`; failed pages keep their placeholder.
 
-**`pdfx validate-vlm-ocr`**: generates a three-page synthetic PDF — page 1 with
+**`rp-pdf validate-vlm-ocr`**: generates a three-page synthetic PDF — page 1 with
 a text layer (must be skipped), pages 2-3 with text present only as embedded
 images — runs the real OCR path against the configured model, and scores the
 transcriptions against the known text (whitespace-insensitive similarity, with
@@ -178,8 +204,8 @@ ok/warn thresholds). Lets a user prove their model/endpoint works before
 spending money on a real document.
 
 **Shared VLM config** (`vlm_utils.make_client`, used by both the AI pass and
-OCR): `--model`/`--base-url`/`--organization` with `PDFX_VLM_MODEL` /
-`PDFX_VLM_BASE_URL` / `PDFX_VLM_ORG` env fallbacks, key from `PDFX_VLM_API_KEY`
+OCR): `--model`/`--base-url`/`--organization` with `RP_PDF_VLM_MODEL` /
+`RP_PDF_VLM_BASE_URL` / `RP_PDF_VLM_ORG` env fallbacks, key from `RP_PDF_VLM_API_KEY`
 → `OPENAI_API_KEY`. `--organization` is passed to the client only when set
 (OpenAI-hosted, org-scoped accounts); local/third-party servers leave it unset.
 These defaults (and every other CLI option) can also live in an optional TOML
@@ -195,22 +221,22 @@ precedence and the org reaching the wire as a header).
 
 See `dev-notes/phase-3-ocr-vlm.md` for the full design.
 
-## Config file ✅
+### Config file ✅
 
-Optional TOML config (`pdfx.config`) giving any CLI option a persistent default,
+Optional TOML config (`rp-pdf.config`) giving any CLI option a persistent default,
 resolved **flag → env var → config file → built-in default**. A `[default]`
-section names the command that a bare `pdfx FILE.pdf` runs (else `index`);
+section names the command that a bare `rp-pdf FILE.pdf` runs (else `index`);
 per-command sections (`[markdown]`, `[text]`, …) plus a shared `[vlm]` section
 hold option defaults, with a command-scoped VLM key overriding `[vlm]`. Because
 flags win, every boolean option is a paired `--flag/--no-flag` defaulting to
 unset, so e.g. `--no-ai` can disable a config-enabled AI pass. Discovery:
-`--config`/`$PDFX_CONFIG`, then nearest `pdfx.toml` walking up from CWD, then
-`~/.config/pdfx/config.toml` (project merges over user). Secrets stay out — the
+`--config`/`$RP_PDF_CONFIG`, then nearest `rp-pdf.toml` walking up from CWD, then
+`~/.config/rp-pdf/config.toml` (project merges over user). Secrets stay out — the
 API key is env-only, never read from the file. Config loading lives in the CLI
 layer; `core` stays import-clean. Tests: `tests/test_config.py` (discovery,
 precedence matrix, default action, key-not-from-config).
 
-## Phase 4 — Quality of life
+### Phase 4 — Quality of life
 
 Three independent, small items.
 
@@ -222,7 +248,7 @@ when disabled, `has_text` is `null` in output (model field becomes
 
 **4b. Form fields.** `core.get_fields(path, password) -> list[FormField]` via
 pypdf `reader.get_fields()`; model: `name`, `field_type` (text/checkbox/radio/
-choice/signature), `value`, `default_value`. New CLI command `pdfx fields FILE`.
+choice/signature), `value`, `default_value`. New CLI command `rp-pdf fields FILE`.
 Documents without forms return `[]`. Fixture: generate a simple AcroForm with
 pypdf in conftest.
 
@@ -232,7 +258,7 @@ steps = install uv (`astral-sh/setup-uv`), `uv sync`, `ruff check` +
 render tests run; Windows skips them (already automatic). Requires the repo to
 be on GitHub — skip this item if it stays on a local remote.
 
-## Phase 5 — RAG: chunking and vector store
+### Phase 5 — RAG: chunking and vector store
 
 Make a PDF semantically queryable: chunk → embed → store → query, with page
 provenance carried through so answers can cite labeled pages.
@@ -256,7 +282,7 @@ def chunk_document(path, pages="all", target_chars=1200, overlap_chars=150,
   hard-split as last resort; adjacent chunks overlap by `overlap_chars`.
 - `Chunk` model: `id` (stable hash of doc + span), `text`, `start_physical_page`,
   `end_physical_page`, `start_labeled_page`, `end_labeled_page`, `index`.
-- `pdfx chunk FILE` emits chunks as JSON — useful standalone for feeding any
+- `rp-pdf chunk FILE` emits chunks as JSON — useful standalone for feeding any
   external RAG pipeline, independent of our store.
 
 **Vector store** (`rag.py`):
@@ -265,7 +291,7 @@ def chunk_document(path, pages="all", target_chars=1200, overlap_chars=150,
   Alternative considered: LanceDB — also fine; chroma chosen for the simplest
   embedded API and built-in default embedding.
 - **Embeddings: pluggable from day one**, selected via `--embedder` (env
-  `PDFX_EMBEDDER`). Two implementations ship in Phase 5:
+  `RP_PDF_EMBEDDER`). Two implementations ship in Phase 5:
   - `local` (default): chroma's built-in ONNX MiniLM — downloads once, no
     torch, no API key.
   - `voyage` (API-based, higher quality): reads `VOYAGE_API_KEY`; errors
@@ -279,27 +305,27 @@ def chunk_document(path, pages="all", target_chars=1200, overlap_chars=150,
 **CLI:**
 
 ```sh
-pdfx ingest FILE [--db DIR] [--collection NAME] [--embedder NAME]
+rp-pdf ingest FILE [--db DIR] [--collection NAME] [--embedder NAME]
                  [--target-chars N] [--overlap N]
-pdfx query "question" [--db DIR] [--collection NAME] [--top-k K]
+rp-pdf query "question" [--db DIR] [--collection NAME] [--top-k K]
 ```
 
 `query` output: hits with `score`, `text`, page provenance, and source path.
 
-DB location resolution: `--db` flag, else `PDFX_DB` environment variable, else
-`./.pdfx-db` in the current directory.
+DB location resolution: `--db` flag, else `RP_PDF_DB` environment variable, else
+`./.rp-pdf-db` in the current directory.
 
 **Tests:** chunker is pure-python — test sizes, overlap, page provenance,
 paragraph preservation. Store tests inject a deterministic dummy embedding
 function (no model download in CI); one optional integration test runs the real
 default embedder when the model is available locally.
 
-## Phase 6 — MCP server
+### Phase 6 — MCP server
 
 The spec's v2 goal: expose the same core to agents via MCP.
 
 - `FastMCP` from the official `mcp` SDK; optional dependency group `mcp`;
-  console script `pdfx-mcp` (stdio transport).
+  console script `rp-pdf-mcp` (stdio transport).
 - Tools, mapped 1:1 onto core functions and returning their pydantic models as
   structured content: `pdf_index`, `pdf_text`, `pdf_tables`, `pdf_images`
   (metadata only), `pdf_search`, and — with a RAG store present — `pdf_query`.
@@ -311,7 +337,7 @@ The spec's v2 goal: expose the same core to agents via MCP.
   permitted paths.
 - Tests: in-process client via the SDK's test transport; no subprocess needed.
 
-## Out of scope
+### Out of scope
 
 PDF modification/creation — revisit only when a real document needs it. OCR
 was originally on this list; the Phase 2 AI pass made it nearly free (a VLM
