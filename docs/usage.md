@@ -63,8 +63,8 @@ the `rp-pdf` console script rather than in the command group `rp` discovers.
 ### `rp-pdf doctor` — check external tools
 
 ```sh
-uv run rp-pdf doctor            # table of poppler tools, versions, and paths
-uv run rp-pdf doctor --json     # list[Capability] for programmatic callers
+uv run rp-pdf doctor            # list[Capability] as JSON — the default everywhere
+uv run rp-pdf doctor --plain    # table of poppler tools, versions, and paths
 ```
 
 Reports whether each optional external binary is installed, its version, and
@@ -176,7 +176,7 @@ files are saved and `saved_path` is filled in.
 uv run rp-pdf markdown report.pdf                        # Markdown on stdout
 uv run rp-pdf markdown report.pdf -o report.md           # write a file
 uv run rp-pdf markdown report.pdf -o report.md --images-dir media
-uv run rp-pdf markdown report.pdf --json                 # full MarkdownResult as JSON
+uv run rp-pdf markdown report.pdf --full                 # whole MarkdownResult as JSON
 uv run rp-pdf markdown report.pdf -o report.md --ai --model gpt-4o-mini
 uv run rp-pdf markdown report.pdf --ai --ocr --model gpt-4o-mini  # with OCR for scanned pages
 ```

@@ -153,7 +153,7 @@ def test_exit_codes_survive_the_umbrella(tmp_path):
 
 
 def test_doctor_reports_across_the_suite():
-    result = _run("rp", "doctor", "--json")
+    result = _run("rp", "doctor")
     assert result.returncode == 0
     names = [row["name"] for row in json.loads(result.stdout)]
     assert names == list(cli.CAPABILITIES)
@@ -162,4 +162,4 @@ def test_doctor_reports_across_the_suite():
 def test_doctor_covers_more_than_any_single_leaf():
     """`rp doctor` aggregates: it reports on soffice, which no rp-pdf path uses."""
     assert "soffice" in cli.CAPABILITIES
-    assert "soffice" not in _run("rp-pdf", "doctor", "--json").stdout
+    assert "soffice" not in _run("rp-pdf", "doctor").stdout

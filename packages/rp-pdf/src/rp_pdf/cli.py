@@ -407,9 +407,13 @@ def markdown(
             "levels match the document hierarchy (requires --ai)",
         ),
     ] = None,
-    as_json: Annotated[
+    full: Annotated[
         Optional[bool],
-        typer.Option("--json/--no-json", help="Emit the full MarkdownResult as JSON"),
+        typer.Option(
+            "--full/--no-full",
+            help="Emit the whole MarkdownResult as JSON — per-page detail and "
+            "warnings as well as the Markdown body — instead of the Markdown alone",
+        ),
     ] = None,
     cache_dir: Annotated[
         Optional[Path],
@@ -454,7 +458,7 @@ def markdown(
         )
         for warning in result.warnings:
             print(warning, file=sys.stderr)
-        if config.resolve(cmd, "json", as_json, False):
+        if config.resolve(cmd, "full", full, False):
             _dump(result)
         elif out_v is not None:
             out_v.write_text(result.markdown, encoding="utf-8")

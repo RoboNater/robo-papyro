@@ -140,9 +140,10 @@ rp-pdf markdown FILE [-o OUT.md] [--pages SPEC] [--images-dir DIR]
                    [--password PW] [--physical]
 ```
 
-Markdown to stdout by default (`-o` writes a file); `--json` emits the
-`MarkdownResult` for programmatic callers, consistent with the JSON-first rest
-of the tool.
+Markdown to stdout by default (`-o` writes a file); `--full` emits the whole
+`MarkdownResult` as JSON for programmatic callers. (It was `--json` until Phase
+0.5, which reserved that spelling: JSON is the suite default, so no `--json`
+flag exists anywhere.)
 
 **Tests:** stage 1 on existing fixtures — headings/paragraph text, a table
 rendered as a valid pipe table with its rows absent from the surrounding prose

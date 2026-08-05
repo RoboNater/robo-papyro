@@ -18,8 +18,8 @@ class Sample(BaseModel):
 
 
 class TestEmit:
-    def test_json_round_trips(self, capsys):
-        clikit.emit(Sample(name="a", count=1), as_json=True)
+    def test_json_is_the_default(self, capsys):
+        clikit.emit(Sample(name="a", count=1))
         assert json.loads(capsys.readouterr().out) == {
             "name": "a",
             "count": 1,
@@ -27,24 +27,24 @@ class TestEmit:
         }
 
     def test_json_list(self, capsys):
-        clikit.emit([Sample(name="a", count=1), Sample(name="b", count=2)], as_json=True)
+        clikit.emit([Sample(name="a", count=1), Sample(name="b", count=2)])
         assert [row["name"] for row in json.loads(capsys.readouterr().out)] == ["a", "b"]
 
     def test_human_record(self, capsys):
-        clikit.emit(Sample(name="a", count=1), as_json=False)
+        clikit.emit(Sample(name="a", count=1), plain=True)
         out = capsys.readouterr().out
         assert "name" in out and "a" in out
         assert not out.startswith("{")
 
     def test_human_table_has_a_header_row(self, capsys):
-        clikit.emit([Sample(name="a", count=1), Sample(name="b", count=2)], as_json=False)
+        clikit.emit([Sample(name="a", count=1), Sample(name="b", count=2)], plain=True)
         lines = capsys.readouterr().out.splitlines()
         assert lines[0].split() == ["name", "count", "optional"]
         assert set(lines[1]) <= {"-", " "}
         assert len(lines) == 4
 
     def test_none_renders_as_dash(self, capsys):
-        clikit.emit([Sample(name="a", count=1)], as_json=False)
+        clikit.emit([Sample(name="a", count=1)], plain=True)
         assert "-" in capsys.readouterr().out
 
 
@@ -145,21 +145,21 @@ class TestErrorHandler:
 
 
 class TestDoctorCommand:
-    def test_json_output_lists_capabilities(self, capsys):
-        clikit.doctor_command("python3")(True)
+    def test_json_output_is_the_default(self, capsys):
+        clikit.doctor_command("python3")(False)
         payload = json.loads(capsys.readouterr().out)
         assert payload[0]["name"] == "python3"
         assert payload[0]["available"] is True
 
     def test_human_table_omits_the_hint_column(self, capsys):
-        clikit.doctor_command("python3")(False)
+        clikit.doctor_command("python3")(True)
         assert "install_hint" not in capsys.readouterr().out
 
     def test_missing_binary_hint_goes_to_stderr(self, capsys, monkeypatch):
         from rp_core import doctor
 
         monkeypatch.setattr(doctor, "find_binary", lambda name, **kw: None)
-        clikit.doctor_command("soffice")(False)
+        clikit.doctor_command("soffice")(True)
         captured = capsys.readouterr()
         assert "soffice" in captured.out
         assert "LibreOffice" in captured.err

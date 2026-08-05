@@ -1,8 +1,14 @@
 """Shared typer conventions, so the suite's CLIs cannot drift apart.
 
 Everything a CLI does that is not specific to its format lives here: the
-``--json`` flag, serialization, error handling with the suite's exit codes, and
+``--plain`` flag, serialization, error handling with the suite's exit codes, and
 the ``doctor`` subcommand factory.
+
+**JSON by default, ``--plain`` to opt out.** The suite's primary consumer is a
+program, so the machine-readable form is what you get without asking. There is
+no ``--json`` flag anywhere in the suite (spec section 4.6): two tools differing
+on the shape of every *successful* call would be a worse inconsistency than any
+error-path difference, because it hits the common path.
 
 **One error output shape.** :func:`error_handler` writes the
 :class:`~rp_core.models.ErrorEnvelope` from spec section 4.1 to stderr and exits
@@ -26,10 +32,10 @@ from pydantic import BaseModel
 from rp_core import doctor as doctor_module
 from rp_core.errors import RoboPapyroError, envelope_for
 
-#: The standard ``--json`` flag. Use it verbatim so every CLI spells it the same.
-json_option = Annotated[
+#: The standard ``--plain`` flag. Use it verbatim so every CLI spells it the same.
+plain_option = Annotated[
     bool,
-    typer.Option("--json", help="Emit the result as JSON instead of a human-readable table"),
+    typer.Option("--plain", help="Human-readable output instead of the default JSON"),
 ]
 
 
@@ -47,9 +53,9 @@ def dump_json(result: BaseModel | list[BaseModel] | dict, *, indent: int | None 
     print(json.dumps(to_jsonable(result), indent=indent, ensure_ascii=False))
 
 
-def emit(result: BaseModel | list[BaseModel] | dict, as_json: bool) -> None:
-    """Write ``result`` to stdout: JSON when ``as_json``, else a plain table."""
-    if as_json:
+def emit(result: BaseModel | list[BaseModel] | dict, plain: bool = False) -> None:
+    """Write ``result`` to stdout: JSON, or a plain table when ``plain``."""
+    if not plain:
         dump_json(result)
         return
     data = to_jsonable(result)
@@ -127,10 +133,10 @@ def doctor_command(*capabilities: str) -> Callable[[bool], None]:
     Register it with ``app.command("doctor")(doctor_command("soffice", ...))``.
     """
 
-    def doctor(as_json: json_option = False) -> None:
+    def doctor(plain: plain_option = False) -> None:
         """Report which optional external tools are installed."""
         report = doctor_module.report(*capabilities)
-        if as_json:
+        if not plain:
             dump_json(report)
             return
         # Install hints are long; show them only for what is actually missing,

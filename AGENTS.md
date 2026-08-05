@@ -103,10 +103,13 @@ Tests must **never** require LibreOffice — mock the subprocess.
   page range, caller-supplied file naming. `render_pages` is the convenience
   wrapper that also routes non-PDF sources through LibreOffice. rp-core has no
   concept of a page *label*; a caller that has them resolves them first.
-- `clikit.py` — `error_handler`/`handle_errors`, `emit`, `json_option`,
-  `doctor_command`. The `ErrorEnvelope` on stderr is the suite's *only* error
-  shape; `error_handler` takes no argument selecting another. The envelope is
-  written last so it is always the final line of stderr.
+- `clikit.py` — `error_handler`/`handle_errors`, `emit`, `plain_option`,
+  `doctor_command`. Two shapes are fixed suite-wide and take no argument
+  selecting an alternative: results are JSON unless `--plain`, and errors are an
+  `ErrorEnvelope` on stderr, written *after* the human-readable message so the
+  envelope is always the final line. **There is no `--json` flag** anywhere —
+  `packages/rp-pdf/tests/test_cli.py::test_no_json_flag_on_any_command`
+  enforces that.
 
 ### rp-pdf
 

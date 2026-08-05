@@ -12,6 +12,21 @@ def run_cli(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+def test_no_json_flag_on_any_command():
+    """Spec section 10: JSON is the default output and `--plain` is the human
+    opt-out, so no `--json` flag exists in the suite."""
+    from rp_pdf.cli import COMMAND_NAMES
+
+    for command in sorted(COMMAND_NAMES):
+        assert "--json" not in run_cli(command, "--help").stdout, command
+
+
+def test_doctor_is_json_by_default():
+    report = json.loads(run_cli("doctor").stdout)
+    assert {row["name"] for row in report} == {"pdftotext", "pdftoppm", "pdfinfo"}
+    assert not run_cli("doctor", "--plain").stdout.lstrip().startswith(("[", "{"))
+
+
 def test_index_json(text_pdf):
     result = run_cli("index", text_pdf)
     assert result.returncode == 0
@@ -180,8 +195,8 @@ def test_markdown_out_file(table_pdf, tmp_path):
     assert "| Apple | 3 | 1.20 |" in target.read_text(encoding="utf-8")
 
 
-def test_markdown_json(table_pdf):
-    result = run_cli("markdown", table_pdf, "--json")
+def test_markdown_full(table_pdf):
+    result = run_cli("markdown", table_pdf, "--full")
     assert result.returncode == 0
     data = json.loads(result.stdout)
     assert data["pages"][0]["physical_page"] == 1
