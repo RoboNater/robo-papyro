@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 
 from PIL import Image, UnidentifiedImageError
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from rp_core.ranges import parse_range_spec
 from rp_pptx import ooxml
@@ -203,10 +202,7 @@ def get_tables(path: Path, *, slides: str = "all", table_index: int | None = Non
                     continue
                 table = shape.table
                 data = [
-                    [
-                        "" if cell.is_spanned else cell.text
-                        for cell in row.cells
-                    ]
+                    ["" if cell.is_spanned else cell.text for cell in row.cells]
                     for row in table.rows
                 ]
                 result.append(
@@ -240,7 +236,7 @@ def get_images(
         wanted = set(_selected(slides, len(presentation.slides)))
         for slide_number, slide in enumerate(presentation.slides, start=1):
             for shape in shape_tools.walk(slide.shapes):
-                if shape.shape_type != MSO_SHAPE_TYPE.PICTURE:
+                if not shape_tools.is_picture(shape):
                     continue
                 index += 1
                 if slide_number not in wanted:
@@ -322,8 +318,7 @@ def get_charts(path: Path, *, slides: str = "all") -> list[ChartRef]:
                         ChartSeries(
                             name=str(item.name) if item.name else None,
                             values=[
-                                float(value) if value is not None else None
-                                for value in item.values
+                                float(value) if value is not None else None for value in item.values
                             ],
                         )
                         for item in chart.series
@@ -493,7 +488,7 @@ def get_index(path: Path) -> PresentationIndex:
             for shape in shape_tools.walk(slide.shapes):
                 table_count += bool(getattr(shape, "has_table", False))
                 chart_count += bool(getattr(shape, "has_chart", False))
-                image_count += shape.shape_type == MSO_SHAPE_TYPE.PICTURE
+                image_count += shape_tools.is_picture(shape)
 
         return PresentationIndex(
             path=Path(path),

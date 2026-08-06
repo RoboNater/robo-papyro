@@ -119,9 +119,7 @@ class TestRequiredCases:
         one = find_matches("Hello World", {"Hello": "a", "Hello World": "b"})
         other = find_matches("Hello World", {"Hello World": "b", "Hello": "a"})
         assert [(m.key, m.start, m.end) for m in one] == [("Hello World", 0, 11)]
-        assert [(m.key, m.start, m.end) for m in one] == [
-            (m.key, m.start, m.end) for m in other
-        ]
+        assert [(m.key, m.start, m.end) for m in one] == [(m.key, m.start, m.end) for m in other]
 
     def test_the_shorter_key_still_matches_where_it_stands_alone(self):
         matches = find_matches("Hello World and Hello", {"Hello": "a", "Hello World": "b"})

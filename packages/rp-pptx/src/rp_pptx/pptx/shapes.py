@@ -13,18 +13,35 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from pptx.enum.shapes import MSO_SHAPE_TYPE
+from rp_pptx.ooxml import qn
+
+#: Classification is done on the element tag rather than ``shape.shape_type``.
+#: python-pptx *raises* ``NotImplementedError`` for a shape it cannot classify,
+#: and a deck only has to contain one — a SmartArt frame, an ink annotation, a
+#: hand-authored shape — for a whole read to die on a shape nobody asked about.
+#: The tag is unambiguous, cannot raise, and is what the classification is
+#: derived from anyway.
+_GROUP = qn("p:grpSp")
+_PICTURE = qn("p:pic")
+
+
+def is_group(shape: Any) -> bool:
+    return shape._element.tag == _GROUP
+
+
+def is_picture(shape: Any) -> bool:
+    return shape._element.tag == _PICTURE
 
 
 def walk(shapes: Any) -> Iterator[Any]:
     """Every shape in ``shapes``, descending into groups depth-first.
 
     Groups are yielded before their children so a caller can still see the
-    grouping; callers that only want leaves filter on ``shape_type``.
+    grouping; callers that only want leaves filter them out.
     """
     for shape in shapes:
         yield shape
-        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+        if is_group(shape):
             yield from walk(shape.shapes)
 
 
