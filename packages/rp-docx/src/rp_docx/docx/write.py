@@ -6,13 +6,17 @@ Everything here builds on two things: the resolved template's
 built with the wrong styles looks right until review, and a replacement that
 only checks one run at a time silently finds nothing.
 
-**Markdown is parsed here rather than by a library.** Spec section 9: the block
-grammar needed is small, and no markdown library on the approved license list
-covers it, so a vetted dependency is the wrong trade for two hundred lines of
-parsing. The grammar is exactly what section 9 lists — headings 1-4, paragraphs,
-bold/italic/code spans, bullet and numbered lists, GFM pipe tables, horizontal
-rules, hyperlinks — plus fenced code blocks, which the ``code`` role in the
-StyleMap exists for.
+**Markdown is parsed by hand rather than by a library, but no longer here.**
+Spec section 9: the block grammar needed is small, and no markdown library on the
+approved license list covers it, so a vetted dependency is the wrong trade for two
+hundred lines of parsing. That parser now lives in :mod:`rp_core.markdown`, moved
+there by rp-pptx-spec section 12 step 2 once a second leaf needed the same
+grammar — it never contained an OOXML identifier, so nothing about it was
+Word-specific. What stays here is the *renderer* over the shared AST, which is
+the half that knows about styles and ``w:`` elements.
+
+:func:`parse_markdown` and :func:`parse_inline` are re-exported so this module's
+public surface is unchanged.
 
 **No in-place mutation unless asked.** Every function takes an ``output``; when
 it is ``None`` the change is written back to the source, and it is the CLI that
@@ -23,12 +27,11 @@ Nothing here prints, and nothing here imports typer.
 
 from __future__ import annotations
 
-import re
 import shutil
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from rp_core.markdown import Block, Span, parse_inline, parse_markdown
 from rp_docx import ooxml, templates
 from rp_docx.docx import runs as runs_module
 from rp_docx.errors import RpDocxError
@@ -47,170 +50,6 @@ CODE_FONT = "Consolas"
 
 
 # --- markdown, parsed --------------------------------------------------------
-
-
-@dataclass
-class Block:
-    """One markdown block, already classified."""
-
-    kind: Literal["heading", "paragraph", "bullet", "numbered", "table", "rule", "code"]
-    text: str = ""
-    level: int = 0
-    rows: list[list[str]] = field(default_factory=list)
-    lines: list[str] = field(default_factory=list)
-
-
-_HEADING = re.compile(r"^(#{1,6})\s+(.*)$")
-_BULLET = re.compile(r"^(\s*)[-*+]\s+(.*)$")
-_NUMBERED = re.compile(r"^(\s*)\d+[.)]\s+(.*)$")
-_RULE = re.compile(r"^\s*([-*_])(\s*\1){2,}\s*$")
-_FENCE = re.compile(r"^\s*```")
-_TABLE_DIVIDER = re.compile(r"^\s*\|?[\s:|-]+\|[\s:|-]*$")
-
-#: Inline spans, longest-delimiter first so ``**bold**`` is not read as two
-#: italics. Link before emphasis so a link label can carry emphasis inside it.
-_INLINE = re.compile(
-    r"(?P<link>\[(?P<label>[^\]]*)\]\((?P<href>[^)\s]+)\))"
-    r"|(?P<code>`[^`]+`)"
-    r"|(?P<bold>\*\*[^*]+\*\*|__[^_]+__)"
-    r"|(?P<italic>\*[^*]+\*|_[^_]+_)"
-)
-
-
-@dataclass(frozen=True)
-class Span:
-    text: str
-    bold: bool = False
-    italic: bool = False
-    code: bool = False
-    href: str | None = None
-
-
-def parse_inline(text: str) -> list[Span]:
-    """Split a line into formatted spans. Nested emphasis is not supported —
-    spec section 9's list stops at single spans, and nesting is where a
-    hand-rolled parser starts guessing."""
-    spans: list[Span] = []
-    position = 0
-    for match in _INLINE.finditer(text):
-        if match.start() > position:
-            spans.append(Span(text[position : match.start()]))
-        if match.group("link"):
-            spans.append(Span(match.group("label"), href=match.group("href")))
-        elif match.group("code"):
-            spans.append(Span(match.group("code")[1:-1], code=True))
-        elif match.group("bold"):
-            spans.append(Span(match.group("bold")[2:-2], bold=True))
-        else:
-            spans.append(Span(match.group("italic")[1:-1], italic=True))
-        position = match.end()
-    if position < len(text):
-        spans.append(Span(text[position:]))
-    return [span for span in spans if span.text] or ([Span(text)] if text else [])
-
-
-def _split_row(line: str) -> list[str]:
-    stripped = line.strip()
-    if stripped.startswith("|"):
-        stripped = stripped[1:]
-    if stripped.endswith("|"):
-        stripped = stripped[:-1]
-    return [cell.strip() for cell in stripped.split("|")]
-
-
-def parse_markdown(text: str) -> list[Block]:
-    """Markdown to blocks. Everything spec section 9 requires, and no more."""
-    blocks: list[Block] = []
-    lines = text.replace("\r\n", "\n").split("\n")
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-
-        if _FENCE.match(line):
-            index += 1
-            body: list[str] = []
-            while index < len(lines) and not _FENCE.match(lines[index]):
-                body.append(lines[index])
-                index += 1
-            blocks.append(Block(kind="code", lines=body))
-            index += 1
-            continue
-
-        if not line.strip():
-            index += 1
-            continue
-
-        if _RULE.match(line):
-            blocks.append(Block(kind="rule"))
-            index += 1
-            continue
-
-        heading = _HEADING.match(line)
-        if heading:
-            blocks.append(
-                Block(
-                    kind="heading",
-                    level=min(len(heading.group(1)), 4),
-                    text=heading.group(2).strip(),
-                )
-            )
-            index += 1
-            continue
-
-        # A pipe table is a header row followed by a divider; without the
-        # divider it is a paragraph that happens to contain pipes.
-        if "|" in line and index + 1 < len(lines) and _TABLE_DIVIDER.match(lines[index + 1]):
-            rows = [_split_row(line)]
-            index += 2
-            while index < len(lines) and "|" in lines[index] and lines[index].strip():
-                rows.append(_split_row(lines[index]))
-                index += 1
-            blocks.append(Block(kind="table", rows=rows))
-            continue
-
-        bullet = _BULLET.match(line)
-        if bullet:
-            blocks.append(
-                Block(
-                    kind="bullet",
-                    level=len(bullet.group(1)) // 2 + 1,
-                    text=bullet.group(2).strip(),
-                )
-            )
-            index += 1
-            continue
-
-        numbered = _NUMBERED.match(line)
-        if numbered:
-            blocks.append(
-                Block(
-                    kind="numbered",
-                    level=len(numbered.group(1)) // 2 + 1,
-                    text=numbered.group(2).strip(),
-                )
-            )
-            index += 1
-            continue
-
-        # A paragraph runs to the next blank line; markdown's soft wrapping
-        # means a wrapped sentence is one paragraph, not several.
-        paragraph = [line.strip()]
-        index += 1
-        while index < len(lines) and lines[index].strip() and not _is_block_start(lines[index]):
-            paragraph.append(lines[index].strip())
-            index += 1
-        blocks.append(Block(kind="paragraph", text=" ".join(paragraph)))
-    return blocks
-
-
-def _is_block_start(line: str) -> bool:
-    return bool(
-        _HEADING.match(line)
-        or _BULLET.match(line)
-        or _NUMBERED.match(line)
-        or _RULE.match(line)
-        or _FENCE.match(line)
-    )
 
 
 # --- markdown, rendered ------------------------------------------------------

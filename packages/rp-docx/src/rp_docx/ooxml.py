@@ -6,6 +6,14 @@ package opened as what it is — a zip of XML parts. Everything that reaches pas
 python-docx goes through this module, so there is exactly one namespace map in
 the package and exactly one place that knows how a `.docx` is packed.
 
+**The mechanics underneath are shared.** Zip read/repack, content-type rewriting,
+and the compiled-XPath helper moved to :mod:`rp_core.ooxml` (rp-pptx-spec section
+12 step 2) once rp-pptx needed the same three things. What stays here is
+everything Word-specific: :data:`NS`, the two content-type strings, the part
+names, and — importantly — the *errors*. Core reports a missing part as ``None``
+and a malformed one as ``ValueError``; turning those into an exit code is a
+judgement only this package can make.
+
 **The `.dotx` finding.** python-docx does not open a `.dotx` at all. It inspects
 ``[Content_Types].xml``, sees the template content type, and raises
 ``ValueError: ... is not a Word file``. Since house templates are the normal path
@@ -19,17 +27,14 @@ Nothing here prints, and nothing here imports typer.
 
 from __future__ import annotations
 
-import shutil
 import tempfile
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from lxml import etree
-
+from rp_core import ooxml as core_ooxml
 from rp_docx.errors import InvalidDocxError, MissingFileError
 
 #: Every namespace this package resolves, in one place (spec section 7).
@@ -66,33 +71,16 @@ DOCUMENT_PART = "word/document.xml"
 
 def qn(tag: str) -> str:
     """``"w:t"`` → ``"{http://…/main}t"`` — a Clark-notation qualified name."""
-    prefix, _, local = tag.partition(":")
-    if not local:
-        return tag
     try:
-        return f"{{{NS[prefix]}}}{local}"
+        return core_ooxml.qualified_name(tag, NS)
     except KeyError as exc:  # a typo'd prefix is a bug here, not user input
-        raise KeyError(
-            f"Unknown XML namespace prefix {prefix!r}; add it to rp_docx.ooxml.NS"
-        ) from exc
+        raise KeyError(f"{exc.args[0]}; add it to rp_docx.ooxml.NS") from exc
 
 
-@lru_cache(maxsize=256)
-def _compiled(expr: str) -> etree.XPath:
-    return etree.XPath(expr, namespaces=NS)
-
-
-def xpath(element: Any, expr: str) -> list:
-    """Run ``expr`` against ``element`` with the package namespace map bound.
-
-    Compiled and cached rather than called as ``element.xpath(...)``, because
-    python-docx subclasses ``_Element`` and overrides ``xpath`` with a
-    single-argument version that binds *its* namespace map — which omits
-    several of the namespaces this package needs. Going through
-    ``etree.XPath`` means one expression behaves the same whether the element
-    came from python-docx or straight from lxml.
-    """
-    return _compiled(expr)(element)
+#: ``xpath(element, expr)`` with :data:`NS` bound. The compiled-and-cached
+#: machinery behind it is :func:`rp_core.ooxml.compiled_xpath`; only the
+#: namespace map is Word's.
+xpath = core_ooxml.compiled_xpath(NS)
 
 
 def attr(element: Any, name: str, default: str | None = None) -> str | None:
@@ -126,8 +114,7 @@ def check_readable(path: Path) -> Path:
 def part_names(path: Path) -> list[str]:
     """Every part in the package, in archive order."""
     check_readable(path)
-    with zipfile.ZipFile(path) as archive:
-        return archive.namelist()
+    return core_ooxml.part_names(path)
 
 
 def read_part(path: Path, name: str) -> bytes | None:
@@ -138,22 +125,18 @@ def read_part(path: Path, name: str) -> bytes | None:
     resolved a comment.
     """
     check_readable(path)
-    with zipfile.ZipFile(path) as archive:
-        try:
-            return archive.read(name)
-        except KeyError:
-            return None
+    return core_ooxml.read_part(path, name)
 
 
 def parse_part(path: Path, name: str) -> Any | None:
     """One part parsed as XML, or ``None`` when it is absent."""
-    data = read_part(path, name)
-    if data is None:
-        return None
+    check_readable(path)
     try:
-        return etree.fromstring(data)
-    except etree.XMLSyntaxError as exc:
-        raise InvalidDocxError(f"{path.name}: {name} is not well-formed XML ({exc}).") from exc
+        return core_ooxml.parse_part(path, name)
+    except ValueError as exc:
+        # core reports malformed XML without an exit code, because only the leaf
+        # knows this means "corrupt .docx" rather than "corrupt something else".
+        raise InvalidDocxError(f"{path.name}: {exc}.") from exc
 
 
 def repack(source: Path, target: Path, replacements: dict[str, bytes]) -> Path:
@@ -164,15 +147,7 @@ def repack(source: Path, target: Path, replacements: dict[str, bytes]) -> Path:
     re-compress the images in it.
     """
     check_readable(source)
-    target = Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(source) as archive, zipfile.ZipFile(target, "w") as out:
-        for item in archive.infolist():
-            data = replacements.get(item.filename)
-            if data is None:
-                data = archive.read(item.filename)
-            out.writestr(item, data, compress_type=item.compress_type)
-    return target
+    return core_ooxml.repack(source, target, replacements)
 
 
 # --- content types: .docx vs .dotx -----------------------------------------
@@ -184,20 +159,18 @@ def content_type(path: Path) -> str:
     This is the only thing that distinguishes a `.dotx` from a `.docx` in
     practice — the parts, the styles, and the markup are otherwise the same.
     """
-    data = read_part(path, "[Content_Types].xml")
-    if data is None:
+    check_readable(path)
+    if core_ooxml.read_part(path, core_ooxml.CONTENT_TYPES_PART) is None:
         raise InvalidDocxError(
             f"{path.name} has no [Content_Types].xml; it is not an OOXML package."
         )
-    text = data.decode("utf-8", "replace")
-    if TEMPLATE_CONTENT_TYPE in text:
-        return TEMPLATE_CONTENT_TYPE
-    if DOCUMENT_CONTENT_TYPE in text:
-        return DOCUMENT_CONTENT_TYPE
-    raise InvalidDocxError(
-        f"{path.name} is an OOXML package but not a Word one — its content types name "
-        "neither a document nor a template main part."
-    )
+    found = core_ooxml.content_type_from(path, (TEMPLATE_CONTENT_TYPE, DOCUMENT_CONTENT_TYPE))
+    if found is None:
+        raise InvalidDocxError(
+            f"{path.name} is an OOXML package but not a Word one — its content types name "
+            "neither a document nor a template main part."
+        )
+    return found
 
 
 def is_template(path: Path) -> bool:
@@ -206,21 +179,12 @@ def is_template(path: Path) -> bool:
 
 
 def _retype(path: Path, output: Path | None, frm: str, to: str) -> Path:
-    data = read_part(path, "[Content_Types].xml")
-    assert data is not None  # content_type() below would have raised
-    rewritten = data.replace(frm.encode(), to.encode())
-
-    if output is not None:
-        return repack(path, Path(output), {"[Content_Types].xml": rewritten})
-
-    # In place: write beside the original and replace atomically, so an
+    # ``output=None`` retypes in place, staged and moved atomically so an
     # interrupted retype cannot leave a half-written package where a template
     # used to be. This is the only path in the package that rewrites its input,
     # and callers reach it only for a file they just created themselves.
-    with tempfile.TemporaryDirectory(prefix="rp-docx-retype-") as tmp:
-        staged = repack(path, Path(tmp) / path.name, {"[Content_Types].xml": rewritten})
-        shutil.move(str(staged), str(path))
-    return path
+    check_readable(path)
+    return core_ooxml.retype(path, output, frm, to)
 
 
 def retype_as_template(path: Path, output: Path | None = None) -> Path:
