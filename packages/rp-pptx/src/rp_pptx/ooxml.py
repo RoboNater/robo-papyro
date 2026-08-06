@@ -217,8 +217,7 @@ def comment_parts_by_slide(path: Path) -> dict[int, list[tuple[str, str]]]:
     found: dict[int, list[tuple[str, str]]] = {}
     for number, slide_part in enumerate(slide_parts_in_order(path), start=1):
         attached = [
-            (part, declared.get(part, ""))
-            for part in related_parts(path, slide_part, "comments")
+            (part, declared.get(part, "")) for part in related_parts(path, slide_part, "comments")
         ]
         if attached:
             found[number] = attached

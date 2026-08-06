@@ -206,9 +206,7 @@ class TestCommentSlideAssociation:
     comments against the wrong slides the moment a deck is reordered.
     """
 
-    def test_comments_follow_their_slides_through_a_reorder(
-        self, classic_comments_deck, tmp_path
-    ):
+    def test_comments_follow_their_slides_through_a_reorder(self, classic_comments_deck, tmp_path):
         from rp_pptx.pptx.slides import reorder_slides
 
         before = read.get_comments(classic_comments_deck)
@@ -228,9 +226,7 @@ class TestCommentSlideAssociation:
             (3, "Second"),
         ]
 
-    def test_comments_follow_their_slides_through_a_deletion(
-        self, classic_comments_deck, tmp_path
-    ):
+    def test_comments_follow_their_slides_through_a_deletion(self, classic_comments_deck, tmp_path):
         from rp_pptx.pptx.slides import delete_slides
 
         out = tmp_path / "trimmed.pptx"

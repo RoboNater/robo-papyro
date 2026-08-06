@@ -170,9 +170,7 @@ class TestPlaceholderValidation:
     def test_a_title_with_nowhere_to_go_is_an_error(self, mapped_to_blank, tmp_path):
         mapped_to_blank(content="House Blank")
         with pytest.raises(InputError) as error:
-            write.create(
-                tmp_path / "d.pptx", markdown="## Heading\n", template="house_like"
-            )
+            write.create(tmp_path / "d.pptx", markdown="## Heading\n", template="house_like")
         message = str(error.value)
         assert "House Blank" in message
         assert "title placeholder" in message
@@ -192,9 +190,7 @@ class TestPlaceholderValidation:
     def test_the_message_lists_what_the_layout_does_have(self, mapped_to_blank, tmp_path):
         mapped_to_blank(section="House Blank")
         with pytest.raises(InputError) as error:
-            write.create(
-                tmp_path / "d.pptx", markdown="# T\n\n# Section\n", template="house_like"
-            )
+            write.create(tmp_path / "d.pptx", markdown="# T\n\n# Section\n", template="house_like")
         assert "none at all" in str(error.value)
 
     def test_a_layout_with_a_title_but_no_body_is_fine_until_body_arrives(

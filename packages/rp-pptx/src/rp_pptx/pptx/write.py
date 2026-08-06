@@ -274,10 +274,7 @@ def _add_image(slide: Any, alt: str, href: str, top: Emu) -> Emu:
 
 
 def _placeholder_summary(layout: Any) -> str:
-    listed = ", ".join(
-        f"{placeholder.name!r}"
-        for placeholder in layout.placeholders
-    )
+    listed = ", ".join(f"{placeholder.name!r}" for placeholder in layout.placeholders)
     return listed or "none at all"
 
 

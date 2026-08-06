@@ -379,9 +379,7 @@ def _modern_comment_slides(path: Path) -> list[int]:
     return sorted(
         number
         for number, attached in ooxml.comment_parts_by_slide(path).items()
-        if any(
-            content_type == ooxml.MODERN_COMMENT_CONTENT_TYPE for _, content_type in attached
-        )
+        if any(content_type == ooxml.MODERN_COMMENT_CONTENT_TYPE for _, content_type in attached)
     )
 
 
