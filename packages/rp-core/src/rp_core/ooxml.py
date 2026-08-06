@@ -22,7 +22,7 @@ from __future__ import annotations
 import shutil
 import tempfile
 import zipfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -123,19 +123,33 @@ def parse_part(path: Path, name: str) -> Any | None:
         raise ValueError(f"{name} is not well-formed XML ({exc})") from exc
 
 
-def repack(source: Path, target: Path, replacements: Mapping[str, bytes]) -> Path:
+def repack(
+    source: Path,
+    target: Path,
+    replacements: Mapping[str, bytes],
+    *,
+    omit: Collection[str] = (),
+) -> Path:
     """Copy the package, substituting the named parts.
 
     Order and per-entry compression are preserved: some OPC readers expect
     ``[Content_Types].xml`` first, and rewriting a package should not silently
     re-compress the images in it. A replacement whose name is not already in the
     archive is appended, which is how a leaf adds a part it has authored.
+
+    ``omit`` drops parts entirely. Dropping one that something still points at
+    produces a broken package, so callers are expected to rewrite the
+    referencing rels and content types in the same call — which is why omission
+    is a parameter here rather than a separate pass.
     """
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
+    dropped = set(omit)
     with zipfile.ZipFile(source) as archive, zipfile.ZipFile(target, "w") as out:
         existing = set(archive.namelist())
         for item in archive.infolist():
+            if item.filename in dropped and item.filename not in replacements:
+                continue
             data = replacements.get(item.filename)
             if data is None:
                 data = archive.read(item.filename)
