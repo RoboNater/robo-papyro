@@ -94,7 +94,7 @@ class PresentationIndex(BaseModel):
     table_count: int
     chart_count: int
     notes_count: int             # slides that have speaker notes
-    comment_count: int
+    comment_count: int | None    # None when unreadable modern comment parts are present — §7
     titles: list[SlideTitle]
     core_properties: CoreProperties
 
@@ -405,7 +405,14 @@ python-pptx has no API for any of the following; all of it goes through `ooxml.p
 
 Read-only in this phase, normalized into the one `Comment` model with `parent_id` carrying threading (`None` throughout for classic comments, which don't thread).
 
-**Classic comments are in scope unconditionally. Modern comments are a checkpointed sub-scope that may be deferred without blocking the phase.** Their part layout must be verified against a real PowerPoint-authored file (§12 step 7) — Microsoft's format documentation for modern comments is thin, and the fixture generator (§11) must encode what PowerPoint actually writes, not what the schema implies. That reference file is the phase's only external input, and it may not be to hand when step 7 runs. If it isn't: `get_comments` ships reading classic comments fully, **detects** modern comment parts by content type and reports their presence loudly — a documented warning naming the slides that carry them, never a silent `[]` over a commented deck — and the deferral is recorded in the status note with the fixture generator as the follow-up. Silent emptiness is the one outcome this section forbids.
+**Classic comments are in scope unconditionally. Modern comments are a checkpointed sub-scope that may be deferred without blocking the phase.** Their part layout must be verified against a real PowerPoint-authored file (§12 step 7) — Microsoft's format documentation for modern comments is thin, and the fixture generator (§11) must encode what PowerPoint actually writes, not what the schema implies. That reference file is the phase's only external input, and it may not be to hand when step 7 runs.
+
+**If the deferral is taken, the condition is an error, not a warning.** The core contract has no side channel — functions return models and never print, and the CLI's JSON is the whole interface — so a Python warning or stderr note would be exactly the kind of output an agent misses. Instead:
+
+- `get_comments` on a deck carrying modern comment parts (detected by content type) raises **`UnsupportedFeatureError`**, an `RpPptxError` subclass with exit code 3 — the taxonomy already reads 3 as "unreadable/unsupported" (parent §4.1). Its envelope names the slides that carry the parts and its hint says modern-comment support is deferred and where that is tracked. This applies to mixed classic/modern decks too: partial results are sacrificed for an error that cannot be mistaken for a complete read. Classic-only decks are unaffected.
+- `get_index` stays total — an index must never refuse a readable deck — and reports `comment_count: null` when modern parts are present, the suite's existing null-means-unknown shape (`rp-pdf`'s `has_text: bool | None`), rather than a confidently wrong classic-only count.
+
+`UnsupportedFeatureError` exists only while the deferral is active; deleting it is part of the follow-up that lands modern support, so the temporary condition never calcifies into API surface. Silent emptiness — a `[]` or a plausible count over comments the reader cannot see — is the one outcome this section forbids.
 
 ---
 
@@ -546,6 +553,7 @@ Required assertions:
 - `delete_slides` covering the whole deck raises `InputError`; deleting all but one succeeds
 - Append semantics (§9): first `#` on append becomes a section slide, leading unheaded content becomes a new untitled slide, and every pre-existing slide's content, notes, and order are unchanged
 - Per-slide selectors: `--slides` filtering asserted on at least `tables` and `comments`, not just the text-shaped reads
+- If the §7 deferral is taken: a generated deck with modern comment parts makes `get_comments` raise `UnsupportedFeatureError` whose envelope names the affected slides and exits 3, and `get_index` report `comment_count: null` — asserted on the envelope, since the error path *is* the interface here
 - Explicit test that replacement works in a table cell, a grouped shape, and a notes slide — and does **not** touch layouts or masters (§6)
 - Explicit test for a placeholder split across runs
 - Explicit test that read commands emit JSON with no flag, and human output with `--plain`
@@ -572,7 +580,7 @@ Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phas
 
 **Step 6.** Implement `pptx/runs.py` per §6 as a standalone, unit-tested module, before anything depends on it. All five required cases.
 
-**Step 7.** Implement `pptx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_notes`, `get_comments`, `get_charts`. Tests alongside each. **Checkpoint:** inspect a real PowerPoint-authored file with modern threaded comments, report the actual part layout found (§7), and encode it in the conftest generator (§11.1). If no reference file is available when this step runs, take §7's deferral path — classic comments complete, modern parts detected and reported loudly — and continue; the deferral and its follow-up go in the status note, not in the way of step 8.
+**Step 7.** Implement `pptx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_notes`, `get_comments`, `get_charts`. Tests alongside each. **Checkpoint:** inspect a real PowerPoint-authored file with modern threaded comments, report the actual part layout found (§7), and encode it in the conftest generator (§11.1). If no reference file is available when this step runs, take §7's deferral path — classic comments complete, modern parts raising `UnsupportedFeatureError`, `comment_count` going `null` — and continue; the deferral and its follow-up go in the status note, not in the way of step 8.
 
 **Step 8.** Implement `pptx/slides.py` (§7), then `pptx/write.py` and `pptx/template.py` on top of `runs.py` and the resolved `LayoutMap`.
 
