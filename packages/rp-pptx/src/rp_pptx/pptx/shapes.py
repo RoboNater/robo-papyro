@@ -38,22 +38,14 @@ def walk(shapes: Any) -> Iterator[Any]:
 
     Groups are yielded before their children so a caller can still see the
     grouping; callers that only want leaves filter them out.
+
+    Callers handle table cells themselves rather than getting them from here:
+    ``get_text`` deliberately leaves them to ``get_tables``, and ``replace_text``
+    needs the table's own index to report a ``table:N`` location. A shared
+    "every text frame" helper would have to hide exactly the distinction they
+    both turn on.
     """
     for shape in shapes:
         yield shape
         if is_group(shape):
             yield from walk(shape.shapes)
-
-
-def text_frames(shape: Any) -> Iterator[Any]:
-    """Every text frame a shape offers — its own, and its table's cells.
-
-    A group has no text frame of its own; its children are reached through
-    :func:`walk`, so nothing is yielded for it here.
-    """
-    if getattr(shape, "has_text_frame", False):
-        yield shape.text_frame
-    if getattr(shape, "has_table", False):
-        for row in shape.table.rows:
-            for cell in row.cells:
-                yield cell.text_frame
