@@ -57,9 +57,7 @@ class TestFilling:
 
     def test_a_bare_template_name_resolves(self, template_env, tmp_path):
         """Section 5.1's resolution applies here exactly as it does to create."""
-        result = fill_template(
-            "house_like", {}, tmp_path / "out.pptx", strict=False
-        )
+        result = fill_template("house_like", {}, tmp_path / "out.pptx", strict=False)
         assert result.output.is_file()
 
     def test_a_missing_template_is_an_input_error(self, template_env, tmp_path):
@@ -77,9 +75,7 @@ class TestFilling:
 
     def test_it_reaches_tables_groups_and_notes(self, runs_deck, tmp_path):
         """Section 8 inherits section 6's scope."""
-        result = fill_template(
-            runs_deck, {"name": "Ada", "role": "Eng"}, tmp_path / "out.pptx"
-        )
+        result = fill_template(runs_deck, {"name": "Ada", "role": "Eng"}, tmp_path / "out.pptx")
         tables = read.get_tables(result.output)
         assert tables[0].data[0][0] == "cell Ada"
         assert "Ada" in read.get_notes(result.output)[0].text
