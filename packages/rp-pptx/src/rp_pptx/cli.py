@@ -110,7 +110,8 @@ def create(
 ):
     with _errors():
         md = from_markdown.read_text(encoding="utf-8") if from_markdown else None
-        clikit.emit({"output": write.create(out, markdown=md, template=template, aspect=aspect)})
+        output = write.create(out, markdown=md, template=template, aspect=aspect)
+        clikit.emit({"output": str(output)})
 
 
 @app.command()
@@ -121,13 +122,10 @@ def append(
     in_place: bool = False,
 ):
     with _errors():
-        clikit.emit(
-            {
-                "output": write.append_markdown(
-                    file, markdown.read_text(), output=_destination(file, out, in_place)
-                )
-            }
+        output = write.append_markdown(
+            file, markdown.read_text(), output=_destination(file, out, in_place)
         )
+        clikit.emit({"output": str(output)})
 
 
 @app.command()

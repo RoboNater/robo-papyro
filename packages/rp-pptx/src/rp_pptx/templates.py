@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pptx
 from pptx import Presentation
-from pptx.opc.package import _Package
 
 from rp_core.errors import InputError
 from rp_pptx.models import LayoutDef, LayoutMap, PlaceholderDef, TemplateInfo, TemplateManifest
@@ -24,7 +24,10 @@ def resolve_template(name_or_path: str | Path | None) -> Path:
     if name_or_path is None:
         if configured := os.getenv("RP_PPTX_TEMPLATE"):
             return resolve_template(configured)
-        return Path(_Package.default_pptx_path)
+        # python-pptx's public ``Presentation()`` uses this bundled file, but
+        # resolve_template's contract returns a Path so callers can retain the
+        # same explicit template lifecycle as house templates.
+        return Path(pptx.__file__).parent / "templates" / "default.pptx"
     value = Path(name_or_path)
     if value.is_file():
         return value

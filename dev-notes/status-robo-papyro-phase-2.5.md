@@ -49,8 +49,8 @@ inventories. These are follow-ups, not hidden best-effort behavior.
 
 ## Verification status
 
-Static compilation, Ruff, package build, license, and repository diff checks
-pass. The pinned workspace test environment could not be resolved in this
-container because access to PyPI was blocked and the required wheels were
-absent from uv's cache. Consequently the full pytest command is recorded as
-environment-blocked rather than represented as passing.
+The refreshed environment resolved and synchronized the complete workspace.
+The full suite passes with 594 tests passing and 90 optional-external-tool tests
+skipped. Ruff lint and formatting checks, the package build, license gate, CLI
+standalone/umbrella identity sweep, static compilation, and repository diff
+checks also pass.
