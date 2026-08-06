@@ -14,7 +14,7 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
 | **2** | `rp-mcp`: FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | next |
-| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ready |
+| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ✅ |
 | **3** | `rp-xlsx` (openpyxl), same core/CLI split | TBD | |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary

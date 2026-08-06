@@ -10,6 +10,7 @@ dependencies = [
     "rp-core",
     "rp-docx",
     "rp-pdf",
+    "rp-pptx",
     "typer>=0.26.8",
 ]
 
@@ -20,6 +21,7 @@ rp = "robo_papyro.cli:main"
 rp-core = { workspace = true }
 rp-docx = { workspace = true }
 rp-pdf = { workspace = true }
+rp-pptx = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

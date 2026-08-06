@@ -31,6 +31,7 @@ python-docx = "MIT"
 # Phase 3 (rp-xlsx / rp-pptx); pre-approved by the spec.
 openpyxl = "MIT"
 python-pptx = "MIT"
+xlsxwriter = "BSD-2-Clause"
 
 [dev]
 coverage = "Apache-2.0"
