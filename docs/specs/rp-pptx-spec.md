@@ -1,7 +1,7 @@
 # rp-pptx — PowerPoint Toolkit Specification
 
 **Version:** 1.0
-**Status:** Ready for implementation (Phase 2.5), blocked on nothing
+**Status:** Ready for implementation (Phase 2.5), blocked on nothing — the phase's one external input, a modern-comments reference deck (§7), gates a deferrable sub-scope, not the phase
 **Parent document:** `robo-papyro-spec.md` v1.3 — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
 
 This spec is written after `rp-docx` shipped, and it inherits Phase 1's findings as requirements rather than rediscovering them: template retyping is load-bearing (§5.3 — verified against python-pptx 1.0.2, not assumed), role→name checking is lazy (§5.1), template resolution distinguishes a wrong path from an unknown name (§5.1), every editing command takes `--in-place` and refuses to guess (§10), and no fixture binary is committed — everything is generated, including the comment fixtures python-pptx cannot produce (§11).
@@ -59,6 +59,8 @@ packages/rp-pptx/
 
 The promoted module must stay format-agnostic to survive parent §10's "no format-specific identifier in `rp_core`" invariant: content-type strings and namespace maps are *arguments*, and everything mentioning `w:`, `p:`, or `a:` stays in the leaf. If the extraction turns out messier than it looks — python-docx and python-pptx package APIs differ more than expected, say — the fallback is a small duplication inside `rp_pptx.ooxml` and a deferred extraction, recorded in the status note. The fallback exists so this decision cannot block the phase.
 
+The same promotion covers `rp-docx`'s hand-rolled Markdown block/inline parser, which is equally format-agnostic — see §9 and §12 step 2.
+
 ### Core contract
 - `rp_pptx.pptx.*` and `rp_pptx.templates` never print and never import typer
 - Every public function returns a pydantic model or a list of them
@@ -73,7 +75,7 @@ The promoted module must stay format-agnostic to survive parent §10's "no forma
 
 Transitively, python-pptx brings `XlsxWriter` (BSD-2-Clause) — it uses it only when *authoring* charts, which this package never does, but the import graph carries it, so it needs a license-gate allowlist entry (parent §7). It also brings `typing-extensions` (PSF).
 
-**Rejected:** `pptx2md` — its own license is permissive, but it depends on `tqdm` (`MPL-2.0 AND MIT`), which parent §7.1 bars from the base install path, plus scipy and numpy for a task that needs neither. `markitdown` (MIT) — a general-purpose converter whose pptx support is python-pptx underneath, wrapped in a heavy dependency tree. Both do with dependencies what §9 does with ~200 lines against a library we already ship. There is no mammoth-equivalent for pptx; Markdown conversion is hand-rolled in both directions.
+**Rejected:** `pptx2md` — its own license is permissive, but it depends on `tqdm` (`MPL-2.0 AND MIT`), which parent §7.1 bars from the base install path, plus scipy and numpy for a task that needs neither. `markitdown` (MIT) — a general-purpose converter whose pptx support is python-pptx underneath, wrapped in a heavy dependency tree. Both do with dependencies what §9 does with ~200 lines against a library we already ship. There is no mammoth-equivalent for pptx; Markdown conversion is hand-rolled in both directions, with the parser shared from `rp-core` after §12 step 2's promotion.
 
 ---
 
@@ -258,15 +260,17 @@ get_index(path: Path) -> PresentationIndex
 get_text(path: Path, *, slides: str = "all", runs: bool = False) -> list[SlideText]
 get_markdown(path: Path, *, slides: str = "all", notes: bool = True,
              images_dir: Path | None = None) -> str
-get_tables(path: Path, *, table_index: int | None = None) -> list[Table]
-get_images(path: Path, *, output_dir: Path | None = None) -> list[EmbeddedImage]
+get_tables(path: Path, *, slides: str = "all",
+           table_index: int | None = None) -> list[Table]
+get_images(path: Path, *, slides: str = "all",
+           output_dir: Path | None = None) -> list[EmbeddedImage]
 get_notes(path: Path, *, slides: str = "all") -> list[SpeakerNotes]
-get_comments(path: Path) -> list[Comment]
-get_charts(path: Path) -> list[ChartRef]
+get_comments(path: Path, *, slides: str = "all") -> list[Comment]
+get_charts(path: Path, *, slides: str = "all") -> list[ChartRef]
 get_properties(path: Path) -> CoreProperties
 ```
 
-`slides` accepts the `rp_core.ranges` spec — the module parent §4.3 says "serves PDF pages, docx sections, and future sheet or slide selection". This is that future.
+`slides` accepts the `rp_core.ranges` spec — the module parent §4.3 says "serves PDF pages, docx sections, and future sheet or slide selection". This is that future. **Every read that returns per-slide content takes the selector**, not just the text-shaped ones: an agent asking "what tables are on slide 12" should not have to fetch every table in a 90-slide deck and filter client-side. Only `get_index` and `get_properties` are whole-deck by nature.
 
 ### Write (`rp_pptx.pptx.write`)
 
@@ -288,6 +292,10 @@ set_properties(path: Path, props: CoreProperties, *,
                output: Path | None = None) -> Path
 ```
 
+**The aspect decision is made on the `template` argument, not on the resolved path.** `resolve_template` maps `None` to a real `Path` (§5.1), so by the time resolution has happened, an implicit bundled default is indistinguishable from an explicitly requested one — and the two must behave differently: `template=None` means `create()` forces `aspect` (16:9 by default) over whatever the fallback template says, while any explicitly supplied template — including python-pptx's own bundled one, passed by path — wins on geometry. `create()` therefore records `template is None` *before* resolving. §11.2 requires a test distinguishing exactly this pair.
+
+`append_markdown` segments differently from `create` — see §9. In brief: on append, a first `#` opens a *section* slide, never a title slide; `##` opens a content slide; leading unheaded content opens a new untitled content slide; the existing final slide is never modified.
+
 ### Slides (`rp_pptx.pptx.slides`)
 
 ```python
@@ -296,6 +304,8 @@ reorder_slides(path: Path, order: list[int], *, output: Path | None = None) -> S
 ```
 
 `order` must be a complete permutation of `1..slide_count`; anything else is an `InputError` saying which indices are missing or duplicated. A partial spec silently guessing where unlisted slides go is exactly the kind of surprise parent §10 exists to prevent.
+
+`delete_slides` refuses to delete every slide — a spec that would leave zero is an `InputError`. An empty deck is a corner nothing downstream is tested against (PowerPoint, LibreOffice, and python-pptx each get to have an opinion), and "delete all slides" is far likelier a range-spec mistake than an intent.
 
 ### Templates (`rp_pptx.templates`)
 
@@ -330,7 +340,7 @@ Identical to `rp-docx` §5.1 v1.3, with `.potx`/`.pptx` in place of `.dotx`/`.do
 4. A path-shaped argument that does not exist → `InputError` naming the *path* — anything carrying a suffix or a separator is a wrong path, not a name to look up
 5. Unresolvable name → `InputError` listing available templates
 
-`resolve_template` returns a `Path` in every case, falling back to python-pptx's bundled default rather than to a `None` every caller would special-case.
+`resolve_template` returns a `Path` in every case, falling back to python-pptx's bundled default rather than to a `None` every caller would special-case. The cost of that convenience is that resolution *erases explicitness* — a resolved path no longer says whether the caller asked for it. Any behavior that depends on whether a template was explicitly supplied (today: `create()`'s aspect rule, §4) is decided on the pre-resolution argument, and this is contract, not implementation detail.
 
 **Layout mapping.** House decks rarely use the default layout names. Markdown→pptx conversion maps roles through `LayoutMap`, loaded from an optional `<template>.layoutmap.json` beside the template — never hardcoded.
 
@@ -388,12 +398,14 @@ python-pptx has no API for any of the following; all of it goes through `ooxml.p
 
 **Slide deletion and reordering.** Deck order is the order of `p:sldId` elements in `p:sldIdLst` in `ppt/presentation.xml`. Reordering is reordering those elements. Deletion removes the `p:sldId`, the relationship it points to, and the slide part itself (plus its notes slide and rels). Media referenced only by a deleted slide is left in the package — orphaned media is invisible bloat, not corruption, and garbage collection of shared media is easy to get wrong; note it as a known limit.
 
-**Comments.** Two generations exist and both must be read:
+**Comments.** Two generations exist:
 
 - Classic: per-slide `ppt/comments/comment<N>.xml`, authors in `ppt/commentAuthors.xml`
 - Modern (threaded): parts under `ppt/comments/` with their own schema, threaded replies, authors in `ppt/authors.xml`
 
-Read-only in this phase, normalized into the one `Comment` model with `parent_id` carrying threading. **Verify the modern part layout against a real PowerPoint-authored file at the §12 step 7 checkpoint** — Microsoft's format documentation for modern comments is thin, and the fixture-generation code (§11) must be built from what PowerPoint actually writes, not from what the schema implies.
+Read-only in this phase, normalized into the one `Comment` model with `parent_id` carrying threading (`None` throughout for classic comments, which don't thread).
+
+**Classic comments are in scope unconditionally. Modern comments are a checkpointed sub-scope that may be deferred without blocking the phase.** Their part layout must be verified against a real PowerPoint-authored file (§12 step 7) — Microsoft's format documentation for modern comments is thin, and the fixture generator (§11) must encode what PowerPoint actually writes, not what the schema implies. That reference file is the phase's only external input, and it may not be to hand when step 7 runs. If it isn't: `get_comments` ships reading classic comments fully, **detects** modern comment parts by content type and reports their presence loudly — a documented warning naming the slides that carry them, never a silent `[]` over a commented deck — and the deferral is recorded in the status note with the fixture generator as the follow-up. Silent emptiness is the one outcome this section forbids.
 
 ---
 
@@ -413,7 +425,9 @@ Identical rules to `rp-docx` §8:
 
 ## 9. Markdown Mapping and Other Footguns
 
-**Markdown → slides needs a segmentation rule, and it must be deterministic.** A document is a scroll; a deck is a sequence. The mapping:
+**Markdown parsing is promoted, not reimplemented.** `rp-docx` hand-rolled a block/inline parser (its §9) covering headings, paragraphs, emphasis and code spans, nested lists, GFM pipe tables, fenced code, horizontal rules, and hyperlinks — almost exactly the subset this package needs. Parsing Markdown into a small block/inline AST is format-agnostic in the same way zip handling is: no OOXML identifier anywhere near it. So **§12 step 2's promotion covers the Markdown parser too**: the parser moves to `rp_core.markdown`, `rp-docx` keeps its docx *renderer* over the shared AST, and this package writes only a pptx renderer. Two additions the shared parser needs for pptx (both additive, neither docx-breaking): HTML comment blocks surfaced as AST nodes rather than skipped (speaker notes, below), and thematic breaks already parse. The same fallback clause applies — if the extraction fights back, duplicate the parser subset here, record why, defer.
+
+**Markdown → slides needs a segmentation rule, and it must be deterministic.** A document is a scroll; a deck is a sequence. The mapping, for `create()`:
 
 - First `#` heading → title slide (`LayoutMap.title`), heading as title, any immediately following paragraph as subtitle
 - Each subsequent `#` → section-break slide (`LayoutMap.section`)
@@ -423,6 +437,12 @@ Identical rules to `rp-docx` §8:
 - `###` and deeper → bold lead-in bullet at the current level, not a new slide — decks don't have sub-sub-sections, outlines do
 - GFM pipe tables → native tables; images → pictures on the slide (`LayoutMap.blank` when an image is a slide's only content); fenced code → a monospace-font text box, since PowerPoint has no code style concept
 - An HTML comment block within a slide's content (`<!-- speaker notes here -->`) → that slide's speaker notes — the Marp convention, chosen because it is precedented and invisible to any other Markdown renderer
+
+**`append_markdown()` uses the same rules with one substitution and two guarantees**, because "first heading becomes the deck title" only makes sense when there is no deck yet:
+
+- A first `#` on append opens a *section* slide (`LayoutMap.section`), never a title slide — the deck already has its title
+- Leading unheaded content opens a new untitled content slide; it is never merged into the deck's existing final slide
+- Append only adds slides — no existing slide's content, notes, or order changes
 
 **No reflow, no auto-splitting.** Slides don't scroll: content that outgrows the placeholder overflows the slide boundary silently. This package places what it is given and does not second-guess quantity — a caller who cares can count bullets per slide with `get_text` on the result, and `docs/usage-pptx.md` states the limit plainly. Auto-splitting a long section across slides is editorial judgment, and out of scope.
 
@@ -446,11 +466,11 @@ rp-pptx doctor                                # via rp_core.clikit.doctor_comman
 rp-pptx index      FILE [--plain]
 rp-pptx text       FILE [--slides SPEC] [--runs] [--plain]
 rp-pptx markdown   FILE [-o OUT] [--slides SPEC] [--images-dir DIR] [--no-notes]
-rp-pptx tables     FILE [--index N] [--format json|csv|md] [-o DIR]
-rp-pptx images     FILE [-o DIR] [--plain]
+rp-pptx tables     FILE [--slides SPEC] [--index N] [--format json|csv|md] [-o DIR]
+rp-pptx images     FILE [--slides SPEC] [-o DIR] [--plain]
 rp-pptx notes      FILE [--slides SPEC] [--plain]
-rp-pptx comments   FILE [--author NAME] [--plain]
-rp-pptx charts     FILE [--plain]
+rp-pptx comments   FILE [--slides SPEC] [--author NAME] [--plain]
+rp-pptx charts     FILE [--slides SPEC] [--plain]
 rp-pptx props      FILE [--plain]
 
 rp-pptx create     -o OUT [--from-markdown FILE] [--template NAME|PATH]
@@ -505,14 +525,15 @@ Adversarial, not realistic — same doctrine, same trio:
 
 | Fixture | Purpose |
 |---|---|
-| `minimal` | python-pptx's bundled default: stock layout names, 4:3. The happy path and the default-`LayoutMap` path — and the check that `create()` forces 16:9 over it. |
+| `minimal` | python-pptx's bundled default: stock layout names, 4:3. The happy path, the default-`LayoutMap` path, and both sides of the aspect contract: implicit use (template `None` resolving to it) gets 16:9 forced; explicit use (passed by path) keeps its 4:3. |
 | `house_like` | Renamed layouts (`"RP Title"`, `"House Content"`), a layout name containing a space and a non-ASCII character (`"Résumé Layout"`), 16:9, an image on the master (the logo stand-in), a second master, and a `.layoutmap.json` beside it. |
 | `hostile` | Missing a layout the `LayoutMap` maps to; no `.layoutmap.json`; two layouts whose names differ only by case. Exists to prove failures are loud. |
 
 Required assertions:
 - `house_like` round-trips: create → read → house layouts used, master image intact
 - `hostile` raises `InputError` naming the missing layout and listing what the template has — and only when the missing role is actually used (lazy checking, §5.1)
-- 16:9 from `house_like` wins over `create()`'s own default; `minimal`'s 4:3 loses to it
+- 16:9 from `house_like` wins over `create()`'s `aspect` argument (explicit template wins on geometry)
+- The implicit/explicit pair (§4): `create(template=None)` forces 16:9 over the bundled default's 4:3; `create(template=<path to that same bundled template>)` keeps 4:3 — same resolved file, different behavior, decided on the argument
 - `resolve_template` prefers `.potx` over `.pptx` when both exist
 - A wrong path reports the path, not "no template called …" (§5.1 case 4)
 - A manifest built from a template containing distinctive text does not contain that text (§5.2)
@@ -522,6 +543,9 @@ Required assertions:
 
 - Deck fixtures (titled slides, bulleted outlines with nesting, tables with merged cells, images, grouped shapes, notes) are generated programmatically in `conftest.py`
 - Round-trip tests: create → read → assert; replace → read → assert; delete → count and order assert; reorder → order assert, then render order via `get_text`
+- `delete_slides` covering the whole deck raises `InputError`; deleting all but one succeeds
+- Append semantics (§9): first `#` on append becomes a section slide, leading unheaded content becomes a new untitled slide, and every pre-existing slide's content, notes, and order are unchanged
+- Per-slide selectors: `--slides` filtering asserted on at least `tables` and `comments`, not just the text-shaped reads
 - Explicit test that replacement works in a table cell, a grouped shape, and a notes slide — and does **not** touch layouts or masters (§6)
 - Explicit test for a placeholder split across runs
 - Explicit test that read commands emit JSON with no flag, and human output with `--plain`
@@ -534,11 +558,11 @@ Required assertions:
 
 ## 12. Phase 2.5 — Execution Plan
 
-Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phase 2 (`rp-mcp`) in either direction. **No house template or real deck is required at any point**, except as read-only reference material for the step 7 comments checkpoint.
+Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phase 2 (`rp-mcp`) in either direction. **No house template or real deck is required at any point.** The one external input — a PowerPoint-authored deck with modern threaded comments, read-only reference material for the step 7 checkpoint — gates only the deferrable modern-comments sub-scope (§7), never the phase.
 
 **Step 1.** Scaffold `packages/rp-pptx/` as a workspace member depending on `rp-core`. Entry point `rp-pptx`, plus the `robo_papyro.commands` entry point registering `pptx`. Verify `rp pptx --help` resolves through the umbrella before writing further code.
 
-**Step 2.** Promote the format-agnostic OOXML mechanics out of `rp_docx.ooxml` into `rp_core.ooxml` (§2): package zip handling, compiled-xpath helper, content-type read/rewrite — namespace maps and content-type strings as arguments, no format identifier in core. Refactor `rp-docx` onto it in the same PR; its tests move with the code and must pass unchanged. If this fights back, take the documented fallback (duplicate in the leaf, defer extraction) and record why.
+**Step 2.** Promote the format-agnostic mechanics out of `rp-docx` into `rp-core` (§2, §9). Two extractions, same shape: `rp_core.ooxml` gets package zip handling, the compiled-xpath helper, and content-type read/rewrite — namespace maps and content-type strings as arguments, no format identifier in core; `rp_core.markdown` gets the block/inline parser, emitting the shared AST, with HTML comment blocks surfaced as nodes (`rp-docx` keeps its docx renderer over that AST). Refactor `rp-docx` onto both in the same PR; its tests move with the code and must pass unchanged. Either extraction may independently take the documented fallback (duplicate in the leaf, defer, record why) if it fights back.
 
 **Step 3.** Implement `models.py` per §3 — pptx-specific models only; `rp_core`'s are imported.
 
@@ -548,7 +572,7 @@ Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phas
 
 **Step 6.** Implement `pptx/runs.py` per §6 as a standalone, unit-tested module, before anything depends on it. All five required cases.
 
-**Step 7.** Implement `pptx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_notes`, `get_comments`, `get_charts`. Tests alongside each. **Checkpoint:** inspect a real PowerPoint-authored file with modern threaded comments, report the actual part layout found (§7), and encode it in the conftest generator (§11.1).
+**Step 7.** Implement `pptx/read.py` in order: `get_properties`, `get_index`, `get_text`, `get_tables`, `get_images`, `get_notes`, `get_comments`, `get_charts`. Tests alongside each. **Checkpoint:** inspect a real PowerPoint-authored file with modern threaded comments, report the actual part layout found (§7), and encode it in the conftest generator (§11.1). If no reference file is available when this step runs, take §7's deferral path — classic comments complete, modern parts detected and reported loudly — and continue; the deferral and its follow-up go in the status note, not in the way of step 8.
 
 **Step 8.** Implement `pptx/slides.py` (§7), then `pptx/write.py` and `pptx/template.py` on top of `runs.py` and the resolved `LayoutMap`.
 
