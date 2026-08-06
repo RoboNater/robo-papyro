@@ -177,3 +177,24 @@ class FillResult(BaseModel):
 class SlideOpResult(BaseModel):
     output: Path
     slide_count: int
+
+
+class WriteResult(BaseModel):
+    """A write command's outcome, for commands whose only result is a file."""
+
+    output: Path
+
+
+class ConversionResult(BaseModel):
+    """Where a ``convert`` wrote its output, and in what format."""
+
+    source: Path
+    output: Path
+    format: str
+
+
+class RenderResult(BaseModel):
+    """One rendered slide image. A slide is a page, so these are page numbers."""
+
+    page: int
+    path: Path
