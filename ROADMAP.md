@@ -14,7 +14,8 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
 | **2** | `rp-mcp`: FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | next |
-| **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx), same core/CLI split | TBD | |
+| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ready |
+| **3** | `rp-xlsx` (openpyxl), same core/CLI split | TBD | |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
 discovery, rasterization, range specs, CLI conventions), the `rp-pdf` rename, and
@@ -42,6 +43,19 @@ document containing a code block fail on the default template, and
 `resolve_template` needed to tell a wrong path from an unknown name. Both, and
 everything else §5–§9 got wrong, are recorded in
 [dev-notes/status-robo-papyro-phase-1.md](dev-notes/status-robo-papyro-phase-1.md).
+
+Phase 2.5 promotes `rp-pptx` out of the old Phase 3 bundle into its own phase,
+now specced ([rp-pptx-spec](docs/specs/rp-pptx-spec.md)): slide decks are part
+of the target corpus, python-pptx (MIT) was vetted in §7 from the start, and
+Phase 1 built almost everything the package needs — the template
+manifest/synthesis loop, the run-spanning replacement algorithm, the
+content-type retyping that `.potx` turns out to need exactly as `.dotx` did
+(verified: python-pptx refuses a `.potx` outright, python-pptx 1.0.2). It is
+independent of Phase 2 and may land before or after it; whichever of the two
+lands second wires the pptx FastMCP server into `rp-mcp`. Markdown conversion
+is hand-rolled both ways — the existing converters were rejected on
+dependencies, not licenses (`pptx2md` drags in `tqdm`, MPL-2.0 AND MIT, which
+§7.1 bars from the base install path).
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now

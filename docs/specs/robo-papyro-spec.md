@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.2
-**Status:** Phases 0, 0.5 and 1 complete · Phase 2 (`rp-mcp`) next
-**Companion document:** `rp-docx-spec.md` v1.3
+**Version:** 1.3
+**Status:** Phases 0, 0.5 and 1 complete · Phase 2 (`rp-mcp`) next · Phase 2.5 (`rp-pptx`) specified
+**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0
+
+**Changes from v1.2:** §9 inserts Phase 2.5 (`rp-pptx`), promoted out of the Phase 3 bundle now that Phase 1 has proven the leaf pattern it reuses; Phase 3 narrows to `rp-xlsx` · §1 and §3 add the `rp-pptx` distribution and its spec · §7 adds `XlsxWriter` (BSD-2-Clause), python-pptx's dependency, to the approved list.
 
 **Changes from v1.1:** §3 corrects the pytest import-mode setting, which was given as an ini key that does not exist · §4.3 states the semantics of the open-ended range forms it already listed · §4.6 corrects the `emit` signature · §7.1 defines "base install path" and requires the gate to enforce §7.1 in both directions · §8 adds step 8 and moves the base-path check from manual verification to gate enforcement · §9 records `rp-mcp` as a Phase 2 distribution · §11.2 notes what keeps the blast radius small.
 
@@ -19,6 +21,7 @@
 | `rp-core` | `rp_core` | — | Shared infrastructure: binary discovery, rasterization primitive, error/exit-code contract, range parsing, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
+| `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the others, provides the umbrella `rp` dispatcher |
 
 **Rationale for one repo, several distributions:** corporate overhead (license scan, SBOM, security review, CI onboarding) is charged per repo. Workspace path dependencies resolve with nothing but git — no internal package index required. Cross-cutting changes land atomically in one PR. Separate distributions keep version histories independent and keep `rp-pdf` users from installing `python-docx`.
@@ -70,7 +73,8 @@ robo-papyro/
 │   ├── specs/
 │   │   ├── robo-papyro-spec.md     # this document
 │   │   ├── rp-docx-spec.md
-│   │   └── rp-pdf-spec.md
+│   │   ├── rp-pdf-spec.md
+│   │   └── rp-pptx-spec.md
 │   └── usage.md
 ├── packages/
 │   ├── rp-core/
@@ -90,6 +94,7 @@ robo-papyro/
 │   │   ├── src/rp_pdf/
 │   │   └── tests/
 │   ├── rp-docx/                    # Phase 1
+│   ├── rp-pptx/                    # Phase 2.5
 │   └── robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
@@ -285,7 +290,7 @@ Consequences, all desirable:
 
 ## 7. Licensing (repo-wide)
 
-**Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
+**Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter (BSD-2, enters as python-pptx's dependency), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
 
 **Forbidden:** `docxtpl` (LGPL-2.1-only), `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
 
@@ -362,7 +367,8 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | **0.5** | Contract decisions and extraction cleanup | §8 above | Ready |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
 | **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Ready |
-| **3** | `rp-xlsx` (openpyxl) and `rp-pptx` (python-pptx) | TBD | — |
+| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI; its server joins `rp-mcp` | `rp-pptx-spec.md` §12 | Ready — independent of Phase 2, may land before or after it |
+| **3** | `rp-xlsx` (openpyxl) | TBD | — |
 
 ---
 
