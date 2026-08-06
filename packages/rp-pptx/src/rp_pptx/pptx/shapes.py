@@ -1,0 +1,42 @@
+"""Walking a slide's shapes, including the ones inside groups.
+
+Small enough to feel like it belongs in ``read.py``, but ``write.py`` needs the
+identical traversal and importing a private helper across modules is how the two
+quietly drift apart. Spec section 6 makes the recursion load-bearing: a
+replacement that misses grouped shapes is the pptx version of the body-only bug
+section 6 warns about, and grouped shapes are exactly where a real deck hides its
+callouts.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+from typing import Any
+
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+
+def walk(shapes: Any) -> Iterator[Any]:
+    """Every shape in ``shapes``, descending into groups depth-first.
+
+    Groups are yielded before their children so a caller can still see the
+    grouping; callers that only want leaves filter on ``shape_type``.
+    """
+    for shape in shapes:
+        yield shape
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from walk(shape.shapes)
+
+
+def text_frames(shape: Any) -> Iterator[Any]:
+    """Every text frame a shape offers — its own, and its table's cells.
+
+    A group has no text frame of its own; its children are reached through
+    :func:`walk`, so nothing is yielded for it here.
+    """
+    if getattr(shape, "has_text_frame", False):
+        yield shape.text_frame
+    if getattr(shape, "has_table", False):
+        for row in shape.table.rows:
+            for cell in row.cells:
+                yield cell.text_frame
