@@ -19,6 +19,7 @@ Nothing here prints, and nothing here imports typer.
 
 from __future__ import annotations
 
+import posixpath
 import shutil
 import tempfile
 import zipfile
@@ -33,11 +34,13 @@ __all__ = [
     "CONTENT_TYPES_PART",
     "compiled_xpath",
     "content_type_from",
+    "override_content_types",
     "parse_part",
     "part_names",
     "qualified_name",
     "read_part",
     "repack",
+    "resolve_target",
     "retype",
 ]
 
@@ -161,6 +164,44 @@ def repack(
 
 
 # --- content types -----------------------------------------------------------
+
+
+def resolve_target(part_name: str, target: str) -> str:
+    """The absolute part name a relationship target refers to.
+
+    Relationship targets are relative to the *directory* of the part whose rels
+    file they came from, so ``../comments/comment1.xml`` in
+    ``ppt/slides/_rels/slide1.xml.rels`` means ``ppt/comments/comment1.xml``.
+    Resolving this properly is the difference between following the package
+    graph and guessing from filenames — and filenames are not a contract:
+    nothing renumbers parts when slides are reordered or deleted.
+    """
+    if target.startswith("/"):
+        return target.lstrip("/")
+    return posixpath.normpath(posixpath.join(posixpath.dirname(part_name), target))
+
+
+def override_content_types(path: Path) -> dict[str, str]:
+    """Part name → declared content type, from the package's Override entries.
+
+    The authoritative way to ask what a part *is*. Two parts can share a
+    directory and a naming convention while being entirely different formats —
+    classic and modern PowerPoint comments do exactly that — and only the
+    content type tells them apart.
+    """
+    data = read_part(path, CONTENT_TYPES_PART)
+    if data is None:
+        return {}
+    try:
+        root = etree.fromstring(data)
+    except etree.XMLSyntaxError:
+        return {}
+    found: dict[str, str] = {}
+    for override in root:
+        name, content_type = override.get("PartName"), override.get("ContentType")
+        if name and content_type:
+            found[name.lstrip("/")] = content_type
+    return found
 
 
 def content_type_from(path: Path, candidates: tuple[str, ...]) -> str | None:

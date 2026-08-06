@@ -40,6 +40,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pptx import Presentation
+from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.util import Emu, Inches, Pt
 
 from rp_core.errors import InputError
@@ -172,8 +173,24 @@ def segment(markdown: str, *, appending: bool) -> list[SlidePlan]:
     return plans
 
 
+#: Placeholder types that are somewhere to put prose. Deliberately an allowlist:
+#: "the first placeholder with a text frame" picks the *picture* placeholder on
+#: PowerPoint's own "Picture with Caption" layout, which has a perfectly good
+#: body placeholder sitting beside it, and would put bullets in a date or footer
+#: on layouts that carry those and nothing else.
+_BODY_PLACEHOLDERS = frozenset(
+    {
+        PP_PLACEHOLDER.BODY,
+        PP_PLACEHOLDER.OBJECT,
+        PP_PLACEHOLDER.SUBTITLE,
+        PP_PLACEHOLDER.VERTICAL_BODY,
+        PP_PLACEHOLDER.VERTICAL_OBJECT,
+    }
+)
+
+
 def _body_placeholder(slide: Any) -> Any | None:
-    """The slide's body placeholder — the first text one that is not the title.
+    """The slide's body placeholder — the first one prose belongs in.
 
     Compared by element rather than by object: python-pptx builds a fresh proxy
     each time a placeholder is reached, so ``is`` between two of them is false
@@ -183,6 +200,8 @@ def _body_placeholder(slide: Any) -> Any | None:
     title_element = title._element if title is not None else None
     for placeholder in slide.placeholders:
         if placeholder._element is title_element:
+            continue
+        if placeholder.placeholder_format.type not in _BODY_PLACEHOLDERS:
             continue
         if getattr(placeholder, "has_text_frame", False):
             return placeholder
@@ -254,6 +273,43 @@ def _add_image(slide: Any, alt: str, href: str, top: Emu) -> Emu:
     return Emu(int(top) + int(picture.height) + int(Inches(0.2)))
 
 
+def _placeholder_summary(layout: Any) -> str:
+    listed = ", ".join(
+        f"{placeholder.name!r}"
+        for placeholder in layout.placeholders
+    )
+    return listed or "none at all"
+
+
+def _require_placeholders(slide: Any, plan: SlidePlan, layout: Any, *, has_body: bool) -> None:
+    """Refuse to render content the chosen layout has nowhere to put.
+
+    Section 5.1's rule is that a layout problem is an error, not a fallback, and
+    checking only that the layout *name* exists stops one step short: a layout
+    can be present and still have no title or body placeholder, in which case the
+    content is dropped and the deck comes out quietly missing text. That is the
+    same silent-wrong-output failure the name check exists to prevent, so it gets
+    the same treatment.
+
+    Only what is actually needed is required, keeping the check as lazy as the
+    name check: an image-only slide needs neither placeholder, and a section
+    slide with no body content does not need a body.
+    """
+    if plan.title and slide.shapes.title is None:
+        raise InputError(
+            f"Layout {layout.name!r} has no title placeholder, so the title "
+            f"{plan.title!r} has nowhere to go. Its placeholders are: "
+            f"{_placeholder_summary(layout)}."
+        )
+    if has_body and _body_placeholder(slide) is None:
+        raise InputError(
+            f"Layout {layout.name!r} has no body placeholder, so this slide's "
+            f"content has nowhere to go. Its placeholders are: "
+            f"{_placeholder_summary(layout)}. Map the {plan.role!r} role to a "
+            "layout that has one, or move the content to a slide that does."
+        )
+
+
 def _render(presentation: Presentation, plans: list[SlidePlan], layoutmap: LayoutMap) -> None:
     for plan in plans:
         # Lazy, per role, at the point of use (section 5.1): a deck with no
@@ -261,10 +317,13 @@ def _render(presentation: Presentation, plans: list[SlidePlan], layoutmap: Layou
         layout = templates.require_layout(presentation, getattr(layoutmap, plan.role))
         slide = presentation.slides.add_slide(layout)
 
+        subtitle = [Block(kind="paragraph", text=plan.subtitle)] if plan.subtitle else []
+        body = subtitle + plan.body
+        _require_placeholders(slide, plan, layout, has_body=bool(body))
+
         if plan.title and slide.shapes.title is not None:
             slide.shapes.title.text = plan.title
-        subtitle = [Block(kind="paragraph", text=plan.subtitle)] if plan.subtitle else []
-        _fill_body(slide, subtitle + plan.body)
+        _fill_body(slide, body)
 
         top = Emu(int(Inches(2.2)) if (plan.title or plan.body) else int(Inches(0.8)))
         for block in plan.extras:

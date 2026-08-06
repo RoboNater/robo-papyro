@@ -567,6 +567,26 @@ def modern_comments_deck(simple_deck: Path, tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def orphaned_modern_deck(simple_deck: Path, tmp_path: Path) -> Path:
+    """A modern comment part declared in the package but attached to no slide.
+
+    The awkward case: presence is knowable, placement is not. A reader that keys
+    the deferral off "which slides have modern parts" would find none here and
+    fall through to a classic-only answer — which is the silent partial result
+    section 7 forbids, arrived at from the other direction.
+    """
+    target = tmp_path / "orphaned-modern.pptx"
+    return _add_parts(
+        simple_deck,
+        target,
+        {"ppt/comments/modernComment_orphan.xml": b"<unverified/>"},
+        {"ppt/comments/modernComment_orphan.xml": ooxml.MODERN_COMMENT_CONTENT_TYPE},
+        {},
+        [],
+    )
+
+
+@pytest.fixture
 def mixed_comments_deck(classic_comments_deck: Path, tmp_path: Path) -> Path:
     """Classic comments *and* a modern part — section 7's mixed case, where
     partial results are sacrificed for an error that cannot be mistaken for a

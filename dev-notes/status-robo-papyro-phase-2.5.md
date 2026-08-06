@@ -25,12 +25,12 @@ silence — and is detailed below.
 
 ### Verification
 
-- `uv run pytest`: **839 passed, 94 skipped**. Of those, 272 are new rp-pptx
+- `uv run pytest`: **894 passed, 94 skipped**. Of those, 283 are new rp-pptx
   tests; the 94 skips are LibreOffice- and poppler-dependent tests across all
   packages, skipped by functional probe (see "Known limits").
 - Coverage on rp-pptx: **95% overall**. §11.3 targets >85% on `pptx/`,
   `ooxml.py` and `templates.py`: `ooxml.py` 98%, `templates.py` 95%,
-  `pptx/read.py` 94%, `pptx/write.py` 92%, `pptx/runs.py` 97%,
+  `pptx/read.py` 93%, `pptx/write.py` 92%, `pptx/runs.py` 97%,
   `pptx/slides.py` 100%, `pptx/template.py` 100%, `pptx/shapes.py` 100%.
   `cli.py` is 93%. `mcp_server.py` is 0% and is a three-line documented stub.
 - `ruff check` and `ruff format --check` clean across the workspace.
@@ -118,7 +118,56 @@ omission, and `docs/usage-pptx.md` states the limit.
 A `base_dir` parameter would fix it properly and would change the §4 signature,
 so it is recorded here rather than taken unilaterally.
 
-### 7. Smaller corrections
+### 7. Part names are not deck order, and filenames are not a contract (§7)
+
+Caught in review, and the mistake was mine twice over. Classic comments were
+mapped to slides by parsing `comment<N>.xml` and calling it slide N. That holds
+only until a deck is touched — and **this package's own `reorder_slides` breaks
+it deliberately**, rewriting `p:sldIdLst` while leaving every part where it is.
+Reordering `[3,2,1]` reported every comment against exactly the wrong slide.
+Deleting a slide breaks it a second way, by leaving the surviving part numbers
+non-contiguous.
+
+The same assumption sat in modern-comment detection, which scanned
+`slide<N>.xml` until it hit a gap. After deleting slide 1 the scan found nothing,
+`get_comments` fell through to the classic reader, and returned `[]` — the §7
+outcome that whole section exists to forbid, reached from a direction the
+original defence did not cover.
+
+Both now walk `p:sldIdLst` → relationship → part, and classic is told from modern
+by the target's **content type** rather than by its filename or its relationship
+type. That matters because the relationship type is precisely the part of the
+modern format that could not be verified against a real file, whereas the content
+type could.
+
+The other half of the fix is where the deferral is decided: presence is a
+package-wide question, placement is a separate and weaker one. A modern part that
+cannot be attributed to any slide is still unreadable, so `get_comments` now
+raises on presence and uses the slide list only to sharpen the message.
+
+`rp_core.ooxml` gained `resolve_target` and `override_content_types` for this —
+both pure OPC mechanics with no format identifier, so they belong in core.
+
+### 8. A layout can exist and still have nowhere to put the content (§5.1)
+
+Also caught in review. §5.1's rule is that a missing layout is an error rather
+than a fallback, and the implementation checked the layout *name* — then, if the
+layout had no title or body placeholder, silently dropped the content into
+nothing. Mapping `content` at a placeholder-less layout produced a slide with the
+heading and every bullet quietly discarded, which is the same
+silent-wrong-output failure the name check exists to prevent.
+
+Placeholder availability is now checked at the point of use, as laxly as the name
+check: only what the slide actually needs is required, so an image-only slide
+needs neither placeholder and a section slide with no body does not need a body.
+
+A related wrongness surfaced while fixing it: "the first placeholder with a text
+frame" picks the **picture** placeholder on PowerPoint's own "Picture with
+Caption" layout, which has a perfectly good body placeholder beside it at the
+next index. Body placeholders are now chosen from an allowlist of prose-bearing
+types.
+
+### 9. Smaller corrections
 
 - **`get_text` excludes table cells.** §3 does not say either way, but reporting
   cells both here and in `get_tables` doubles every cell in `get_markdown` and

@@ -139,6 +139,103 @@ class TestCreate:
         assert read.get_index(tmp_path / "d.pptx").slide_count == 1
 
 
+class TestPlaceholderValidation:
+    """A layout can exist and still have nowhere to put the content.
+
+    Section 5.1 makes a missing *layout* an error rather than a fallback;
+    checking only the name stops one step short, because the content is then
+    dropped and the deck comes out quietly missing text. Same failure, same
+    treatment — and as lazy as the name check, so a slide that needs neither
+    placeholder is unaffected.
+    """
+
+    @pytest.fixture
+    def mapped_to_blank(self, template_env, request):
+        """Point a role at ``House Blank``, which has no placeholders at all."""
+        import json
+
+        from rp_pptx import templates
+
+        sidecar = templates.layoutmap_path(template_env / "house_like.potx")
+        original = sidecar.read_text(encoding="utf-8")
+
+        def apply(**overrides):
+            mapping = json.loads(original)
+            mapping.update(overrides)
+            sidecar.write_text(json.dumps(mapping), encoding="utf-8")
+
+        request.addfinalizer(lambda: sidecar.write_text(original, encoding="utf-8"))
+        return apply
+
+    def test_a_title_with_nowhere_to_go_is_an_error(self, mapped_to_blank, tmp_path):
+        mapped_to_blank(content="House Blank")
+        with pytest.raises(InputError) as error:
+            write.create(
+                tmp_path / "d.pptx", markdown="## Heading\n", template="house_like"
+            )
+        message = str(error.value)
+        assert "House Blank" in message
+        assert "title placeholder" in message
+
+    def test_body_content_with_nowhere_to_go_is_an_error(self, mapped_to_blank, tmp_path):
+        """Previously this produced a slide with the heading and every bullet
+        silently discarded."""
+        mapped_to_blank(content="House Blank")
+        with pytest.raises(InputError) as error:
+            write.create(
+                tmp_path / "d.pptx",
+                markdown="## Heading\n- bullet one\n- bullet two\n",
+                template="house_like",
+            )
+        assert "House Blank" in str(error.value)
+
+    def test_the_message_lists_what_the_layout_does_have(self, mapped_to_blank, tmp_path):
+        mapped_to_blank(section="House Blank")
+        with pytest.raises(InputError) as error:
+            write.create(
+                tmp_path / "d.pptx", markdown="# T\n\n# Section\n", template="house_like"
+            )
+        assert "none at all" in str(error.value)
+
+    def test_a_layout_with_a_title_but_no_body_is_fine_until_body_arrives(
+        self, mapped_to_blank, tmp_path
+    ):
+        """`House Section Break` has a title placeholder and no body one. A
+        section slide carries no body, so it must still work."""
+        write.create(tmp_path / "ok.pptx", markdown="# T\n\n# Section\n", template="house_like")
+        assert [t.title for t in read.get_index(tmp_path / "ok.pptx").titles] == ["T", "Section"]
+
+    def test_an_image_only_slide_needs_no_placeholders(
+        self, template_env, tmp_path, sample_image, monkeypatch
+    ):
+        monkeypatch.chdir(sample_image.parent)
+        write.create(
+            tmp_path / "d.pptx",
+            markdown=f"![a picture]({sample_image.name})\n",
+            template="house_like",
+        )
+        assert read.get_index(tmp_path / "d.pptx").image_count == 1
+
+    def test_the_body_placeholder_is_a_text_one_not_a_picture_one(self, tmp_path):
+        """PowerPoint's "Picture with Caption" has a picture placeholder at idx 1
+        and a body one at idx 2; "first placeholder with a text frame" picks the
+        wrong one and puts bullets inside the picture."""
+        from pptx import Presentation
+
+        from rp_pptx.pptx.write import _body_placeholder
+
+        presentation = Presentation()
+        layout = next(
+            candidate
+            for candidate in presentation.slide_layouts
+            if candidate.name == "Picture with Caption"
+        )
+        slide = presentation.slides.add_slide(layout)
+        found = _body_placeholder(slide)
+        assert found is not None
+        assert found.placeholder_format.idx == 2
+
+
 class TestAppend:
     """Section 9's three append rules, each asserted separately."""
 

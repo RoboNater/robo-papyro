@@ -355,39 +355,34 @@ def _classic_authors(path: Path) -> dict[str, tuple[str, str | None]]:
     return authors
 
 
-def _slide_comment_parts(path: Path) -> dict[int, str]:
-    """Slide number → its classic comment part name.
-
-    Derived from the part names rather than by walking every slide's
-    relationships: PowerPoint names them ``comment<N>.xml`` against
-    ``slide<N>.xml``, and the mapping is what the reader needs.
-    """
-    found = {}
-    for name in ooxml.part_names(path):
-        if name.startswith("ppt/comments/comment") and name.endswith(".xml"):
-            digits = name.removeprefix("ppt/comments/comment").removesuffix(".xml")
-            if digits.isdigit():
-                found[int(digits)] = name
-    return found
+def _classic_comment_parts(path: Path) -> dict[int, list[str]]:
+    """1-based presentation slide number → its classic comment parts."""
+    return {
+        number: [
+            part
+            for part, content_type in attached
+            if content_type == ooxml.CLASSIC_COMMENT_CONTENT_TYPE
+        ]
+        for number, attached in ooxml.comment_parts_by_slide(path).items()
+    }
 
 
 def _modern_comment_slides(path: Path) -> list[int]:
-    """Slides carrying a modern threaded-comment part, by number."""
-    if not ooxml.has_modern_comments(path):
-        return []
-    numbers = set()
-    for slide_number in range(1, 1000):
-        rels = ooxml.parse_part(path, ooxml.rels_path(f"ppt/slides/slide{slide_number}.xml"))
-        if rels is None:
-            break
-        for relationship in rels:
-            target = relationship.get("Target", "")
-            if "modernComment" in target or "/comments/" in target:
-                # Only modern parts have the microsoft content type; a classic
-                # one shares the same directory, so the name is the tell.
-                if "modernComment" in target:
-                    numbers.add(slide_number)
-    return sorted(numbers)
+    """Slides carrying a modern threaded-comment part, in presentation order.
+
+    May be empty on a deck that *does* carry modern parts — a part orphaned from
+    its slide, or one attached through a relationship type this package has
+    never seen a real example of, is still unreadable. So callers must treat
+    :func:`~rp_pptx.ooxml.has_modern_comments` as the authority on presence and
+    this only as the authority on *where*.
+    """
+    return sorted(
+        number
+        for number, attached in ooxml.comment_parts_by_slide(path).items()
+        if any(
+            content_type == ooxml.MODERN_COMMENT_CONTENT_TYPE for _, content_type in attached
+        )
+    )
 
 
 def _parse_date(value: str | None) -> datetime | None:
@@ -410,11 +405,20 @@ def get_comments(path: Path, *, slides: str = "all") -> list[Comment]:
     ``[]`` would be indistinguishable from "this deck has no comments", which is
     the one outcome section 7 forbids.
     """
-    modern = _modern_comment_slides(path)
-    if modern:
-        listed = ", ".join(str(number) for number in modern)
+    # Presence is decided package-wide, placement only afterwards. A modern part
+    # this reader cannot attribute to a slide is still a modern part it cannot
+    # read, and falling through to a classic-only result would be the silent
+    # partial answer section 7 forbids — so the check is on presence, and the
+    # slide list only sharpens the message.
+    if ooxml.has_modern_comments(path):
+        located = _modern_comment_slides(path)
+        where = (
+            f"on slide(s) {', '.join(str(number) for number in located)}"
+            if located
+            else "somewhere in the package (they could not be attributed to a slide)"
+        )
         error = UnsupportedFeatureError(
-            f"{Path(path).name} carries modern threaded comments on slide(s) {listed}, "
+            f"{Path(path).name} carries modern threaded comments {where}, "
             "which this version cannot read."
         )
         error.hint = (
@@ -425,33 +429,34 @@ def get_comments(path: Path, *, slides: str = "all") -> list[Comment]:
         raise error
 
     authors = _classic_authors(path)
-    parts = _slide_comment_parts(path)
+    parts = _classic_comment_parts(path)
     result: list[Comment] = []
     with opened(path) as presentation:
         wanted = set(_selected(slides, len(presentation.slides)))
     for slide_number in sorted(parts):
         if slide_number not in wanted:
             continue
-        root = ooxml.parse_part(path, parts[slide_number])
-        if root is None:
-            continue
-        for comment in ooxml.xpath(root, "./p:cm"):
-            author_id = comment.get("authorId")
-            name, initials = authors.get(author_id, ("", None))
-            text_nodes = ooxml.xpath(comment, "./p:text")
-            result.append(
-                Comment(
-                    id=comment.get("idx") or "",
-                    author=name,
-                    initials=initials,
-                    date=_parse_date(comment.get("dt")),
-                    text=text_nodes[0].text or "" if text_nodes else "",
-                    slide_index=slide_number,
-                    # Classic comments do not thread; section 7 normalizes both
-                    # generations onto one model, so this is None throughout.
-                    parent_id=None,
+        for part in parts[slide_number]:
+            root = ooxml.parse_part(path, part)
+            if root is None:
+                continue
+            for comment in ooxml.xpath(root, "./p:cm"):
+                author_id = comment.get("authorId")
+                name, initials = authors.get(author_id, ("", None))
+                text_nodes = ooxml.xpath(comment, "./p:text")
+                result.append(
+                    Comment(
+                        id=comment.get("idx") or "",
+                        author=name,
+                        initials=initials,
+                        date=_parse_date(comment.get("dt")),
+                        text=text_nodes[0].text or "" if text_nodes else "",
+                        slide_index=slide_number,
+                        # Classic comments do not thread; section 7 normalizes both
+                        # generations onto one model, so this is None throughout.
+                        parent_id=None,
+                    )
                 )
-            )
     return result
 
 
@@ -466,10 +471,11 @@ def _comment_count(path: Path) -> int | None:
     if ooxml.has_modern_comments(path):
         return None
     total = 0
-    for name in _slide_comment_parts(path).values():
-        root = ooxml.parse_part(path, name)
-        if root is not None:
-            total += len(ooxml.xpath(root, "./p:cm"))
+    for parts in _classic_comment_parts(path).values():
+        for name in parts:
+            root = ooxml.parse_part(path, name)
+            if root is not None:
+                total += len(ooxml.xpath(root, "./p:cm"))
     return total
 
 

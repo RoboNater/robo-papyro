@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from rp_core.errors import InputError
+from rp_pptx import ooxml
 from rp_pptx.errors import UnsupportedFeatureError
 from rp_pptx.pptx import read
 
@@ -196,6 +197,59 @@ class TestComments:
         assert read.get_index(classic_comments_deck).comment_count == 3
 
 
+class TestCommentSlideAssociation:
+    """Comments belong to the slide the *relationship graph* says they do.
+
+    Part names are not deck order. Nothing renumbers ``comment3.xml`` when its
+    slide moves, and ``reorder_slides`` rewrites ``p:sldIdLst`` while leaving
+    every part in place — so reading ``comment<N>.xml`` as "slide N" reports
+    comments against the wrong slides the moment a deck is reordered.
+    """
+
+    def test_comments_follow_their_slides_through_a_reorder(
+        self, classic_comments_deck, tmp_path
+    ):
+        from rp_pptx.pptx.slides import reorder_slides
+
+        before = read.get_comments(classic_comments_deck)
+        assert [(c.slide_index, c.text) for c in before] == [
+            (1, "First thought"),
+            (1, "Second"),
+            (3, "On the third slide"),
+        ]
+
+        # Alpha(1) Beta(2) Gamma(3) -> Gamma Beta Alpha
+        out = tmp_path / "reordered.pptx"
+        reorder_slides(classic_comments_deck, [3, 2, 1], output=out)
+        assert [t.title for t in read.get_index(out).titles] == ["Gamma", "Beta", "Alpha"]
+        assert [(c.slide_index, c.text) for c in read.get_comments(out)] == [
+            (1, "On the third slide"),
+            (3, "First thought"),
+            (3, "Second"),
+        ]
+
+    def test_comments_follow_their_slides_through_a_deletion(
+        self, classic_comments_deck, tmp_path
+    ):
+        from rp_pptx.pptx.slides import delete_slides
+
+        out = tmp_path / "trimmed.pptx"
+        delete_slides(classic_comments_deck, "1", output=out)
+        assert [t.title for t in read.get_index(out).titles] == ["Beta", "Gamma"]
+        # Gamma was slide 3 and is now slide 2; its comment moves with it, and
+        # Alpha's comments are gone with Alpha.
+        assert [(c.slide_index, c.text) for c in read.get_comments(out)] == [
+            (2, "On the third slide")
+        ]
+
+    def test_the_count_follows_too(self, classic_comments_deck, tmp_path):
+        from rp_pptx.pptx.slides import delete_slides
+
+        out = tmp_path / "trimmed.pptx"
+        delete_slides(classic_comments_deck, "1", output=out)
+        assert read.get_index(out).comment_count == 1
+
+
 class TestModernCommentDeferral:
     """Section 7's deferral path. The error *is* the interface here, so the
     envelope is what gets asserted."""
@@ -226,6 +280,29 @@ class TestModernCommentDeferral:
 
     def test_classic_only_decks_are_unaffected(self, classic_comments_deck):
         assert len(read.get_comments(classic_comments_deck)) == 3
+
+    def test_presence_decides_the_deferral_not_placement(self, orphaned_modern_deck):
+        """A modern part nothing points at is still a modern part this reader
+        cannot read. Keying the deferral off "which slides have them" would find
+        none and fall through to a classic-only answer — the forbidden silent
+        partial result, reached from the other direction."""
+        with pytest.raises(UnsupportedFeatureError) as error:
+            read.get_comments(orphaned_modern_deck)
+        assert "could not be attributed" in str(error.value)
+        assert read.get_index(orphaned_modern_deck).comment_count is None
+
+    def test_it_survives_non_contiguous_slide_parts(self, modern_comments_deck, tmp_path):
+        """Slide part numbering is not contiguous after a deletion, so anything
+        scanning ``slide<N>.xml`` until a gap stops early and misses what is
+        past it."""
+        from rp_pptx.pptx.slides import delete_slides
+
+        out = tmp_path / "gapped.pptx"
+        delete_slides(modern_comments_deck, "1", output=out)
+        parts = [n for n in ooxml.part_names(out) if "slides/slide" in n]
+        assert "ppt/slides/slide1.xml" not in parts, "the fixture must actually have a gap"
+        with pytest.raises(UnsupportedFeatureError):
+            read.get_comments(out)
 
 
 class TestMarkdown:

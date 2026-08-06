@@ -168,6 +168,63 @@ def content_types(path: Path) -> str:
 # --- content types: .pptx vs .potx -------------------------------------------
 
 
+def slide_parts_in_order(path: Path) -> list[str]:
+    """Slide part names in **presentation order**, via ``p:sldIdLst``.
+
+    Part *names* are not deck order and never were. Nothing renumbers
+    ``slide3.xml`` when a slide moves, and this package's own ``reorder_slides``
+    rewrites ``p:sldIdLst`` while leaving every part where it is — so anything
+    that reads ``slide<N>.xml`` as "the Nth slide" is reading a filename that
+    stopped being true the first time someone reordered a deck. Deletion breaks
+    it a second way, by leaving the surviving numbers non-contiguous.
+
+    The relationship graph is the only source of truth, so this walks it.
+    """
+    presentation = parse_part(path, PRESENTATION_PART)
+    rels = parse_part(path, rels_path(PRESENTATION_PART))
+    if presentation is None or rels is None:
+        return []
+    targets = {entry.get("Id"): entry.get("Target") for entry in rels}
+    ordered: list[str] = []
+    for entry in xpath(presentation, "./p:sldIdLst/p:sldId"):
+        target = targets.get(attr(entry, "r:id"))
+        if target:
+            ordered.append(core_ooxml.resolve_target(PRESENTATION_PART, target))
+    return ordered
+
+
+def related_parts(path: Path, part: str, kind: str) -> list[str]:
+    """Parts ``part`` points at through a relationship ending in ``kind``."""
+    rels = parse_part(path, rels_path(part))
+    if rels is None:
+        return []
+    return [
+        core_ooxml.resolve_target(part, relationship.get("Target"))
+        for relationship in rels
+        if relationship.get("Type", "").endswith(f"/{kind}") and relationship.get("Target")
+    ]
+
+
+def comment_parts_by_slide(path: Path) -> dict[int, list[tuple[str, str]]]:
+    """1-based presentation slide number → its ``(part, content_type)`` comments.
+
+    Classic and modern comment parts share a directory and a naming convention,
+    so the content type is what tells them apart — not the filename, and not the
+    relationship type, which is the piece of the modern format that could not be
+    verified against a real PowerPoint file (spec section 7).
+    """
+    declared = core_ooxml.override_content_types(path)
+    found: dict[int, list[tuple[str, str]]] = {}
+    for number, slide_part in enumerate(slide_parts_in_order(path), start=1):
+        attached = [
+            (part, declared.get(part, ""))
+            for part in related_parts(path, slide_part, "comments")
+        ]
+        if attached:
+            found[number] = attached
+    return found
+
+
 def is_template(path: Path) -> bool:
     """Whether the package declares itself a template (`.potx`)."""
     return TEMPLATE_CONTENT_TYPE in content_types(path)
