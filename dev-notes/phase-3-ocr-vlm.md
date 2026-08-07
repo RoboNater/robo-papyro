@@ -1,5 +1,11 @@
 # Phase 3: OCR for scanned pages via the Phase 2 VLM integration
 
+**This is historical `rp-pdf` Phase 3** (from `rp-pdf`'s own pre-suite roadmap,
+`ROADMAP.md`'s "rp-pdf phases" section), not suite Phase 3 (`rp-xlsx`, still
+future work). It shipped in `rp-pdf` 0.4.0 and is implemented; the package was
+`pdfx` at the time of writing and is `rp-pdf` today — names below are updated
+to current ones except in the historical "Motivation" quote.
+
 ## Motivation
 
 Phase 2's AI pass renders each page and sends it to a vision-language model
@@ -17,12 +23,12 @@ For digitized documents that's the whole document.
 
 **In scope:**
 
-- VLM-based OCR (`pdfx.ocr.transcribe_pages`) over the same OpenAI-compatible
+- VLM-based OCR (`rp_pdf.ocr.transcribe_pages`) over the same OpenAI-compatible
   API, configuration, validation, caching, and concurrency as the Markdown AI
   pass.
-- `pdfx markdown --ocr` (requires `--ai`): scanned pages get transcriptions
+- `rp-pdf markdown --ocr` (requires `--ai`): scanned pages get transcriptions
   instead of placeholders.
-- `pdfx validate-vlm-ocr`: prove the user's model/endpoint can OCR before
+- `rp-pdf validate-vlm-ocr`: prove the user's model/endpoint can OCR before
   spending money on a real document.
 
 **Out of scope:**
@@ -53,7 +59,7 @@ reject responses under `MIN_TRANSCRIPTION_CHARS` (20) — refusals and
 non-answers are short, and a real page with less text than that is rare enough
 that keeping the placeholder is the safer failure mode.
 
-### `pdfx/ocr.py`
+### `rp_pdf/ocr.py`
 
 ```python
 def transcribe_pages(path, pages="all", model=None, base_url=None, jobs=1,
@@ -75,10 +81,10 @@ def transcribe_pages(path, pages="all", model=None, base_url=None, jobs=1,
   — the `ocr:` prefix and separate `PROMPT_VERSION` keep OCR and AI-pass
   entries from ever colliding, and the version bumps when the prompt changes.
 
-### Shared plumbing: `pdfx/vlm_utils.py`
+### Shared plumbing: `rp_pdf/vlm_utils.py`
 
 `markdown.py` and `ocr.py` share client construction (`make_client`: model/
-base-URL/key resolution from args then `PDFX_VLM_*` env, lazy `openai` import,
+base-URL/key resolution from args then `RP_PDF_VLM_*` env, lazy `openai` import,
 `VlmError` on misconfiguration), the best-effort response cache, code-fence
 stripping, and file hashing. Factored out of `markdown.py` because importing it
 from `ocr.py` directly would be circular (`markdown` imports `ocr` for stage 3).
@@ -89,7 +95,7 @@ at function level. An earlier draft called `ocr.transcribe_pages(...)` and
 crashed with `AttributeError: 'bool' object has no attribute ...` on every
 `--ocr` run.
 
-### `pdfx markdown --ocr` (stage 3)
+### `rp-pdf markdown --ocr` (stage 3)
 
 Requires `--ai` — OCR needs the same key/model anyway, and a standalone `--ocr`
 that silently skipped refinement would surprise. `--ocr` without `--ai` errors
@@ -104,10 +110,10 @@ restructured a draft"). Failures keep the placeholder and land in
 *with* text, OCR renders pages *without*, so no page is rendered twice and
 sharing renders across stages isn't worth the coupling.
 
-## `pdfx validate-vlm-ocr`
+## `rp-pdf validate-vlm-ocr`
 
 ```sh
-pdfx validate-vlm-ocr [--model NAME] [--base-url URL] [--dpi N] [--poppler-path DIR]
+rp-pdf validate-vlm-ocr [--model NAME] [--base-url URL] [--dpi N] [--poppler-path DIR]
 ```
 
 Generates a three-page synthetic PDF (reportlab + Pillow, in a temp dir):
@@ -158,5 +164,5 @@ no network, no real key. Rendering tests carry `@requires_poppler`.
 - Feed OCR'd text into Phase 5 chunking/RAG so scanned documents become
   queryable.
 - Optional local OCR fallback (tesseract) if offline use ever matters.
-- A `pdfx ocr` CLI command exposing `transcribe_pages` directly, if plain-text
+- A `rp-pdf ocr` CLI command exposing `transcribe_pages` directly, if plain-text
   OCR without Markdown assembly turns out to be wanted.

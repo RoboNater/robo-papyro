@@ -1,8 +1,15 @@
 # rp-pdf Usage Guide
 
-`rp-pdf` extracts structured information from PDF files. It is JSON-first: every
-command prints JSON to stdout by default so output can be piped into other tools.
-The same functionality is available as a Python library (`rp_pdf.core`).
+`rp-pdf` extracts structured information from PDF files. It is JSON-first:
+structured read commands (`index`, `text`, `tables`, `search`, `images`)
+print JSON to stdout by default so output can be piped into other tools.
+`render` writes image files to disk and, like the read commands, reports JSON
+metadata about them (page, path) to stdout by default. `markdown` is the one
+command whose stdout differs by design: with no `-o`/`--out` it prints
+Markdown itself, not JSON; given `-o` it writes the file and prints a plain
+`Wrote <path>` note to *stderr* rather than JSON (`--full` always emits the
+whole result as JSON regardless of `-o`). The same functionality is available
+as a Python library (`rp_pdf.core`).
 
 `rp-pdf` is one package of the [robo-papyro](../README.md) suite; its commands
 are also reachable as `rp pdf ...`. Shared behavior — page-spec parsing, exit
@@ -109,7 +116,8 @@ a per-page summary:
 `has_text: false` usually means a scanned/image-only page. Such pages can be
 transcribed using OCR (see `rp-pdf markdown --ocr` below).
 When the document defines page labels, `has_page_labels` is `true` and each page
-summary includes its `label` — handy for seeing how labels map to physical positions.
+summary includes its `labeled_page` alongside `physical_page` — handy for seeing
+how labels map to physical positions.
 
 ### `rp-pdf text` — extract text
 
@@ -431,10 +439,10 @@ index = core.get_index("report.pdf")
 print(index.page_count, index.metadata.title)
 
 for page_text in core.get_text("report.pdf", "1-3", layout=False):
-    print(page_text.page, page_text.text[:80])
+    print(page_text.physical_page, page_text.text[:80])
 
 for table in core.get_tables("report.pdf", "all"):
-    print(f"page {table.page}, table {table.index}: {len(table.rows)} rows")
+    print(f"page {table.physical_page}, table {table.index}: {len(table.rows)} rows")
 
 images = core.get_images("report.pdf", "all", out_dir=None)   # metadata only
 rendered = core.render_pages("report.pdf", "1", "out/", dpi=200)
@@ -467,8 +475,12 @@ for page in transcribe_pages("scanned.pdf", model="gpt-4o-mini", warnings=warnin
 print(warnings)                                               # per-page OCR failures
 ```
 
-Errors raise `FileNotFoundError`, `rp-pdf.PageSpecError`, or subclasses of
-`rp_pdf.core.PdfxError` (`InvalidPdfError`, `PasswordError`, `PopplerNotFoundError`).
+Errors raise subclasses of `rp_pdf.errors.RpPdfError`, which is parented onto
+`rp_core.errors` and carries the exit code and `type` the error envelope
+reports: `MissingFileError` (also a `FileNotFoundError`, exit 1),
+`InvalidPdfError` (exit 3), `PasswordError` (exit 1), `PopplerNotFoundError`
+(exit 2), and `QueryError` (exit 1, a bad search query). No bare builtin
+exception reaches the caller.
 
 ## Poppler
 

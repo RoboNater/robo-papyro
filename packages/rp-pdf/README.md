@@ -1,8 +1,9 @@
 # rp-pdf
 
 PDF read/extract/render for the [robo-papyro](../../README.md) suite. JSON-first
-library and CLI for text, tables, images, search, Markdown conversion, and page
-rendering.
+library and CLI for text, tables, images, search, Markdown conversion with an
+optional vision-language-model review pass, VLM-based OCR for scanned pages,
+and page rendering.
 
 - **Import:** `rp_pdf` · **CLI:** `rp-pdf`, also reachable as `rp pdf`
 - **Spec:** [`docs/specs/rp-pdf-spec.md`](../../docs/specs/rp-pdf-spec.md)

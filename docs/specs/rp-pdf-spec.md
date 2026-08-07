@@ -9,8 +9,8 @@
 ## Purpose
 
 A Python library + CLI for extracting structured information from PDF files, designed for
-programmatic consumption (JSON-first output). A future MCP server will wrap the same core
-API, so the core must remain free of CLI/formatting concerns.
+programmatic consumption (JSON-first output). Suite Phase 2 (`rp-mcp`, not yet started) will
+wrap the same core API in an MCP server, so the core must remain free of CLI/formatting concerns.
 
 ## Naming
 
@@ -68,7 +68,8 @@ packages/rp-pdf/
 
 **Design rule:** `core.py` functions accept a path (or open handle) plus parameters and
 return pydantic models. `cli.py` only parses args, calls core, and serializes output.
-The future MCP server (`FastMCP` from the official `mcp` SDK) will import `core` directly.
+Suite Phase 2's MCP server (`FastMCP` from the official `mcp` SDK, shipping as its own
+`rp-mcp` distribution per `robo-papyro-spec.md` §9) will import `core` directly.
 
 **What lives in `rp-core` instead of here** (parent §5): generic range parsing, the error
 hierarchy and exit codes, binary discovery, the `rasterize` primitive, and the shared CLI
@@ -168,7 +169,7 @@ Exit codes follow the suite taxonomy (parent §4.7):
 
 - Form field extraction
 - PDF modification/creation
-- MCP server (v2 — but keep core importable and CLI-free to enable it)
+- MCP server (suite Phase 2, `rp-mcp` — but keep core importable and CLI-free to enable it)
 - Local OCR engines (tesseract etc.) — VLM-based OCR was brought into scope
   post-v1; see below
 

@@ -1,7 +1,7 @@
 # rp-pptx — PowerPoint Toolkit Specification
 
 **Version:** 1.0
-**Status:** Ready for implementation (Phase 2.5), blocked on nothing — the phase's one external input, a modern-comments reference deck (§7), gates a deferrable sub-scope, not the phase
+**Status:** **Implemented (Phase 2.5 complete).** Modern threaded comments were deferred as anticipated (§7) — no PowerPoint-authored reference deck was available — and validation against a real house deck (§13) is still outstanding, exactly as with `rp-docx`. The full outcome, including every place §5–§9 turned out to be wrong or incomplete, is in [`dev-notes/status-robo-papyro-phase-2.5.md`](../../dev-notes/status-robo-papyro-phase-2.5.md).
 **Parent document:** `robo-papyro-spec.md` v1.3 — read that first. Its §7 (licensing) and §10 (constraints) govern this package.
 
 This spec is written after `rp-docx` shipped, and it inherits Phase 1's findings as requirements rather than rediscovering them: template retyping is load-bearing (§5.3 — verified against python-pptx 1.0.2, not assumed), role→name checking is lazy (§5.1), template resolution distinguishes a wrong path from an unknown name (§5.1), every editing command takes `--in-place` and refuses to guess (§10), and no fixture binary is committed — everything is generated, including the comment fixtures python-pptx cannot produce (§11).
@@ -566,7 +566,9 @@ Required assertions:
 
 ## 12. Phase 2.5 — Execution Plan
 
-Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phase 2 (`rp-mcp`) in either direction. **No house template or real deck is required at any point.** The one external input — a PowerPoint-authored deck with modern threaded comments, read-only reference material for the step 7 checkpoint — gates only the deferrable modern-comments sub-scope (§7), never the phase.
+**All ten steps are complete.** The outcome — including the checkpoint reports steps 5 and 7 asked for, the promotions taken in step 2, the modern-comments deferral taken at step 7, and the full list of places §5–§9 turned out to be wrong in practice — is in [`dev-notes/status-robo-papyro-phase-2.5.md`](../../dev-notes/status-robo-papyro-phase-2.5.md). The plan below is kept as written, as the record of what was asked for.
+
+Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phase 2 (`rp-mcp`) in either direction. **No house template or real deck is required at any point.** The one external input — a PowerPoint-authored deck with modern threaded comments, read-only reference material for the step 7 checkpoint — gates only the deferrable modern-comments sub-scope (§7), never the phase. *(Held: none was available when step 7 ran, so the deferral was taken.)*
 
 **Step 1.** Scaffold `packages/rp-pptx/` as a workspace member depending on `rp-core`. Entry point `rp-pptx`, plus the `robo_papyro.commands` entry point registering `pptx`. Verify `rp pptx --help` resolves through the umbrella before writing further code.
 

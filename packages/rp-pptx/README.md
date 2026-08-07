@@ -1,11 +1,16 @@
 # rp-pptx
 
-PowerPoint reading, authoring, templating, and slide operations for
-[robo-papyro](https://github.com/RoboNater/robo-papyro).
+PowerPoint reading, authoring, templating, and slide operations for the
+[robo-papyro](../../README.md) suite.
 
-JSON-first: every read command emits a complete pydantic model, so a tool with no
-native document capability can operate on `.pptx` and `.potx` files through a
-plain CLI. Reachable as both `rp-pptx` and `rp pptx`.
+JSON-first: every structured read command (`index`, `text`, `tables`, `images`,
+`notes`, `comments`, `charts`, `props`) emits a complete pydantic model, so a
+tool with no native document capability can operate on `.pptx` and `.potx`
+files through a plain CLI. `convert` and `render` write files to disk and
+report JSON metadata about them the same way. `markdown` is the actual
+exception: with no `-o` it prints Markdown itself; given `-o` it writes the
+file and reports a JSON `WriteResult` instead. Reachable as both `rp-pptx` and
+`rp pptx`.
 
 ```sh
 uv run rp-pptx index deck.pptx

@@ -35,7 +35,7 @@ packages/rp-docx/
 ├── src/rp_docx/
 │   ├── __init__.py         # public API re-exports
 │   ├── models.py           # docx-specific pydantic models only
-│   ├── ooxml.py            # namespace map, zip unpack/repack, xpath, content types
+│   ├── ooxml.py            # WordprocessingML namespace map, content-type strings, part names, .dotx retyping
 │   ├── templates.py        # resolution, inspection, StyleMap, manifest, synthesis
 │   ├── docx/
 │   │   ├── read.py
@@ -43,16 +43,15 @@ packages/rp-docx/
 │   │   ├── runs.py         # run-offset mapping — the §6 utility, standalone
 │   │   └── template.py     # {{ placeholder }} substitution
 │   ├── cli.py              # typer — formatting and printing only
-│   └── mcp_server.py       # Phase 2 stub
+│   └── mcp_server.py       # documented Phase 2 stub
 └── tests/
-    ├── conftest.py         # generates all fixture documents and templates
+    ├── conftest.py         # generates all fixture documents and templates — nothing binary is committed
     ├── fixtures/
-    │   ├── *.manifest.json # template shapes — text, not binaries
-    │   └── *.docx          # ONLY the hand-made tracked-changes/comments files
+    │   └── *.manifest.json # template shapes — text, not binaries; empty until a real template lands
     └── test_*.py
 ```
 
-**Owned by `rp-core`, never redefined here:** `Capability`, `ErrorDetail`, `ErrorEnvelope`, the exception hierarchy, range parsing (`rp_core.ranges`), binary discovery, rasterization, and all CLI conventions.
+**Owned by `rp-core`, never redefined here:** `Capability`, `ErrorDetail`, `ErrorEnvelope`, the exception hierarchy, range parsing (`rp_core.ranges`), binary discovery, rasterization, and all CLI conventions. **[Added Phase 2.5, per `rp-pptx-spec.md` §12 step 2]** the generic OOXML package mechanics — zip read/repack, content-type reading and rewriting, the compiled-XPath helper (`rp_core.ooxml`) — and the shared Markdown block/inline parser (`rp_core.markdown`) also moved out of this package and into `rp-core`, once `rp-pptx` needed the same mechanics. `rp_docx.ooxml` now wraps `rp_core.ooxml` with the WordprocessingML namespace map, the two content-type strings, and Word-specific errors; `rp_docx.docx.write` keeps its own Markdown-to-docx *renderer* over the shared AST rather than its own parser. See `dev-notes/status-robo-papyro-phase-2.5.md` for the rationale and the refactor's test-compatibility record.
 
 `runs.py` is its own module because both `write.replace_text` and `template.fill_template` depend on it, and it is the highest-risk code in the package.
 
@@ -460,7 +459,7 @@ Template fixtures are **generated at test time**, not committed. A downloaded or
 
 `templates/local/` is gitignored and documented in `templates/README.md` as the drop point for real templates during manual testing. Nothing there is ever required for CI.
 
-The only committed binaries are the two or three hand-made tracked-changes/comments files in §11.3, which `python-docx` genuinely cannot produce.
+**No binaries are committed at all**, per the §11.3 outcome: even the tracked-changes/comments fixtures `python-docx` cannot produce through its own API are generated in `conftest.py` by writing hand-crafted XML parts onto an otherwise-generated document, rather than checked in as files.
 
 ### 11.2 Three synthetic templates, built in `conftest.py`
 

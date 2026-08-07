@@ -7,6 +7,8 @@ The meta-distribution: installs the suite's packages and provides the umbrella
 rp --help              # lists whichever subcommands are installed
 rp doctor              # external-tool capability report across the suite
 rp pdf index FILE      # same code path as `rp-pdf index FILE`
+rp docx index FILE.docx      # same code path as `rp-docx index FILE.docx`
+rp pptx index FILE.pptx      # same code path as `rp-pptx index FILE.pptx`
 ```
 
 `rp` finds its subcommands through the `robo_papyro.commands` entry-point group,

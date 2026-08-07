@@ -1,9 +1,21 @@
 # robo-papyro
 
 A document tooling suite giving agentic coding tools a stable, scriptable
-interface to PDF and Office document formats. JSON-first: every read command
-emits a complete pydantic model, so a tool with no native document capability
-can operate on files through a plain CLI.
+interface to PDF and Office document formats. JSON-first: structured read
+commands emit a complete pydantic model to stdout by default, so a tool with
+no native document capability can operate on files through a plain CLI.
+`convert` and `render` follow the same convention — they write the requested
+artifacts to disk and report JSON metadata (what was written, and where) to
+stdout by default. `markdown` is the one command whose stdout differs by
+design: with no `-o`/`--out` it prints Markdown itself, not JSON, so it
+composes with shell pipelines; given `-o` it writes the file, and what it
+prints instead of the Markdown varies by package — see each package's usage
+guide.
+
+**Status:** Phases 0, 0.5, 1, and 2.5 are complete — `rp-core`, `rp-pdf`,
+`rp-docx`, and `rp-pptx` all ship. Phase 2 (`rp-mcp`, MCP servers for PDF,
+Word, and PowerPoint) is next; `rp-xlsx` (Phase 3) remains future work. See
+[ROADMAP.md](ROADMAP.md) for details.
 
 One repository, several independently versioned distributions:
 
@@ -15,11 +27,15 @@ One repository, several independently versioned distributions:
 | [`rp-pptx`](packages/rp-pptx) | `rp_pptx` | `rp-pptx`, `rp pptx` | PowerPoint read/create/edit |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
-Dependency direction is strictly one-way: `rp-core` knows nothing about PDF or
-OOXML, leaf packages never import each other, and `robo-papyro` reaches the
-leaves through entry-point discovery. Permissive licenses only — no
-PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries (LibreOffice,
-poppler) are optional and invoked only as subprocesses.
+Dependency direction is strictly one-way: leaf packages never import each
+other, and `robo-papyro` reaches the leaves through entry-point discovery.
+`rp-core` knows nothing PDF- or format-specific, but it does own the generic,
+format-agnostic mechanics every OOXML leaf needs — package zip read/repack,
+content-type rewriting, and a shared Markdown block/inline parser
+(`rp_core.ooxml`, `rp_core.markdown`); WordprocessingML and PresentationML
+knowledge itself stays in `rp-docx` and `rp-pptx`. Permissive licenses only —
+no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries
+(LibreOffice, poppler) are optional and invoked only as subprocesses.
 
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
 [docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
@@ -74,7 +90,9 @@ automatically; nothing in `robo-papyro` changes.
 (ebook-style `cover`, `i`-`xx`, restarting at `1` for content), specs are interpreted
 against those labels — matching what PDF readers display; pass `--physical` for
 plain 1-based physical numbering.
-Output is JSON on stdout by default; errors put a message and then an error
+Output is JSON on stdout by default — `render` writes image files and reports
+JSON metadata about them, and `markdown` is the exception, printing Markdown
+itself when no `-o` is given. Errors put a message and then an error
 envelope — `{"error": {"type", "message", "hint", "exit_code"}}` — on stderr, and
 exit **1** for an input error, **2** for a missing external binary, **3** for an
 unreadable PDF. Encrypted PDFs take `--password`.
@@ -287,8 +305,12 @@ uv run ruff check packages
 uv run ruff format packages
 ```
 
-Test PDFs are generated at run time; no binary fixtures are committed. Tests
-that need poppler skip automatically when it is not installed, and no test ever
-requires LibreOffice — the subprocess is mocked.
+PDF, Word, and PowerPoint test fixtures — including templates — are generated
+at run time; no binary fixtures are committed. Tests that need poppler skip
+automatically when it is not installed. LibreOffice-dependent tests use a
+functional probe (`requires_soffice` checks that `soffice` can actually
+*convert*, not merely that the binary exists — some containers ship a
+`soffice` that fails every conversion) and skip when it can't; no test ever
+requires LibreOffice to pass.
 
 See [AGENTS.md](AGENTS.md) for the conventions that govern changes here.
