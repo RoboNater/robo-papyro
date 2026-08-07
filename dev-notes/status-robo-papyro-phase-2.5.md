@@ -6,7 +6,7 @@ to be wrong or incomplete in practice.
 
 ## BLUF
 
-`rp-pptx` ships as an independently versioned distribution reachable as both
+**Phase 2.5 is complete.** `rp-pptx` ships as an independently versioned distribution reachable as both
 `rp-pptx` and `rp pptx`. It reads decks (index, text, tables, images, notes,
 classic comments, charts, properties, markdown), creates and edits them from
 markdown, fills `{{ placeholder }}` templates, and deletes and reorders slides.

@@ -1,9 +1,11 @@
 # PowerPoint (`rp-pptx`)
 
 `rp-pptx` reads, creates, edits, and restructures `.pptx` presentations and
-`.potx` templates. Every read command emits JSON on stdout by default; add
-`--plain` for human-readable output. There is no `--json` flag — JSON *is* the
-default.
+`.potx` templates. Structured read commands (`index`, `text`, `tables`,
+`images`, `notes`, `comments`, `charts`, `props`) emit JSON on stdout by
+default; add `--plain` for human-readable output. There is no `--json` flag —
+JSON *is* the default for these. `markdown` is a conversion command and emits
+Markdown instead, the same way `convert` emits whatever format you asked for.
 
 Reachable two ways, which are the same code:
 
@@ -27,9 +29,10 @@ rp-pptx props    deck.pptx --plain
 rp-pptx markdown deck.pptx -o deck.md
 ```
 
-`--slides` takes the suite's range syntax: `all`, `5`, `3-7`, `1,3-5,9`. Every
-read that returns per-slide content accepts it, so asking what is on slide 12
-does not mean fetching all ninety.
+`--slides` takes the suite's range syntax: `all`, `5`, `3-7`, `-4` (up to slide
+4), `7-` (slide 7 to the end), and mixed lists combining any of those
+(`1,3-5,9`, `-2,8-`). Every read that returns per-slide content accepts it, so
+asking what is on slide 12 does not mean fetching all ninety.
 
 **Indices count across the deck, not across the selection.** A table numbered 4
 in a whole-deck read is still 4 under `--slides 3`.

@@ -7,21 +7,23 @@ workspace.
 
 | Distribution | Import | CLI | Purpose |
 |---|---|---|---|
-| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, range specs, CLI conventions |
+| `rp-core` | `rp_core` | — | Shared infrastructure: errors and exit codes, external-binary discovery, rendering, range specs, generic OOXML/Markdown mechanics, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word documents — read, create, edit, template |
+| `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint decks — read, create, edit, template, slide operations |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
 
 ## Layout
 
 ```
-packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit
+packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit, markdown, ooxml
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, cli
 packages/rp-docx/src/rp_docx/     ooxml, templates, models, errors, cli, docx/{read,write,runs,template}
+packages/rp-pptx/src/rp_pptx/     ooxml, templates, models, errors, cli, pptx/{read,write,runs,slides,template}
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
 dev-notes/                        investigation write-ups and phase status notes
-templates/                        house .dotx/.docx templates; templates/local/ is gitignored
+templates/                        house .dotx/.docx and .potx/.pptx templates; templates/local/ is gitignored
 ```
 
 Each package has its own `pyproject.toml` and its own `tests/`. Shared dev
@@ -35,9 +37,11 @@ dependencies, ruff config, and pytest config live in the **root**
    `robo-papyro` depends on leaves, and it reaches them through entry-point
    discovery rather than imports.
 2. **Import from `rp-core`, don't reimplement.** Range-spec parsing, binary
-   discovery, rasterization, error envelopes, and exit codes have exactly one
+   discovery, rasterization, error envelopes, exit codes, generic OPC/OOXML zip
+   mechanics, and the shared Markdown block/inline parser have exactly one
    implementation. If you are about to write `shutil.which`, a page-range
-   parser, or an exception with an exit code, look in `rp_core` first.
+   parser, an exception with an exit code, a zip repack, or a Markdown parser,
+   look in `rp_core` first.
 3. **Core logic never prints and never imports typer.** Library functions
    return pydantic models; CLI modules do all formatting. (`rp_core.clikit` is
    the deliberate exception — it *is* the shared CLI layer.)
@@ -101,6 +105,7 @@ if you trip one; each explains what breaks and why.
 |---|---|
 | Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
 | `rp-docx`'s command surface matches the one its spec §10 specifies | `packages/rp-docx/tests/test_invariants.py` |
+| `rp-pptx`'s command surface matches the one its spec §10 specifies | `packages/rp-pptx/tests/test_invariants.py` |
 | `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
 | Test modules are imported by path, so same-named ones cannot collide | `ci/test_workspace_invariants.py` |
 | `rp_core` holds no page-label logic and imports no leaf | `ci/test_workspace_invariants.py` |
@@ -132,6 +137,23 @@ if you trip one; each explains what breaks and why.
   envelope is always the final line. **There is no `--json` flag** anywhere —
   `packages/rp-pdf/tests/test_cli.py::test_no_json_flag_on_any_command`
   enforces that.
+- `ooxml.py` — generic OPC/OOXML package mechanics shared by every OOXML leaf:
+  zip read/repack (`part_names`, `read_part`, `parse_part`, `repack`),
+  relationship target resolution (`resolve_target`), content-type reading and
+  rewriting (`override_content_types`, `content_type_from`, `retype`), and the
+  compiled-`etree.XPath` helper (`compiled_xpath`) that both python-docx and
+  python-pptx need because each overrides `_Element.xpath` with an incomplete
+  namespace map of its own. **No format-specific identifier lives here** —
+  namespace maps and content-type strings are always arguments, never
+  constants, and a missing/malformed part is `None`/`ValueError` rather than a
+  leaf-specific exception. `rp_docx.ooxml` and `rp_pptx.ooxml` wrap this with
+  their own namespace maps, content-type strings, and error classes.
+- `markdown.py` — the shared Markdown block/inline parser (`parse_markdown`,
+  `parse_inline`), promoted out of `rp-docx` once `rp-pptx` needed the same
+  grammar. Format-agnostic: it produces a `Block`/`Span` AST, and each leaf
+  supplies its own renderer over that AST. Not a CommonMark implementation —
+  headings, paragraphs, lists, GFM pipe tables, fenced code, thematic breaks,
+  HTML comment blocks, and a small set of inline spans, and no more.
 
 ### rp-pdf
 
@@ -162,9 +184,12 @@ if you trip one; each explains what breaks and why.
 
 ### rp-docx
 
-- **`ooxml.py` is the only place that knows how a `.docx` is packed** — namespace
-  map, zip repack, xpath, content types. python-docx covers none of comments,
-  tracked changes, or `.dotx`.
+- **`ooxml.py` is the only place that knows WordprocessingML** — the namespace
+  map, the two content-type strings, and part names like `word/comments.xml`.
+  The generic package mechanics underneath (zip read/repack, content-type
+  rewriting, the compiled-XPath helper) live in `rp_core.ooxml` and are shared
+  with `rp-pptx`; `rp_docx.ooxml` wraps them and adds Word-specific errors.
+  python-docx covers none of comments, tracked changes, or `.dotx`.
 - **python-docx does not open a `.dotx` at all.** It reads
   `[Content_Types].xml`, sees the template content type, and raises
   `ValueError`. House templates are the normal path here, so use
@@ -197,6 +222,41 @@ if you trip one; each explains what breaks and why.
   LibreOffice can actually *convert*, not merely whether the binary exists: some
   containers ship a `soffice` that fails every conversion.
 
+### rp-pptx
+
+- **`.potx` needs the same retyping `.dotx` does.** python-pptx doesn't open a
+  `.potx` at all (`Presentation()` raises `ValueError`), and `save()` always
+  writes the *presentation* content type — verified against python-pptx 1.0.2,
+  not assumed. Every entry point goes through `ooxml.opened(path)` and
+  `ooxml.save(...)`, exactly like `rp-docx`'s `.dotx` handling.
+- **Slide order is `p:sldIdLst`, never part filenames.** `reorder_slides`
+  rewrites the `p:sldId` sequence while leaving every part where it is, so
+  `slide3.xml` is not slide 3 after a reorder or a delete. Classic-comment and
+  modern-comment attribution both walk `p:sldIdLst` → relationship → part —
+  never a filename pattern — for the same reason.
+- **Text replacement reaches slide shapes, tables, grouped shapes (recursively),
+  and notes slides — never layouts or masters.** Layout/master text is design
+  furniture; editing it from a content operation would be a surprise. Where two
+  placeholder matches overlap, the longer one wins, so results never depend on
+  dict ordering.
+- **Modern threaded comments are deferred, not silently dropped.** No
+  PowerPoint-authored reference deck was available to verify the part schema
+  against, so a deck carrying modern comment parts (detected by content type,
+  never by filename) makes `get_comments` raise `UnsupportedFeatureError`
+  (exit 3) rather than return an empty list indistinguishable from "no
+  comments." `get_index` stays total and reports `comment_count: null` in that
+  case. Classic comments are unaffected and fully supported. See
+  `dev-notes/status-robo-papyro-phase-2.5.md`.
+- **Template synthesis uses raw OOXML, not python-pptx.** python-pptx can read
+  and rename a layout but cannot author one, and cannot add a master at all —
+  `ooxml.rebuild_masters` does the zip-level surgery (copying the master's
+  colour map/theme link, authoring layout parts, rewriting
+  `p:sldMasterIdLst`/rels/content-types together) that the public API has no
+  path to.
+- `shape.shape_type` raises `NotImplementedError` for shapes python-pptx can't
+  classify (SmartArt, ink, hand-authored shapes), so classification keys on the
+  element tag (`p:pic`, `p:grpSp`, …) instead, which cannot raise.
+
 ### robo-papyro
 
 `cli.py` reaches leaves through entry-point discovery only — see the
@@ -207,8 +267,9 @@ typer app, which means argv preprocessing done by a leaf's console script
 ## Licensing
 
 **Approved:** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3),
-pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), typer
-(MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
+pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter
+(BSD-2, transitive via python-pptx), typer (MIT), pydantic (MIT), Pillow
+(MIT-CMU), pytest/ruff (MIT).
 
 **Forbidden — these are blockers, not preferences:** `docxtpl` (LGPL-2.1-only),
 `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
@@ -231,11 +292,15 @@ moves. Don't add one you haven't verified — the gate will, and it will fail.
 ## Testing notes
 
 - Fixture PDFs are generated at run time with reportlab in
-  `packages/rp-pdf/tests/conftest.py`, and every docx fixture and template is
-  built in `packages/rp-docx/tests/conftest.py` — never commit binary fixtures.
-  A committed `.dotx` is a licensing question, an opaque diff, and a debugging
-  hazard at once: when a test fails you cannot tell whether the code or the
-  template changed.
+  `packages/rp-pdf/tests/conftest.py`; every docx fixture and template is
+  built in `packages/rp-docx/tests/conftest.py`; every pptx fixture and
+  template is built in `packages/rp-pptx/tests/conftest.py` — never commit
+  binary fixtures. A committed `.dotx`/`.potx` is a licensing question, an
+  opaque diff, and a debugging hazard at once: when a test fails you cannot
+  tell whether the code or the template changed. Fixtures python-docx/
+  python-pptx cannot themselves produce (tracked changes, comments) are still
+  generated, not committed — by writing the XML parts by hand onto an
+  otherwise-generated package in `conftest.py`.
 - VLM tests run against a fake OpenAI-compatible HTTP server on a local thread
   (`FakeVlm`) — no network, no real keys. VLM env vars (`RP_PDF_VLM_*`,
   `OPENAI_API_KEY`) are cleared via the `vlm_env` fixture; always pass

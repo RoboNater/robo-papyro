@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.3
-**Status:** Phases 0, 0.5 and 1 complete · Phase 2 (`rp-mcp`) next · Phase 2.5 (`rp-pptx`) specified
-**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0
+**Version:** 1.4
+**Status:** Phases 0, 0.5, 1, and 2.5 complete · Phase 2 (`rp-mcp`) next · Phase 3 (`rp-xlsx`) future work
+**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 (implemented — see `dev-notes/status-robo-papyro-phase-2.5.md`)
+
+**Changes from v1.3:** §1, §3, §9, and §10 record Phase 2.5 (`rp-pptx`) as complete rather than specified, and Phase 2 as the sole remaining "next" phase, now scoped to include `rp-pptx`'s MCP server alongside `rp-pdf`'s and `rp-docx`'s · §1 and §4 correct "`rp-core` knows nothing about PDF or OOXML" to describe the actual boundary: `rp_core.ooxml` and `rp_core.markdown` hold generic, format-agnostic OPC/OOXML and Markdown-parsing mechanics, promoted out of `rp-docx` once `rp-pptx` needed the same grammar (`rp-pptx-spec.md` §12 step 2); WordprocessingML/PresentationML knowledge itself stays in the leaves · §3's layout gains `rp_core`'s `ooxml.py`/`markdown.py` and the `rp-pptx` package tree.
 
 **Changes from v1.2:** §9 inserts Phase 2.5 (`rp-pptx`), promoted out of the Phase 3 bundle now that Phase 1 has proven the leaf pattern it reuses; Phase 3 narrows to `rp-xlsx` · §1 and §3 add the `rp-pptx` distribution and its spec · §7 adds `XlsxWriter` (BSD-2-Clause), python-pptx's dependency, to the approved list.
 
@@ -18,7 +20,7 @@
 
 | Distribution | Import name | CLI | Purpose |
 |---|---|---|---|
-| `rp-core` | `rp_core` | — | Shared infrastructure: binary discovery, rasterization primitive, error/exit-code contract, range parsing, CLI conventions |
+| `rp-core` | `rp_core` | — | Shared infrastructure: binary discovery, rasterization primitive, error/exit-code contract, range parsing, generic OPC/OOXML mechanics, shared Markdown parsing, CLI conventions |
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
@@ -26,7 +28,7 @@
 
 **Rationale for one repo, several distributions:** corporate overhead (license scan, SBOM, security review, CI onboarding) is charged per repo. Workspace path dependencies resolve with nothing but git — no internal package index required. Cross-cutting changes land atomically in one PR. Separate distributions keep version histories independent and keep `rp-pdf` users from installing `python-docx`.
 
-**Dependency direction is strictly one-way.** `rp-core` knows nothing about PDF or OOXML. `rp-pdf` and `rp-docx` never import each other. Only `robo-papyro` depends on the leaves, and it does so through entry-point discovery rather than direct imports.
+**Dependency direction is strictly one-way.** Leaf packages never import each other. Only `robo-papyro` depends on the leaves, and it does so through entry-point discovery rather than direct imports. `rp-core` knows nothing PDF- or format-specific — but it does own the mechanics that are genuinely generic across OOXML formats (package zip read/repack, content-type rewriting, the compiled-XPath helper) and across Markdown (the shared block/inline parser), promoted out of `rp-docx` once `rp-pptx` needed the same grammar (§9, `rp-pptx-spec.md` §12 step 2). WordprocessingML and PresentationML knowledge itself never leaves `rp-docx` and `rp-pptx` respectively — see §4 note below.
 
 ### Non-goals
 - Rendering fidelity guarantees — LibreOffice does the converting; we don't chase pixel parity
@@ -87,14 +89,16 @@ robo-papyro/
 │   │   │   ├── binaries.py         # discovery + guarded invocation
 │   │   │   ├── render.py           # rasterize primitive + render_pages wrapper
 │   │   │   ├── doctor.py           # capability report
+│   │   │   ├── ooxml.py            # generic OPC/OOXML zip, content-type, xpath mechanics (added Phase 2.5)
+│   │   │   ├── markdown.py         # shared Markdown block/inline parser (added Phase 2.5)
 │   │   │   └── clikit.py           # shared typer conventions
 │   │   └── tests/
 │   ├── rp-pdf/
 │   │   ├── pyproject.toml
 │   │   ├── src/rp_pdf/
 │   │   └── tests/
-│   ├── rp-docx/                    # Phase 1
-│   ├── rp-pptx/                    # Phase 2.5
+│   ├── rp-docx/                    # Phase 1 — complete
+│   ├── rp-pptx/                    # Phase 2.5 — complete
 │   └── robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
@@ -191,7 +195,7 @@ Plus `ErrorDetail` and `ErrorEnvelope` from §4.1.
 
 ### 4.3 `ranges.py` — generic only
 
-`rp_core.ranges` parses 1-based inclusive integer range specs and nothing else: `"3"`, `"1-5"`, `"1,3,7-9"`, `"-4"`, `"7-"` → `list[int]`. It serves PDF pages, docx sections, and future sheet or slide selection.
+`rp_core.ranges` parses 1-based inclusive integer range specs and nothing else: `"3"`, `"1-5"`, `"1,3,7-9"`, `"-4"`, `"7-"` → `list[int]`. It serves PDF pages, docx sections, pptx slide selection, and a future sheet selection in `rp-xlsx`.
 
 **An omitted endpoint takes the corresponding bound**: `"-4"` is `1..4` and `"7-"` is `7..count`. These two forms were listed here from v1.0 but never implemented — v1.0 described them as part of a module it was directing us to move rather than rewrite, and the module had never accepted them. Phase 0.5 adds them. A bare `"-"` is rejected: it would mean `1..count`, which `"all"` already says, so it is far likelier a typo, and silently selecting an entire document is an expensive way to discover that. Leaf packages that resolve a spec against their own naming — `rp_pdf.pages` against page labels — support the same two forms, so a spec does not change meaning depending on whether a document happens to be labelled.
 
@@ -274,7 +278,7 @@ For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and
 
 ## 6. The `rp` Umbrella CLI
 
-`robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, and `rp-docx`, providing a single `rp` command that dispatches to each.
+`robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, `rp-docx`, and `rp-pptx`, providing a single `rp` command that dispatches to each.
 
 **Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf` or `rp_docx` directly — enforced by a test that walks the module's AST.
 
@@ -364,11 +368,11 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | Phase | Scope | Driving doc | Status |
 |---|---|---|---|
 | **0** | Workspace, rename, extract `rp-core`, `rp` umbrella | v1.0 §8 | Complete |
-| **0.5** | Contract decisions and extraction cleanup | §8 above | Ready |
+| **0.5** | Contract decisions and extraction cleanup | §8 above | Complete |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
-| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | Ready |
-| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI; its server joins `rp-mcp` | `rp-pptx-spec.md` §12 | Ready — independent of Phase 2, may land before or after it |
-| **3** | `rp-xlsx` (openpyxl) | TBD | — |
+| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | `rp-pptx-spec.md` §12 | Complete — landed before Phase 2, per `dev-notes/status-robo-papyro-phase-2.5.md`; no house deck was needed |
+| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | TBD | Next |
+| **3** | `rp-xlsx` (openpyxl) | TBD | Future work |
 
 ---
 

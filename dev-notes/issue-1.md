@@ -1,8 +1,13 @@
 # Text extraction sometimes runs words together (missing inter-word spaces)
 
+**Status: resolved.** Fixed by defaulting text extraction to poppler's
+`pdftotext`. The package was `pdfx` at the time this was investigated; it is
+`rp-pdf` today. References below are updated to current names except where the
+investigation narrative quotes the original symptom.
+
 ## Symptom
 
-`pdfx text` (and therefore `pdfx search`) sometimes produces output where words
+`rp-pdf text` (and therefore `rp-pdf search`) sometimes produces output where words
 are concatenated with no spaces:
 
 ```
@@ -34,7 +39,7 @@ runs interleaved with kerning offsets, e.g.
 ```
 
 Extractors must *infer* word boundaries by comparing horizontal gaps against
-font metrics. Both pure-Python extractors pdfx uses get this wrong on such
+font metrics. Both pure-Python extractors rp-pdf uses get this wrong on such
 files:
 
 - **pypdf** (`extract_text()`, our default): inserts a space only when a
@@ -48,8 +53,8 @@ files:
 
 ## Reproduction
 
-A synthetic PDF (checked in as the `kerned_pdf` test fixture,
-`tests/conftest.py`) draws each line as a single `TJ` array with 0.12 em kerning
+A synthetic PDF (generated at test time as the `kerned_pdf` fixture in
+`packages/rp-pdf/tests/conftest.py`) draws each line as a single `TJ` array with 0.12 em kerning
 offsets between words and **no space glyphs anywhere**. Extraction results:
 
 | Extractor            | Output                          |
@@ -64,7 +69,7 @@ libraries fail, `pdftotext` succeeds).
 
 ## Resolution
 
-Default to correctness: `pdfx text` and `pdfx search` now shell out to
+Default to correctness: `rp-pdf text` and `rp-pdf search` now shell out to
 poppler's `pdftotext` by default (one subprocess per contiguous page run,
 pages split on the form-feed separator). The pure-Python extractors remain
 available as explicit opt-ins via `--engine pypdf` / `--engine pdfplumber`
@@ -82,6 +87,6 @@ and ~6s via pdfplumber (whole book via poppler: ~14s), since a contiguous page
 range costs a single subprocess.
 
 Requires poppler to be installed for default text extraction (it was already
-required for `pdfx render`); `PDFX_POPPLER_PATH` / `--poppler-path` are honored
+required for `rp-pdf render`); `RP_POPPLER_PATH` / `--poppler-path` are honored
 as before, and the error message when poppler is missing explains both the
 install options and the engine fallbacks.

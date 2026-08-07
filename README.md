@@ -1,9 +1,16 @@
 # robo-papyro
 
 A document tooling suite giving agentic coding tools a stable, scriptable
-interface to PDF and Office document formats. JSON-first: every read command
-emits a complete pydantic model, so a tool with no native document capability
-can operate on files through a plain CLI.
+interface to PDF and Office document formats. Structured reads are
+JSON-first — every read command emits a complete pydantic model by default, so
+a tool with no native document capability can operate on files through a plain
+CLI — while format-conversion commands (`markdown`, `convert`, `render`) emit
+the format they convert to.
+
+**Status:** Phases 0, 0.5, 1, and 2.5 are complete — `rp-core`, `rp-pdf`,
+`rp-docx`, and `rp-pptx` all ship. Phase 2 (`rp-mcp`, MCP servers for PDF,
+Word, and PowerPoint) is next; `rp-xlsx` (Phase 3) remains future work. See
+[ROADMAP.md](ROADMAP.md) for details.
 
 One repository, several independently versioned distributions:
 
@@ -15,11 +22,15 @@ One repository, several independently versioned distributions:
 | [`rp-pptx`](packages/rp-pptx) | `rp_pptx` | `rp-pptx`, `rp pptx` | PowerPoint read/create/edit |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
-Dependency direction is strictly one-way: `rp-core` knows nothing about PDF or
-OOXML, leaf packages never import each other, and `robo-papyro` reaches the
-leaves through entry-point discovery. Permissive licenses only — no
-PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries (LibreOffice,
-poppler) are optional and invoked only as subprocesses.
+Dependency direction is strictly one-way: leaf packages never import each
+other, and `robo-papyro` reaches the leaves through entry-point discovery.
+`rp-core` knows nothing PDF- or format-specific, but it does own the generic,
+format-agnostic mechanics every OOXML leaf needs — package zip read/repack,
+content-type rewriting, and a shared Markdown block/inline parser
+(`rp_core.ooxml`, `rp_core.markdown`); WordprocessingML and PresentationML
+knowledge itself stays in `rp-docx` and `rp-pptx`. Permissive licenses only —
+no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries
+(LibreOffice, poppler) are optional and invoked only as subprocesses.
 
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
 [docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
@@ -287,8 +298,12 @@ uv run ruff check packages
 uv run ruff format packages
 ```
 
-Test PDFs are generated at run time; no binary fixtures are committed. Tests
-that need poppler skip automatically when it is not installed, and no test ever
-requires LibreOffice — the subprocess is mocked.
+PDF, Word, and PowerPoint test fixtures — including templates — are generated
+at run time; no binary fixtures are committed. Tests that need poppler skip
+automatically when it is not installed. LibreOffice-dependent tests use a
+functional probe (`requires_soffice` checks that `soffice` can actually
+*convert*, not merely that the binary exists — some containers ship a
+`soffice` that fails every conversion) and skip when it can't; no test ever
+requires LibreOffice to pass.
 
 See [AGENTS.md](AGENTS.md) for the conventions that govern changes here.

@@ -1,9 +1,11 @@
 # rp-docx Usage Guide
 
-`rp-docx` reads, creates, and edits Word documents. It is JSON-first: every read
-command prints JSON to stdout by default, so output pipes into other tools
-without a flag. The same functionality is available as a Python library
-(`rp_docx`).
+`rp-docx` reads, creates, and edits Word documents. Structured read commands
+(`index`, `text`, `tables`, `images`, `comments`, `changes`, `props`) print
+JSON to stdout by default, so output pipes into other tools without a flag;
+`markdown` is a conversion command and emits Markdown instead, exactly as
+`convert` emits whatever format you asked for. The same functionality is
+available as a Python library (`rp_docx`).
 
 `rp-docx` is one package of the [robo-papyro](../README.md) suite; its commands
 are also reachable as `rp docx ...`, byte-identically. Shared behavior — range
@@ -12,10 +14,12 @@ parsing, exit codes, external-binary discovery, rasterization — comes from
 
 ## Conventions
 
-- **JSON is the default.** `--plain` is the human opt-out. There is no `--json`
-  flag anywhere in the suite: two tools differing on the shape of every
-  *successful* call would be a worse inconsistency than any error-path
-  difference, because it hits the common path.
+- **JSON is the default for structured reads.** `--plain` is the human opt-out.
+  There is no `--json` flag anywhere in the suite: two tools differing on the
+  shape of every *successful* call would be a worse inconsistency than any
+  error-path difference, because it hits the common path. Conversion commands
+  (`markdown`, `convert`, `render`) are the exception by nature — they emit the
+  format you asked for, not a JSON envelope around it.
 
 - **All indices are 1-based** — paragraphs, tables, images, sections.
 
@@ -173,9 +177,11 @@ silently dropping the flag.
 
 Markdown supported: headings 1–4, paragraphs, `**bold**`, `*italic*`, `` `code` ``,
 `[links](url)`, bullet and numbered lists (nested by indent), GFM pipe tables,
-horizontal rules, and fenced code blocks. Parsed here rather than by a library —
-the grammar is small and no markdown library on the approved license list covers
-it.
+horizontal rules, and fenced code blocks. Parsed by `rp_core.markdown` — the
+small block/inline parser shared with `rp-pptx` — rather than by a third-party
+library, since the grammar is small and no markdown library on the approved
+license list covers it. `rp-docx` supplies its own renderer over the shared
+parse tree.
 
 #### `rp-docx append FILE --markdown FILE` — add to a document
 
@@ -389,9 +395,15 @@ from rp_docx.errors import (
 
 ### Reaching past python-docx
 
-`rp_docx.ooxml` is the only place that knows how a `.docx` is packed, and
-`rp_docx.docx.runs` is the only place that knows how Word splits text. Both are
-public because both are useful on their own:
+`rp_docx.ooxml` is the only place that knows *WordprocessingML* — the
+namespace map, the `.dotx`/`.docx` content types, and part names like
+`word/comments.xml`. The generic package mechanics underneath it (the zip
+read/repack, content-type rewriting, and compiled-XPath helper) live in
+`rp_core.ooxml` and are shared with `rp-pptx`; `rp_docx.docx.runs` is the only
+place that knows how Word splits text. Markdown parsing itself is shared too:
+`rp_core.markdown` holds the block/inline parser, and `rp_docx.docx.write`
+supplies only the Word *renderer* over that shared AST. All of these are
+public because they are useful on their own:
 
 ```python
 from rp_docx import ooxml

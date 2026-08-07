@@ -13,7 +13,7 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **0** | Workspace scaffold, `pdfx` → `rp-pdf` rename, extract `rp-core`, `rp` umbrella | robo-papyro-spec §8 | ✅ |
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
-| **2** | `rp-mcp`: FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | next |
+| **2** | `rp-mcp`: FastMCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | TBD | next |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ✅ |
 | **3** | `rp-xlsx` (openpyxl), same core/CLI split | TBD | |
 
@@ -69,8 +69,9 @@ guess at the schema — so a deck carrying them fails loudly with exit 3 rather
 than returning an empty list. Classic comments are unaffected. All of it is in
 [dev-notes/status-robo-papyro-phase-2.5.md](dev-notes/status-robo-papyro-phase-2.5.md).
 
-Phase 2.5 is independent of Phase 2 and may land before or after it; whichever
-of the two lands second wires the pptx FastMCP server into `rp-mcp`.
+Phase 2.5 was independent of Phase 2 and, as anticipated, landed first. Phase 2
+now must include the `rp-pptx` FastMCP server alongside `rp-pdf` and `rp-docx`
+in `rp-mcp`, since all three leaves are implemented by the time it starts.
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now
