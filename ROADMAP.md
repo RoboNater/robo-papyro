@@ -293,9 +293,12 @@ precedence matrix, default action, key-not-from-config).
 
 ### Progress, job descriptions, and `--save-config` ✅
 
-Three requests from human users of a tool built primarily for agents. All three
-are stderr-only and change no stdout byte, which is what made them safe to add
-without an agent-vs-human mode.
+Four requests from human users of a tool built primarily for agents — the three
+below plus a documentation fix for the config file's discovery rules. All are
+stderr-only and change no stdout byte, which is what made them safe to add
+without an agent-vs-human mode. Full write-up, including the decisions that
+went the other way first, in
+[dev-notes/status-cli-ux-progress-and-config.md](dev-notes/status-cli-ux-progress-and-config.md).
 
 **Progress** (`rp_core.progress`, shared). A long run that prints nothing is
 indistinguishable from a hung one. `Progress`/`Step` is a callback interface
