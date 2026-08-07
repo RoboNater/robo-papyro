@@ -4,8 +4,12 @@
 `.potx` templates. Structured read commands (`index`, `text`, `tables`,
 `images`, `notes`, `comments`, `charts`, `props`) emit JSON on stdout by
 default; add `--plain` for human-readable output. There is no `--json` flag —
-JSON *is* the default for these. `markdown` is a conversion command and emits
-Markdown instead, the same way `convert` emits whatever format you asked for.
+JSON *is* the default for these. `convert` and `render` follow the same
+convention: they write the requested artifacts to disk and report JSON result
+metadata to stdout by default, same as any other command. `markdown` is the
+one command whose stdout differs by design: with no `-o` it prints Markdown
+itself; given `-o FILE` it writes the file and reports a JSON `WriteResult`
+(the output path) to stdout instead of the Markdown.
 
 Reachable two ways, which are the same code:
 

@@ -103,7 +103,7 @@ robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
 │       └── tests/
-└── templates/                      # corporate .dotx / .docx style templates
+└── templates/                      # corporate .dotx/.docx and .potx/.pptx style templates
     └── README.md                   # provenance + owner per template
 ```
 
@@ -239,7 +239,7 @@ render_pages(source: Path, output_dir: Path, *, dpi: int = 150,
 
 `rp-pdf`'s own render command resolves page *labels*, names files by label, and returns `RenderedPage` models carrying both numbering schemes. None of that can live in a format-agnostic core, so it wraps `rasterize` in roughly twenty lines rather than delegating in one. This is expected, not a defect — v1.0 §4.5 was wrong to describe it as a thin delegation.
 
-`rp-docx` uses `render_pages` directly and needs nothing more.
+`rp-docx` and `rp-pptx` both use `render_pages` directly and need nothing more.
 
 ### 4.6 `clikit.py` — JSON by default
 
@@ -280,7 +280,7 @@ For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and
 
 `robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, `rp-docx`, and `rp-pptx`, providing a single `rp` command that dispatches to each.
 
-**Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf` or `rp_docx` directly — enforced by a test that walks the module's AST.
+**Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf`, `rp_docx`, or `rp_pptx` directly — enforced by a test that walks the module's AST.
 
 Consequences, all desirable:
 - `rp pdf index FILE` and `rp-pdf index FILE` are the same code path, asserted by CI
@@ -381,8 +381,8 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 - **Permissive licenses only**, per §7. Weak copyleft is transitive-and-optional only, and the license gate proves it rather than trusting a comment. If a forbidden dependency seems necessary, stop and ask.
 - **Core logic never prints and never imports typer.** Library functions return pydantic models; CLI modules do all formatting.
 - **One-way dependencies.** `rp-core` imports no leaf package and contains no format-specific identifier. Leaf packages do not import each other.
-- **Don't reimplement `rp-core`.** Range parsing, binary discovery, rasterization, error envelopes, and exit codes have exactly one implementation.
-- **All user-facing indices are 1-based** — pages, paragraphs, tables, sections.
+- **Don't reimplement `rp-core`.** Range parsing, binary discovery, rasterization, error envelopes, exit codes, generic OPC/OOXML zip mechanics, and the shared Markdown block/inline parser have exactly one implementation.
+- **All user-facing indices are 1-based** — pages, paragraphs, tables, sections, slides.
 - **JSON is the default output**; `--plain` is the human opt-out. No `--json` flag exists in the suite.
 - **Never overwrite an input file** unless `--in-place` is passed explicitly.
 - **No external binary is required** for any core read/write path.

@@ -12,20 +12,35 @@ working with real templates once there are some.
 
 ## How resolution works
 
-Both packages resolve a bare template name the same way, in order, differing
-only in the environment variable and file extensions:
+Both packages resolve a bare template name against a list of directories,
+tried in order, then fall back to a configured or bundled default — but the
+two implementations currently differ in two ways worth knowing before you
+rely on either: how many directories the `_TEMPLATE_DIR` variable can name,
+and how the in-checkout directories are located.
 
-| | `rp-docx` | `rp-pptx` |
+| | `rp-docx` (`rp_docx.templates.template_dirs`) | `rp-pptx` (`rp_pptx.templates._roots`) |
 |---|---|---|
 | Directory env var | `RP_DOCX_TEMPLATE_DIR` | `RP_PPTX_TEMPLATE_DIR` |
+| `_TEMPLATE_DIR` accepts | **Multiple** directories, split on `os.pathsep` (`PATH`-style) | **One** directory only — the whole value is wrapped in a single `Path` |
+| In-checkout directories | The nearest ancestor of the current working directory that has a `templates/` next to a `.git` or `pyproject.toml` (walks up from `cwd`) | `Path.cwd() / "templates"` directly — no ancestor search |
 | Default-template env var | `RP_DOCX_TEMPLATE` | `RP_PPTX_TEMPLATE` |
 | Extensions tried, in order | `.dotx` then `.docx` | `.potx` then `.pptx` |
 | Map file | `<name>.stylemap.json` | `<name>.layoutmap.json` |
 
-1. `$RP_DOCX_TEMPLATE_DIR` / `$RP_PPTX_TEMPLATE_DIR` — one or more directories,
-   separated the way `PATH` is
-2. `templates/local/` in the checkout
-3. `templates/` in the checkout (this directory)
+In practice this means `RP_PPTX_TEMPLATE_DIR` naming more than one directory
+(the `PATH`-separated form that works for `RP_DOCX_TEMPLATE_DIR`) silently
+resolves to a single, likely-wrong path instead of erroring, and `rp-pptx`
+only finds `templates/local/`/`templates/` when run from the checkout root —
+`rp-docx` finds them from any subdirectory. Running either CLI from the
+repository root, as the examples below do, sidesteps both differences. If you
+rely on multiple template directories or run from a subdirectory, treat this
+as a known implementation gap rather than a documented feature of `rp-pptx`.
+
+Both packages try, in order:
+
+1. `$RP_DOCX_TEMPLATE_DIR` / `$RP_PPTX_TEMPLATE_DIR`, per the table above
+2. `templates/local/`
+3. `templates/` (this directory)
 
 so `--template memo` finds `memo.dotx` here, and `--template house` finds
 `house.potx`. With no template named at all, `$RP_DOCX_TEMPLATE` /

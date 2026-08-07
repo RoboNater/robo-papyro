@@ -1,11 +1,16 @@
 # robo-papyro
 
 A document tooling suite giving agentic coding tools a stable, scriptable
-interface to PDF and Office document formats. Structured reads are
-JSON-first — every read command emits a complete pydantic model by default, so
-a tool with no native document capability can operate on files through a plain
-CLI — while format-conversion commands (`markdown`, `convert`, `render`) emit
-the format they convert to.
+interface to PDF and Office document formats. JSON-first: structured read
+commands emit a complete pydantic model to stdout by default, so a tool with
+no native document capability can operate on files through a plain CLI.
+`convert` and `render` follow the same convention — they write the requested
+artifacts to disk and report JSON metadata (what was written, and where) to
+stdout by default. `markdown` is the one command whose stdout differs by
+design: with no `-o`/`--out` it prints Markdown itself, not JSON, so it
+composes with shell pipelines; given `-o` it writes the file, and what it
+prints instead of the Markdown varies by package — see each package's usage
+guide.
 
 **Status:** Phases 0, 0.5, 1, and 2.5 are complete — `rp-core`, `rp-pdf`,
 `rp-docx`, and `rp-pptx` all ship. Phase 2 (`rp-mcp`, MCP servers for PDF,
@@ -85,7 +90,9 @@ automatically; nothing in `robo-papyro` changes.
 (ebook-style `cover`, `i`-`xx`, restarting at `1` for content), specs are interpreted
 against those labels — matching what PDF readers display; pass `--physical` for
 plain 1-based physical numbering.
-Output is JSON on stdout by default; errors put a message and then an error
+Output is JSON on stdout by default — `render` writes image files and reports
+JSON metadata about them, and `markdown` is the exception, printing Markdown
+itself when no `-o` is given. Errors put a message and then an error
 envelope — `{"error": {"type", "message", "hint", "exit_code"}}` — on stderr, and
 exit **1** for an input error, **2** for a missing external binary, **3** for an
 unreadable PDF. Encrypted PDFs take `--password`.

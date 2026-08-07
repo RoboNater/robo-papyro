@@ -2,9 +2,12 @@
 
 `rp-docx` reads, creates, and edits Word documents. Structured read commands
 (`index`, `text`, `tables`, `images`, `comments`, `changes`, `props`) print
-JSON to stdout by default, so output pipes into other tools without a flag;
-`markdown` is a conversion command and emits Markdown instead, exactly as
-`convert` emits whatever format you asked for. The same functionality is
+JSON to stdout by default, so output pipes into other tools without a flag.
+`convert` and `render` write the requested artifacts to disk and, like the
+read commands, report JSON result metadata to stdout by default. `markdown` is
+the one command whose stdout differs by design: with no `-o` it prints
+Markdown itself, not JSON; given `-o` it writes the file and prints a plain
+`Wrote <path>` note to *stderr* rather than JSON. The same functionality is
 available as a Python library (`rp_docx`).
 
 `rp-docx` is one package of the [robo-papyro](../README.md) suite; its commands
@@ -17,9 +20,10 @@ parsing, exit codes, external-binary discovery, rasterization — comes from
 - **JSON is the default for structured reads.** `--plain` is the human opt-out.
   There is no `--json` flag anywhere in the suite: two tools differing on the
   shape of every *successful* call would be a worse inconsistency than any
-  error-path difference, because it hits the common path. Conversion commands
-  (`markdown`, `convert`, `render`) are the exception by nature — they emit the
-  format you asked for, not a JSON envelope around it.
+  error-path difference, because it hits the common path. `convert` and
+  `render` write files and report JSON metadata about them, same as a read.
+  `markdown` is the actual exception — with no `-o` it prints Markdown itself
+  to stdout, not JSON.
 
 - **All indices are 1-based** — paragraphs, tables, images, sections.
 

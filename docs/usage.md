@@ -2,11 +2,14 @@
 
 `rp-pdf` extracts structured information from PDF files. It is JSON-first:
 structured read commands (`index`, `text`, `tables`, `search`, `images`)
-print JSON to stdout by default so output can be piped into other tools;
-conversion and rendering commands (`markdown`, `render`) emit the format
-they convert to instead — Markdown or image files, not a JSON envelope
-around them. The same functionality is available as a Python library
-(`rp_pdf.core`).
+print JSON to stdout by default so output can be piped into other tools.
+`render` writes image files to disk and, like the read commands, reports JSON
+metadata about them (page, path) to stdout by default. `markdown` is the one
+command whose stdout differs by design: with no `-o`/`--out` it prints
+Markdown itself, not JSON; given `-o` it writes the file and prints a plain
+`Wrote <path>` note to *stderr* rather than JSON (`--full` always emits the
+whole result as JSON regardless of `-o`). The same functionality is available
+as a Python library (`rp_pdf.core`).
 
 `rp-pdf` is one package of the [robo-papyro](../README.md) suite; its commands
 are also reachable as `rp pdf ...`. Shared behavior — page-spec parsing, exit
