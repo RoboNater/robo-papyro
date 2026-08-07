@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from rp_core.progress import NULL, Progress
 from rp_pdf import core
 from rp_pdf.models import PageText
 from rp_pdf.pages import PageSpec
@@ -75,6 +76,7 @@ def transcribe_pages(
     cache_dir: Path | None = None,
     use_cache: bool = True,
     warnings: list[str] | None = None,
+    progress: Progress | None = None,
 ) -> list[PageText]:
     """OCR the scanned pages in `pages` via a VLM; returns one PageText per
     scanned page, in page order.
@@ -86,7 +88,8 @@ def transcribe_pages(
     when a list is passed. Configuration (model/base_url/organization and the
     RP_PDF_VLM_* environment fallbacks), caching, and concurrency behave exactly
     like the Markdown AI pass (see `markdown.to_markdown`); rendering the pages
-    requires poppler.
+    requires poppler. `progress` (rp_core.progress.Progress) reports the render
+    and the transcription as counted steps, and defaults to the no-op reporter.
     """
     client, model = make_client(model, base_url, organization, feature="OCR")
     path = Path(path)
@@ -99,6 +102,7 @@ def transcribe_pages(
         return []
 
     sink = warnings if warnings is not None else []
+    reporter = progress if progress is not None else NULL
     file_hash = file_sha256(path)
     cache = cache_path(cache_dir) if use_cache else None
     results: dict[int, str] = {}
@@ -115,33 +119,39 @@ def transcribe_pages(
                 password=password,
                 poppler_path=poppler_path,
                 physical=True,
+                progress=reporter,
             )
         }
 
-        def transcribe(n: int) -> str | None:
+        def transcribe(n: int, step) -> str | None:
             """OCR one page into `results`; returns a warning message or None."""
             key = hashlib.sha256(
                 f"ocr:{file_hash}:{n}:{model}:{PROMPT_VERSION}:{dpi}".encode()
             ).hexdigest()
-            if cache is not None:
-                hit = cache_read(cache, key)
-                if hit is not None:
-                    results[n] = hit
-                    return None
             try:
-                response = _call_vlm(client, model, rendered[n])
-            except Exception as exc:  # any API failure keeps the placeholder
-                return f"page {n}: OCR failed ({exc}); kept no-text placeholder"
-            accepted, reason = _accept_response(response)
-            if accepted is None:
-                return f"page {n}: OCR response rejected ({reason}); kept no-text placeholder"
-            results[n] = accepted
-            if cache is not None:
-                cache_write(cache, key, accepted, PROMPT_VERSION)
-            return None
+                if cache is not None:
+                    hit = cache_read(cache, key)
+                    if hit is not None:
+                        results[n] = hit
+                        return None
+                try:
+                    response = _call_vlm(client, model, rendered[n])
+                except Exception as exc:  # any API failure keeps the placeholder
+                    return f"page {n}: OCR failed ({exc}); kept no-text placeholder"
+                accepted, reason = _accept_response(response)
+                if accepted is None:
+                    return f"page {n}: OCR response rejected ({reason}); kept no-text placeholder"
+                results[n] = accepted
+                if cache is not None:
+                    cache_write(cache, key, accepted, PROMPT_VERSION)
+                return None
+            finally:
+                step.advance()  # pages handled, not pages transcribed well
 
-        with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-            sink.extend(w for w in pool.map(transcribe, scanned) if w is not None)
+        with reporter.step("OCR transcription", total=len(scanned)) as step:
+            with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+                warned = pool.map(lambda n: transcribe(n, step), scanned)
+                sink.extend(w for w in warned if w is not None)
 
     return [
         PageText(

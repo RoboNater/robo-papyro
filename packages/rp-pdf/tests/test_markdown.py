@@ -7,6 +7,7 @@ They render pages, so they require poppler like the render tests.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
@@ -330,3 +331,73 @@ def test_ai_skips_pages_without_text(blank_pdf, fake_vlm, vlm_env, tmp_path):
     )
     assert fake_vlm.requests == []  # nothing to review, no render/API work
     assert "no text layer" in result.markdown
+
+
+# --------------------------------------------------------------------------- #
+# Progress reporting through the conversion (rp_core.progress)
+# --------------------------------------------------------------------------- #
+class Recorder(io.StringIO):
+    """A non-terminal stream, which makes the reporter emit one whole line per
+    step boundary — far easier to assert on than a rewritten terminal line."""
+
+    encoding = "utf-8"
+
+
+def reporter_for(stream):
+    from rp_core.progress import StderrProgress
+
+    return StderrProgress(stream, tty=False, background=False)
+
+
+def test_progress_defaults_to_silence(text_pdf, capsys):
+    """The library's contract: converting a document prints nothing at all."""
+    to_markdown(text_pdf, engine="pypdf")
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == ("", "")
+
+
+def test_progress_reports_the_stage_one_steps(text_pdf):
+    stream = Recorder()
+    to_markdown(text_pdf, engine="pypdf", progress=reporter_for(stream))
+    text = stream.getvalue()
+    assert "Finding tables: done 3/3" in text
+    assert "Extracting text (pypdf): done 3/3" in text
+    assert "Assembling Markdown: done 3/3" in text
+
+
+@pytest.mark.requires_poppler
+def test_progress_counts_the_ai_pass_page_by_page(text_pdf, fake_vlm, vlm_env, tmp_path):
+    """The step this feature exists for: one request per page to a remote model,
+    with nothing else to show for the wait."""
+    stream = Recorder()
+    to_markdown(
+        text_pdf,
+        ai=True,
+        model="fake-vlm",
+        base_url=fake_vlm.base_url,
+        jobs=2,
+        cache_dir=tmp_path,
+        progress=reporter_for(stream),
+    )
+    text = stream.getvalue()
+    assert "Rendering pages: done 3/3" in text
+    assert "AI review: done 3/3" in text
+
+
+@pytest.mark.requires_poppler
+def test_a_rejected_page_still_counts_as_handled(text_pdf, fake_vlm, vlm_env, tmp_path):
+    """Progress tracks pages processed, not pages the model got right; a count
+    that stalled on every rejection would read as a hang."""
+    # 400s, which the OpenAI client does not retry, so it is one per page.
+    fake_vlm.queue = [(400, "")] * 3
+    stream = Recorder()
+    result = to_markdown(
+        text_pdf,
+        ai=True,
+        model="fake-vlm",
+        base_url=fake_vlm.base_url,
+        cache_dir=tmp_path,
+        progress=reporter_for(stream),
+    )
+    assert len(result.warnings) == 3
+    assert "AI review: done 3/3" in stream.getvalue()

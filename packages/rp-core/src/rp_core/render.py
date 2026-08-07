@@ -23,6 +23,7 @@ from pathlib import Path
 from rp_core.binaries import POPPLER_INSTALL_HINT, soffice_convert
 from rp_core.errors import MissingDependencyError
 from rp_core.models import RasterImage
+from rp_core.progress import NULL, Progress
 from rp_core.ranges import contiguous_runs, parse_range_spec
 
 
@@ -92,13 +93,24 @@ def rasterize_pages(
     source: Path,
     out_dir: Path,
     numbers: Sequence[int],
+    *,
+    progress: Progress | None = None,
     **kwargs,
 ) -> list[RasterImage]:
     """:func:`rasterize` over an arbitrary set of physical pages, one poppler
-    invocation per contiguous run."""
+    invocation per contiguous run.
+
+    ``progress`` reports one step counted in pages. Poppler renders a whole run
+    in a single invocation, so the count moves once per run rather than once per
+    page — the elapsed clock, which the reporter ticks on its own thread, is what
+    tells a watching human that a slow single-run render is alive.
+    """
+    reporter = progress if progress is not None else NULL
     results: list[RasterImage] = []
-    for start, end in contiguous_runs(numbers):
-        results.extend(rasterize(source, out_dir, first_page=start, last_page=end, **kwargs))
+    with reporter.step("Rendering pages", total=len(numbers)) as step:
+        for start, end in contiguous_runs(numbers):
+            results.extend(rasterize(source, out_dir, first_page=start, last_page=end, **kwargs))
+            step.advance(end - start + 1)
     return results
 
 
@@ -128,25 +140,45 @@ def render_pages(
     pages: str | None = None,
     fmt: str = "png",
     poppler_path: str | Path | None = None,
+    progress: Progress | None = None,
 ) -> list[Path]:
     """Render ``source`` to page images in ``output_dir``.
 
     A PDF goes straight to poppler; anything else is converted to PDF with
     LibreOffice in a temporary directory first. ``pages`` is a page spec
     (``"1-5"``, ``"1,3,7-9"``); ``None`` renders every page.
+
+    ``progress`` reports the LibreOffice conversion and the rasterization as
+    separate steps — worth separating because they fail for different reasons and
+    a deck that takes a minute in soffice looks identical, from outside, to one
+    that is stuck there.
     """
     source = Path(source)
     output_dir = Path(output_dir)
+    reporter = progress if progress is not None else NULL
 
     if source.suffix.lower() == ".pdf":
         return _render_pdf(
-            source, output_dir, dpi=dpi, pages=pages, fmt=fmt, poppler_path=poppler_path
+            source,
+            output_dir,
+            dpi=dpi,
+            pages=pages,
+            fmt=fmt,
+            poppler_path=poppler_path,
+            progress=reporter,
         )
 
     with tempfile.TemporaryDirectory(prefix="robo-papyro-render-") as tmp:
-        as_pdf = soffice_convert(source, "pdf", Path(tmp))
+        with reporter.step(f"Converting {source.name} to PDF with LibreOffice"):
+            as_pdf = soffice_convert(source, "pdf", Path(tmp))
         return _render_pdf(
-            as_pdf, output_dir, dpi=dpi, pages=pages, fmt=fmt, poppler_path=poppler_path
+            as_pdf,
+            output_dir,
+            dpi=dpi,
+            pages=pages,
+            fmt=fmt,
+            poppler_path=poppler_path,
+            progress=reporter,
         )
 
 
@@ -158,25 +190,20 @@ def _render_pdf(
     pages: str | None,
     fmt: str,
     poppler_path: str | Path | None,
+    progress: Progress,
 ) -> list[Path]:
+    count = _page_count(source, poppler_path)
     if pages is None or pages.strip().lower() == "all":
-        images = rasterize(
-            source,
-            output_dir,
-            first_page=1,
-            last_page=_page_count(source, poppler_path),
-            dpi=dpi,
-            fmt=fmt,
-            poppler_path=poppler_path,
-        )
+        numbers = list(range(1, count + 1))
     else:
-        numbers = parse_range_spec(pages, _page_count(source, poppler_path), noun="page")
-        images = rasterize_pages(
-            source,
-            output_dir,
-            numbers,
-            dpi=dpi,
-            fmt=fmt,
-            poppler_path=poppler_path,
-        )
+        numbers = parse_range_spec(pages, count, noun="page")
+    images = rasterize_pages(
+        source,
+        output_dir,
+        numbers,
+        dpi=dpi,
+        fmt=fmt,
+        poppler_path=poppler_path,
+        progress=progress,
+    )
     return [image.path for image in images]

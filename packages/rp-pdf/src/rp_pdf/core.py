@@ -2,6 +2,12 @@
 
 All functions accept a file path plus parameters and return pydantic models.
 Page numbers are 1-based throughout the public API.
+
+The long-running functions take an optional ``progress``
+(:class:`rp_core.progress.Progress`) and *call* it as they work — they still do
+not print. It defaults to the no-op reporter, so a library caller and an agent
+see exactly the behaviour they saw before; only a CLI that decided a human is
+watching passes one that draws.
 """
 
 from __future__ import annotations
@@ -18,6 +24,7 @@ from pypdf.generic import Destination
 
 from rp_core import binaries, render
 from rp_core.errors import MissingDependencyError
+from rp_core.progress import NULL, Progress
 from rp_pdf.errors import (
     InvalidPdfError,
     MissingFileError,
@@ -174,6 +181,7 @@ def _pdftotext_pages(
     layout: bool,
     password: str | None,
     poppler_path: str | Path | None,
+    step=None,
 ) -> dict[int, str]:
     """Text for the given physical pages via poppler's pdftotext, one invocation
     per contiguous page run. pdftotext ends every page with a form feed, which is
@@ -201,6 +209,8 @@ def _pdftotext_pages(
         chunks = out.split("\f")
         for offset in range(end - start + 1):
             texts[start + offset] = chunks[offset] if offset < len(chunks) else ""
+        if step is not None:
+            step.advance(end - start + 1)
     return texts
 
 
@@ -212,17 +222,28 @@ def _page_texts(
     layout: bool,
     password: str | None,
     poppler_path: str | Path | None,
+    progress: Progress | None = None,
 ) -> dict[int, str]:
     """Extracted text per physical page number, using the requested engine."""
-    if engine == "poppler":
-        return _pdftotext_pages(path, numbers, layout, password, poppler_path)
-    if engine == "pypdf":
-        mode = "layout" if layout else "plain"
-        return {n: reader.pages[n - 1].extract_text(extraction_mode=mode) or "" for n in numbers}
-    if engine == "pdfplumber":
-        with pdfplumber.open(path, password=password) as pdf:
-            return {n: pdf.pages[n - 1].extract_text(layout=layout) or "" for n in numbers}
-    raise ValueError(f"Unknown text engine: {engine!r}")
+    reporter = progress if progress is not None else NULL
+    with reporter.step(f"Extracting text ({engine})", total=len(numbers)) as step:
+        if engine == "poppler":
+            return _pdftotext_pages(path, numbers, layout, password, poppler_path, step)
+        if engine == "pypdf":
+            mode = "layout" if layout else "plain"
+            texts = {}
+            for n in numbers:
+                texts[n] = reader.pages[n - 1].extract_text(extraction_mode=mode) or ""
+                step.advance()
+            return texts
+        if engine == "pdfplumber":
+            with pdfplumber.open(path, password=password) as pdf:
+                texts = {}
+                for n in numbers:
+                    texts[n] = pdf.pages[n - 1].extract_text(layout=layout) or ""
+                    step.advance()
+                return texts
+        raise ValueError(f"Unknown text engine: {engine!r}")
 
 
 def get_text(
@@ -233,6 +254,7 @@ def get_text(
     password: str | None = None,
     physical: bool = False,
     poppler_path: str | Path | None = None,
+    progress: Progress | None = None,
 ) -> list[PageText]:
     """Extract text per page. layout=True preserves horizontal positioning
     (columns, indentation) with any engine.
@@ -245,7 +267,7 @@ def get_text(
     """
     reader = _open_reader(path, password)
     numbers, labels = _resolve_pages(reader, pages, physical)
-    texts = _page_texts(path, reader, numbers, engine, layout, password, poppler_path)
+    texts = _page_texts(path, reader, numbers, engine, layout, password, poppler_path, progress)
     return [
         PageText(
             physical_page=n,
@@ -262,22 +284,26 @@ def get_tables(
     pages: PageSpec = "all",
     password: str | None = None,
     physical: bool = False,
+    progress: Progress | None = None,
 ) -> list[Table]:
     """Extract tables via pdfplumber. rows is a list of rows of cell strings (or None)."""
     reader = _open_reader(path, password)
     numbers, labels = _resolve_pages(reader, pages, physical)
+    reporter = progress if progress is not None else NULL
     results: list[Table] = []
     with pdfplumber.open(path, password=password) as pdf:
-        for n in numbers:
-            for i, rows in enumerate(pdf.pages[n - 1].extract_tables()):
-                results.append(
-                    Table(
-                        physical_page=n,
-                        labeled_page=_label_for(labels, n),
-                        index=i,
-                        rows=rows,
+        with reporter.step("Finding tables", total=len(numbers)) as step:
+            for n in numbers:
+                for i, rows in enumerate(pdf.pages[n - 1].extract_tables()):
+                    results.append(
+                        Table(
+                            physical_page=n,
+                            labeled_page=_label_for(labels, n),
+                            index=i,
+                            rows=rows,
+                        )
                     )
-                )
+                step.advance()
     return results
 
 
@@ -287,37 +313,41 @@ def get_images(
     out_dir: Path | None = None,
     password: str | None = None,
     physical: bool = False,
+    progress: Progress | None = None,
 ) -> list[ImageInfo]:
     """Embedded images. Saves files to out_dir if given, otherwise metadata only."""
     reader = _open_reader(path, password)
     numbers, labels = _resolve_pages(reader, pages, physical)
+    reporter = progress if progress is not None else NULL
     results: list[ImageInfo] = []
     if out_dir is not None:
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-    for n in numbers:
-        label = _label_for(labels, n)
-        for i, image in enumerate(reader.pages[n - 1].images):
-            pil = image.image
-            width, height = pil.size if pil is not None else (0, 0)
-            fmt = pil.format.lower() if pil is not None and pil.format else None
-            saved_path = None
-            if out_dir is not None:
-                target = out_dir / f"{page_stem(n, label)}_img{i:02d}_{Path(image.name).name}"
-                target.write_bytes(image.data)
-                saved_path = str(target)
-            results.append(
-                ImageInfo(
-                    physical_page=n,
-                    labeled_page=label,
-                    index=i,
-                    name=image.name,
-                    width=width,
-                    height=height,
-                    format=fmt,
-                    saved_path=saved_path,
+    with reporter.step("Extracting images", total=len(numbers)) as step:
+        for n in numbers:
+            label = _label_for(labels, n)
+            for i, image in enumerate(reader.pages[n - 1].images):
+                pil = image.image
+                width, height = pil.size if pil is not None else (0, 0)
+                fmt = pil.format.lower() if pil is not None and pil.format else None
+                saved_path = None
+                if out_dir is not None:
+                    target = out_dir / f"{page_stem(n, label)}_img{i:02d}_{Path(image.name).name}"
+                    target.write_bytes(image.data)
+                    saved_path = str(target)
+                results.append(
+                    ImageInfo(
+                        physical_page=n,
+                        labeled_page=label,
+                        index=i,
+                        name=image.name,
+                        width=width,
+                        height=height,
+                        format=fmt,
+                        saved_path=saved_path,
+                    )
                 )
-            )
+            step.advance()
     return results
 
 
@@ -333,6 +363,7 @@ def search(
     password: str | None = None,
     physical: bool = False,
     poppler_path: str | Path | None = None,
+    progress: Progress | None = None,
 ) -> list[SearchHit]:
     """Search page text for a phrase or regular expression.
 
@@ -356,7 +387,7 @@ def search(
 
     reader = _open_reader(path, password)
     numbers, labels = _resolve_pages(reader, pages, physical)
-    texts = _page_texts(path, reader, numbers, engine, False, password, poppler_path)
+    texts = _page_texts(path, reader, numbers, engine, False, password, poppler_path, progress)
     hits: list[SearchHit] = []
     for n in numbers:
         text = texts[n]
@@ -386,6 +417,7 @@ def render_pages(
     password: str | None = None,
     poppler_path: str | Path | None = None,
     physical: bool = False,
+    progress: Progress | None = None,
 ) -> list[RenderedPage]:
     """Rasterize pages to image files in out_dir, named page_stem(...).<ext>
     (e.g. page0007.png, or page0030_pp0007.png when the document has labels).
@@ -412,6 +444,7 @@ def render_pages(
             password=password,
             poppler_path=poppler_path,
             name=lambda n: page_stem(n, _label_for(labels, n)),
+            progress=progress,
         )
     except MissingDependencyError as exc:
         # Re-raised with the PDF-specific hint, which also points at the

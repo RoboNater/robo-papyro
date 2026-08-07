@@ -223,3 +223,60 @@ def test_validate_vlm_ocr_config_error(run_cli, cli_error):
     result = run_cli("validate-vlm-ocr")
     assert result.returncode == 1
     assert "model" in cli_error(result)["message"]
+
+
+# --------------------------------------------------------------------------- #
+# --describe / --progress: human affordances on stderr, off for everyone else
+# --------------------------------------------------------------------------- #
+class TestDescribeAndProgress:
+    """The contract that keeps these safe to add: stdout is byte-for-byte what
+    it was, and stderr stays empty unless a human is watching or asked."""
+
+    def test_neither_appears_when_stderr_is_a_pipe(self, run_cli, text_pdf):
+        result = run_cli("index", text_pdf)
+        assert result.returncode == 0
+        assert result.stderr == ""
+
+    def test_describe_writes_to_stderr_and_leaves_stdout_parseable(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--describe", "--no-progress")
+        assert result.returncode == 0
+        assert result.stderr.startswith("rp-pdf images — ")
+        assert isinstance(json.loads(result.stdout), list)
+
+    def test_progress_writes_to_stderr_and_leaves_stdout_parseable(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--progress", "--no-describe")
+        assert result.returncode == 0
+        assert "Extracting images: done 3/3" in result.stderr
+        assert isinstance(json.loads(result.stdout), list)
+
+    def test_no_describe_and_no_progress_silence_them(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--no-describe", "--no-progress")
+        assert result.stderr == ""
+
+    def test_markdown_body_on_stdout_is_unaffected(self, run_cli, text_pdf):
+        """The one that would actually corrupt output: `markdown` writes its
+        body to stdout, so a description leaking there is a broken document."""
+        described = run_cli("markdown", text_pdf, "--engine", "pypdf", "--describe", "--progress")
+        quiet = run_cli("markdown", text_pdf, "--engine", "pypdf", "--no-describe")
+        assert described.stdout == quiet.stdout
+        assert "rp-pdf markdown" in described.stderr
+
+    def test_describe_reports_the_resolved_options_not_the_typed_ones(self, run_cli, text_pdf):
+        """Defaults the user never typed are part of what they need to check."""
+        result = run_cli("markdown", text_pdf, "--engine", "pypdf", "--describe")
+        assert "AI review  off" in result.stderr
+        assert "pypdf" in result.stderr
+
+    def test_the_describe_flag_appears_on_the_job_commands(self, run_cli):
+        for command in ("text", "tables", "search", "images", "markdown", "render"):
+            help_text = run_cli(command, "--help").stdout
+            assert "--describe" in help_text, command
+            assert "--progress" in help_text, command
+            assert "--save-config" in help_text, command
+
+    def test_the_flags_stay_off_commands_with_no_job_to_describe(self, run_cli):
+        """`index` and `doctor` are near-instant and have nothing to configure;
+        an option that never helps is still an option to read past."""
+        for command in ("index", "doctor"):
+            help_text = run_cli(command, "--help").stdout
+            assert "--progress" not in help_text, command

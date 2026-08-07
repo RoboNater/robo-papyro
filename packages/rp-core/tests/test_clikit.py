@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
@@ -164,3 +165,109 @@ class TestDoctorCommand:
         captured = capsys.readouterr()
         assert "soffice" in captured.out
         assert "LibreOffice" in captured.err
+
+
+class TestParseBool:
+    @pytest.mark.parametrize("text", ["1", "true", "TRUE", " yes ", "on"])
+    def test_truthy_spellings(self, text):
+        assert clikit.parse_bool(text) is True
+
+    @pytest.mark.parametrize("text", ["0", "false", "No", "off"])
+    def test_falsy_spellings(self, text):
+        assert clikit.parse_bool(text) is False
+
+    @pytest.mark.parametrize("text", [None, "", "  ", "maybe", "2"])
+    def test_anything_else_is_unset_not_false(self, text):
+        """Unrecognized text falls through to the next source. Resolving it to
+        False would let a typo silently switch something off."""
+        assert clikit.parse_bool(text) is None
+
+
+class TestDisplayEnabled:
+    """--describe/--progress: flag -> env -> config -> "is stderr a terminal"."""
+
+    def test_the_flag_wins_over_everything(self):
+        assert clikit.display_enabled(False, env_value="1", config_value=True) is False
+        assert clikit.display_enabled(True, env_value="0", config_value=False) is True
+
+    def test_env_beats_config(self):
+        assert clikit.display_enabled(None, env_value="off", config_value=True) is False
+
+    def test_unparseable_env_falls_through_to_config(self):
+        assert clikit.display_enabled(None, env_value="perhaps", config_value=True) is True
+
+    def test_config_is_used_when_nothing_else_is_set(self):
+        assert clikit.display_enabled(None, config_value=False, stream=io.StringIO()) is False
+
+    def test_a_non_boolean_config_value_is_ignored(self):
+        """TOML can hold anything; a string here must not read as truthy."""
+        assert clikit.display_enabled(None, config_value="yes", stream=io.StringIO()) is False
+
+    def test_default_is_off_for_a_pipe_and_on_for_a_terminal(self):
+        """The property agents depend on: nothing new appears on stderr unless a
+        human is watching it."""
+
+        class Tty(io.StringIO):
+            def isatty(self):
+                return True
+
+        assert clikit.display_enabled(None, stream=io.StringIO()) is False
+        assert clikit.display_enabled(None, stream=Tty()) is True
+
+
+class TestJobDescription:
+    entries = [("pages", "all"), ("AI review", "off (--ai to enable)")]
+
+    def test_rows_are_aligned_under_the_title(self):
+        lines = clikit.job_lines("rp-pdf markdown — a.pdf", self.entries)
+        assert lines[0] == "rp-pdf markdown — a.pdf"
+        assert lines[1:] == [
+            "  pages      all",
+            "  AI review  off (--ai to enable)",
+        ]
+
+    def test_a_title_with_no_entries_is_just_the_title(self):
+        assert clikit.job_lines("rp-pdf doctor", []) == ["rp-pdf doctor"]
+
+    def test_announce_writes_to_stderr_only(self, capsys):
+        """stdout carries results; a description on it would corrupt the JSON."""
+        clikit.announce_job("rp-pdf markdown — a.pdf", self.entries)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "AI review" in captured.err
+
+
+class TestJob:
+    def test_describe_off_and_progress_off_writes_nothing(self, capsys):
+        with clikit.job("rp-pdf markdown", [("pages", "all")]) as reporter:
+            with reporter.step("Working", total=1) as step:
+                step.advance()
+        captured = capsys.readouterr()
+        assert (captured.out, captured.err) == ("", "")
+
+    def test_describe_prints_and_yields_a_silent_reporter(self, capsys):
+        with clikit.job("rp-pdf markdown", [("pages", "all")], describe=True) as reporter:
+            assert reporter.enabled is False
+            with reporter.step("Working"):
+                pass
+        err = capsys.readouterr().err
+        assert err.splitlines() == ["rp-pdf markdown", "  pages  all"]
+
+    def test_progress_yields_a_real_reporter(self):
+        stream = io.StringIO()
+        with clikit.job("t", progress=True, stream=stream) as reporter:
+            assert reporter.enabled is True
+            with reporter.step("Working", total=1) as step:
+                step.advance()
+        assert "Working" in stream.getvalue()
+
+    def test_the_reporter_is_closed_even_when_the_job_raises(self):
+        """`job` wraps the work, so its finally is what guarantees no
+        half-painted line sits in front of the error message."""
+        stream = io.StringIO()
+        captured = {}
+        with pytest.raises(RuntimeError):
+            with clikit.job("t", progress=True, stream=stream) as reporter:
+                captured["reporter"] = reporter
+                raise RuntimeError("boom")
+        assert captured["reporter"]._thread is None

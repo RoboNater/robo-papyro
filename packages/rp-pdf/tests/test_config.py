@@ -274,3 +274,271 @@ def test_malformed_config_is_clean_cli_error(text_pdf, tmp_path, cli_error):
     assert result.returncode == 1
     assert "Invalid TOML" in cli_error(result)["message"]
     assert "Traceback" not in result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# The [ui] section (--progress / --describe)
+# --------------------------------------------------------------------------- #
+def test_ui_key_falls_back_to_ui_section():
+    cfg = Config({"ui": {"progress": False}})
+    assert cfg.lookup("markdown", "progress") is False
+
+
+def test_command_section_overrides_ui_section():
+    cfg = Config({"ui": {"progress": False}, "markdown": {"progress": True}})
+    assert cfg.lookup("markdown", "progress") is True
+    assert cfg.lookup("text", "progress") is False
+
+
+def test_non_ui_key_does_not_fall_back_to_ui():
+    """[ui] backs exactly two keys. A stray one there must not leak into an
+    unrelated option of the same name."""
+    cfg = Config({"ui": {"pages": "1-5"}})
+    assert cfg.lookup("markdown", "pages") is None
+
+
+# --------------------------------------------------------------------------- #
+# Writing a config file back out (--save-config)
+# --------------------------------------------------------------------------- #
+def test_dump_toml_round_trips_through_tomllib():
+    import tomllib
+
+    data = {"markdown": {"ai": True, "jobs": 4, "pages": "1-5", "dpi": 150.0}}
+    assert tomllib.loads(config.dump_toml(data)) == data
+
+
+def test_dump_toml_quotes_and_escapes_strings():
+    text = config.dump_toml({"markdown": {"out": 'a "b"\\c'}})
+    import tomllib
+
+    assert tomllib.loads(text)["markdown"]["out"] == 'a "b"\\c'
+
+
+def test_dump_toml_writes_booleans_not_python_repr():
+    """`True` is not TOML. Getting this wrong makes a file that cannot be read
+    back, which the save path would not otherwise notice."""
+    assert "ai = true" in config.dump_toml({"markdown": {"ai": True}})
+    assert "True" not in config.dump_toml({"markdown": {"ai": True}})
+
+
+def test_dump_toml_skips_empty_sections():
+    assert config.dump_toml({"markdown": {}}) == ""
+
+
+def test_save_writes_command_and_vlm_sections(tmp_path):
+    target = tmp_path / "rp-pdf.toml"
+    config.save_command_options(
+        target, "markdown", {"ai": True, "jobs": 4, "model": "gpt-4o", "base_url": "https://x/v1"}
+    )
+    saved = config.load(target)
+    assert saved.section("markdown") == {"ai": True, "jobs": 4}
+    # VLM keys go where every command can see them, as a hand-written file would.
+    assert saved.section("vlm") == {"model": "gpt-4o", "base_url": "https://x/v1"}
+
+
+def test_save_omits_unset_options(tmp_path):
+    target = tmp_path / "rp-pdf.toml"
+    config.save_command_options(target, "markdown", {"ai": True, "out": None, "model": None})
+    assert config.load(target).section("markdown") == {"ai": True}
+    assert "model" not in config.load(target).section("vlm")
+
+
+def test_save_serializes_paths_as_strings(tmp_path):
+    from pathlib import Path
+
+    target = tmp_path / "rp-pdf.toml"
+    config.save_command_options(target, "markdown", {"images_dir": Path("images")})
+    assert config.load(target).section("markdown") == {"images_dir": "images"}
+
+
+def test_save_merges_into_an_existing_file(tmp_path):
+    target = write(
+        tmp_path / "rp-pdf.toml",
+        '[default]\ncommand = "markdown"\n\n[markdown]\nai = true\npages = "1-5"\n',
+    )
+    config.save_command_options(target, "markdown", {"ai": False, "jobs": 8})
+    saved = config.load(target)
+    assert saved.default_command() == "markdown"  # other sections survive
+    assert saved.section("markdown") == {"ai": False, "pages": "1-5", "jobs": 8}
+
+
+def test_save_round_trips_so_the_next_run_can_read_it(tmp_path):
+    """The whole point of the feature: what is written must resolve as a default."""
+    target = tmp_path / "rp-pdf.toml"
+    config.save_command_options(target, "markdown", {"ai": True, "engine": "pypdf"})
+    config.set_active(config.load(target))
+    try:
+        assert config.resolve("markdown", "ai", None, False) is True
+        assert config.resolve("markdown", "engine", None, "poppler") == "pypdf"
+    finally:
+        config.set_active(Config({}))
+
+
+def test_save_creates_missing_parent_directories(tmp_path):
+    target = tmp_path / "nested" / "deeper" / "rp-pdf.toml"
+    config.save_command_options(target, "text", {"engine": "pypdf"})
+    assert target.is_file()
+
+
+def test_is_auto_discovered(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert config.is_auto_discovered(tmp_path / "rp-pdf.toml") is True
+    # A parent's rp-pdf.toml is found by walking up.
+    assert config.is_auto_discovered(tmp_path.parent / "rp-pdf.toml") is True
+    # The right name in the wrong place, and the wrong name in the right place.
+    assert config.is_auto_discovered(tmp_path / "sub" / "rp-pdf.toml") is False
+    assert config.is_auto_discovered(tmp_path / "other.toml") is False
+    assert config.is_auto_discovered(config.USER_CONFIG_PATH) is True
+
+
+# --------------------------------------------------------------------------- #
+# Integration: --save-config end to end
+# --------------------------------------------------------------------------- #
+def test_save_config_then_the_next_run_inherits_it(text_pdf, tmp_path):
+    """The feature as a user experiences it: get the options right once, and the
+    next document does not need them."""
+    saved = run_cli(
+        "text",
+        text_pdf,
+        "--engine",
+        "pypdf",
+        "--pages",
+        "2",
+        "--plain",
+        "--save-config",
+        "rp-pdf.toml",
+        cwd=tmp_path,
+    )
+    assert saved.returncode == 0, saved.stderr
+    assert (tmp_path / "rp-pdf.toml").is_file()
+    assert "picked up automatically" in saved.stderr
+
+    # No options at all this time: everything comes from the file just written.
+    again = run_cli("text", text_pdf, cwd=tmp_path)
+    assert again.returncode == 0, again.stderr
+    assert "Chapter Two" in again.stdout
+    assert not again.stdout.lstrip().startswith(("[", "{"))  # plain = true persisted
+
+
+def test_save_config_warns_when_the_path_is_not_auto_discovered(text_pdf, tmp_path):
+    target = tmp_path / "elsewhere" / "options.toml"
+    result = run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert target.is_file()
+    assert "not discovered automatically" in result.stderr
+    assert "--config" in result.stderr
+
+
+def test_save_config_reports_that_comments_are_lost_only_when_rewriting(text_pdf, tmp_path):
+    target = tmp_path / "rp-pdf.toml"
+    first = run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert "comments" not in first.stderr  # nothing existed to lose
+    second = run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert "comments and formatting are not" in second.stderr
+
+
+def test_save_config_does_not_write_when_the_run_fails(tmp_path):
+    """What gets recorded is a command line known to have worked."""
+    target = tmp_path / "rp-pdf.toml"
+    result = run_cli("text", tmp_path / "missing.pdf", "--save-config", target, cwd=tmp_path)
+    assert result.returncode == 1
+    assert not target.exists()
+
+
+def test_save_config_message_goes_to_stderr_not_stdout(text_pdf, tmp_path):
+    result = run_cli(
+        "index", text_pdf, cwd=tmp_path
+    )  # sanity: index has no --save-config to interfere
+    assert json.loads(result.stdout)["page_count"] == 3
+    saved = run_cli("images", text_pdf, "--save-config", "rp-pdf.toml", cwd=tmp_path)
+    assert isinstance(json.loads(saved.stdout), list)
+    assert "Saved the options you passed" in saved.stderr
+
+
+def test_ui_section_turns_the_description_on_for_a_pipe(text_pdf, tmp_path):
+    """`[ui]` is how someone who wants the description in a log gets it: the
+    terminal default is only a default."""
+    write(tmp_path / "rp-pdf.toml", "[ui]\ndescribe = true\n[text]\nengine = 'pypdf'\n")
+    result = run_cli("text", text_pdf, "--pages", "1", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "rp-pdf text — " in result.stderr
+
+
+def test_env_var_overrides_the_ui_section(text_pdf, tmp_path):
+    write(tmp_path / "rp-pdf.toml", "[ui]\ndescribe = true\n[text]\nengine = 'pypdf'\n")
+    result = run_cli("text", text_pdf, "--pages", "1", cwd=tmp_path, env={"RP_PDF_DESCRIBE": "0"})
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
+def test_the_flag_overrides_the_env_var(text_pdf, tmp_path):
+    result = run_cli(
+        "text",
+        text_pdf,
+        "--pages",
+        "1",
+        "--engine",
+        "pypdf",
+        "--describe",
+        cwd=tmp_path,
+        env={"RP_PDF_DESCRIBE": "0"},
+    )
+    assert "rp-pdf text — " in result.stderr
+
+
+def test_save_config_records_only_what_was_passed(text_pdf, tmp_path):
+    """Not a snapshot of every resolved value. Writing back a built-in default
+    would freeze today's default into the file, and the file exists to record a
+    decision."""
+    target = tmp_path / "rp-pdf.toml"
+    result = run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert config.load(target).section("text") == {"engine": "pypdf"}
+
+
+def test_save_config_does_not_record_environment_values(text_pdf, tmp_path):
+    """An env var already outlives the run; copying it into a file duplicates a
+    setting the user manages somewhere else."""
+    target = tmp_path / "rp-pdf.toml"
+    run_cli(
+        "markdown",
+        text_pdf,
+        "--engine",
+        "pypdf",
+        "--save-config",
+        target,
+        cwd=tmp_path,
+        env={"RP_PDF_VLM_MODEL": "from-the-environment"},
+    )
+    assert "vlm" not in config.load(target)._data
+
+
+def test_save_config_refuses_to_persist_the_markdown_output_file(text_pdf, tmp_path):
+    """-o names *this* document's output. Persisted, the next document would
+    silently overwrite this one's result."""
+    target = tmp_path / "rp-pdf.toml"
+    result = run_cli(
+        "markdown",
+        text_pdf,
+        "--engine",
+        "pypdf",
+        "-o",
+        tmp_path / "report.md",
+        "--ai",
+        "--no-ai",  # last wins; keeps the run local and cheap
+        "--save-config",
+        target,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = config.load(target).section("markdown")
+    assert "out" not in saved
+    assert saved == {"engine": "pypdf", "ai": False}
+    assert "was not saved" in result.stderr
+
+
+def test_save_config_keeps_directory_targets(text_pdf, tmp_path):
+    """A directory is reusable across documents, unlike an output *file*."""
+    target = tmp_path / "rp-pdf.toml"
+    run_cli("images", text_pdf, "--out", tmp_path / "media", "--save-config", target, cwd=tmp_path)
+    assert config.load(target).section("images")["out"] == str(tmp_path / "media")

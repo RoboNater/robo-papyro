@@ -15,21 +15,28 @@ error-path difference, because it hits the common path.
 with the error's code. There is no second shape and no argument selecting one:
 the primary consumer is an agent deciding what to do next, and it must not have
 to know which tool failed in order to find ``type`` and ``exit_code``.
+
+**Human affordances are stderr-only and terminal-gated.** The job description
+and the progress line (:func:`job`) exist for the person watching a long run;
+they are written to stderr so stdout stays exactly what it was, and they default
+to *on only when stderr is a terminal*, so an agent capturing output sees no
+change at all. ``--describe``/``--progress`` force them on regardless.
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from functools import wraps
-from typing import Annotated, Any
+from typing import IO, Annotated, Any
 
 import typer
 from pydantic import BaseModel
 
 from rp_core import doctor as doctor_module
+from rp_core import progress as progress_module
 from rp_core.errors import RoboPapyroError, envelope_for
 
 #: The standard ``--plain`` flag. Use it verbatim so every CLI spells it the same.
@@ -37,6 +44,30 @@ plain_option = Annotated[
     bool,
     typer.Option("--plain", help="Human-readable output instead of the default JSON"),
 ]
+
+#: Progress reporting on stderr. Tri-state: unset means "on when stderr is a
+#: terminal". Spell it verbatim so every CLI in the suite agrees.
+progress_option = Annotated[
+    bool | None,
+    typer.Option(
+        "--progress/--no-progress",
+        help="Show a live progress line on stderr while the job runs "
+        "(default: on when stderr is a terminal)",
+    ),
+]
+
+#: The pre-flight job description. Tri-state, same default as ``--progress``.
+describe_option = Annotated[
+    bool | None,
+    typer.Option(
+        "--describe/--no-describe",
+        help="Print what the job is about to do, from the resolved options, "
+        "before it starts (default: on when stderr is a terminal)",
+    ),
+]
+
+#: A job description: ordered ``(name, value)`` rows under a title.
+JobEntries = Sequence[tuple[str, str]]
 
 
 def to_jsonable(result: BaseModel | list[BaseModel] | dict | Any) -> Any:
@@ -125,6 +156,93 @@ def handle_errors(*, also: tuple[type[BaseException], ...] = ()) -> Callable:
         return wrapper
 
     return decorate
+
+
+def parse_bool(text: str | None) -> bool | None:
+    """``"1"``/``"true"``/``"yes"``/``"on"`` → ``True`` and their opposites →
+    ``False``, case-insensitively; anything else (including ``None`` and the
+    empty string) → ``None``.
+
+    Environment variables are strings, and ``bool("false")`` is ``True`` — a
+    tri-state flag read from the environment needs this rather than truthiness.
+    Unrecognized text resolves to ``None`` (fall through to the next source)
+    rather than to ``False``, so a typo cannot silently disable something.
+    """
+    if text is None:
+        return None
+    value = text.strip().casefold()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def display_enabled(
+    flag: bool | None,
+    *,
+    env_value: str | None = None,
+    config_value: object = None,
+    stream: IO[str] | None = None,
+) -> bool:
+    """Resolve ``--describe``/``--progress``: flag → env → config → terminal.
+
+    The final fallback is the only interesting one: these are affordances for a
+    human watching the run, so "is anyone watching" — ``stderr.isatty()`` — is
+    the honest default. A piped or redirected stderr, which is what an agent,
+    a cron job, and a CI runner all have, turns them off without anyone
+    configuring anything.
+    """
+    if flag is not None:
+        return flag
+    from_env = parse_bool(env_value)
+    if from_env is not None:
+        return from_env
+    if isinstance(config_value, bool):
+        return config_value
+    return progress_module.is_interactive(stream)
+
+
+def job_lines(title: str, entries: JobEntries) -> list[str]:
+    """The job description as lines: a title, then aligned ``name  value`` rows."""
+    lines = [title]
+    width = max((len(name) for name, _ in entries), default=0)
+    lines.extend(f"  {name:<{width}}  {value}" for name, value in entries)
+    return lines
+
+
+def announce_job(title: str, entries: JobEntries, *, stream: IO[str] | None = None) -> None:
+    """Write the job description to stderr, so stdout keeps carrying only results."""
+    out = sys.stderr if stream is None else stream
+    for line in job_lines(title, entries):
+        print(line, file=out)
+
+
+@contextmanager
+def job(
+    title: str,
+    entries: JobEntries = (),
+    *,
+    describe: bool = False,
+    progress: bool = False,
+    stream: IO[str] | None = None,
+) -> Iterator[progress_module.Progress]:
+    """Run a job with its description and progress reporting, both optional.
+
+    Prints the description (when ``describe``), then yields the
+    :class:`~rp_core.progress.Progress` to hand to the library call — the real
+    reporter when ``progress``, otherwise the no-op one, so the call site does
+    not branch. The reporter is always closed, including on the error path,
+    which is what guarantees a half-painted progress line never ends up in front
+    of an error message.
+    """
+    if describe:
+        announce_job(title, entries, stream=stream)
+    reporter = progress_module.reporter(progress, stream=stream)
+    try:
+        yield reporter
+    finally:
+        reporter.close()
 
 
 def doctor_command(*capabilities: str) -> Callable[[bool], None]:
