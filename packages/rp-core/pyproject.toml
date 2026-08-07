@@ -8,6 +8,10 @@ requires-python = ">=3.11"
 # That does not violate the "core logic never imports typer" constraint: it
 # constrains library logic, and clikit is explicitly the shared CLI layer.
 dependencies = [
+    # lxml is a runtime dependency because ooxml.py lives here (rp-pptx-spec
+    # section 12 step 2). It stays format-agnostic: namespace maps and
+    # content-type strings are arguments, so no OOXML identifier enters core.
+    "lxml>=5.0.0",
     "pdf2image>=1.17.0",
     "pillow>=10.0.0",
     "pydantic>=2.13.4",

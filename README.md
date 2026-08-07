@@ -12,6 +12,7 @@ One repository, several independently versioned distributions:
 | [`rp-core`](packages/rp-core) | `rp_core` | — | Shared infrastructure |
 | [`rp-pdf`](packages/rp-pdf) | `rp_pdf` | `rp-pdf`, `rp pdf` | PDF read/extract/render |
 | [`rp-docx`](packages/rp-docx) | `rp_docx` | `rp-docx`, `rp docx` | Word read/create/edit |
+| [`rp-pptx`](packages/rp-pptx) | `rp_pptx` | `rp-pptx`, `rp pptx` | PowerPoint read/create/edit |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
 Dependency direction is strictly one-way: `rp-core` knows nothing about PDF or
@@ -21,7 +22,8 @@ PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries (LibreOffice,
 poppler) are optional and invoked only as subprocesses.
 
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
-[docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`. The governing
+[docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
+[docs/usage-pptx.md](docs/usage-pptx.md) for `rp-pptx`. The governing
 specifications are in [docs/specs/](docs/specs).
 
 ## Setup
@@ -191,6 +193,51 @@ while the file itself stays where it is.
 
 Full guide: [docs/usage-docx.md](docs/usage-docx.md).
 
+## rp-pptx
+
+Reads, creates, and edits PowerPoint decks. `.pptx` and `.potx` are accepted
+everywhere; no external binary is needed for any read or write path.
+
+```sh
+uv run rp-pptx index deck.pptx                   # geometry, counts, layouts, titles
+uv run rp-pptx text deck.pptx --slides 1-3       # paragraphs with outline levels
+uv run rp-pptx tables deck.pptx --format md      # tables, with their merge spans
+uv run rp-pptx notes deck.pptx                   # speaker notes
+uv run rp-pptx markdown deck.pptx -o deck.md     # the deck as markdown
+
+uv run rp-pptx create -o out.pptx --from-markdown notes.md --template house
+uv run rp-pptx replace deck.pptx --map ./values.json -o filled.pptx
+uv run rp-pptx slides reorder deck.pptx --order 3,1,2 -o reordered.pptx
+```
+
+Three things it does that a naive implementation gets wrong, quietly:
+
+- **Replacement works across run boundaries**, for the same reason it must in
+  Word: DrawingML splits `{{ client }}` across `a:r` runs as arbitrarily as
+  WordprocessingML does. It reaches table cells, notes slides, and shapes nested
+  inside groups — and where two placeholders overlap, the longer wins, so the
+  result never depends on the order the keys happened to arrive in.
+- **A missing layout is an error, not a fallback**, checked at the point of use.
+  House decks rename PowerPoint's layouts, so Markdown roles map through an
+  optional `<template>.layoutmap.json`; a deck with no section breaks does not
+  need a section layout to exist, but one that reaches for a missing layout is
+  told which, and what the template does have.
+- **Markdown maps onto slides deterministically.** A document is a scroll and a
+  deck is a sequence: the first `#` is the title slide, later ones are section
+  breaks, `##` opens a content slide, `---` breaks one explicitly, and an HTML
+  comment becomes speaker notes. `rp-pptx markdown` emits the same dialect, so a
+  deck round-trips.
+
+Confidential templates never enter the repository, exactly as with `rp-docx`:
+`templates manifest` describes a template's *shape* — layout names, placeholder
+inventory, geometry, presence flags, no content — and `templates synthesize`
+rebuilds a structurally equivalent `.potx` from that JSON.
+
+Modern threaded comments are not supported yet; a deck carrying them fails
+loudly rather than reporting an empty list. Classic comments are read normally.
+
+Full guide: [docs/usage-pptx.md](docs/usage-pptx.md).
+
 ## Library
 
 ```python
@@ -215,6 +262,17 @@ paras = get_text(Path("report.docx"), runs_wanted=True)  # list[Paragraph]
 create(Path("out.docx"), markdown="# Title", template="memo")
 result = replace_text(Path("in.docx"), {"{{ k }}": "v"}, output=Path("out.docx"))
 filled = fill_template("memo", {"client": {"name": "Ada"}}, Path("letter.docx"))
+```
+
+```python
+from pathlib import Path
+from rp_pptx import get_index, get_text, create, replace_text, reorder_slides
+
+index = get_index(Path("deck.pptx"))                     # PresentationIndex
+slides = get_text(Path("deck.pptx"), slides="1-3")       # list[SlideText]
+create(Path("out.pptx"), markdown="# Title", template="house")
+result = replace_text(Path("in.pptx"), {"{{ k }}": "v"}, output=Path("out.pptx"))
+reorder_slides(Path("deck.pptx"), [3, 1, 2], output=Path("out.pptx"))
 ```
 
 Core functions return pydantic models; serialize with `.model_dump_json()`. The

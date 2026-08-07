@@ -14,7 +14,7 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
 | **2** | `rp-mcp`: FastMCP servers for `rp-pdf` and `rp-docx`; skills in `skills/` | TBD | next |
-| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ready |
+| **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ✅ |
 | **3** | `rp-xlsx` (openpyxl), same core/CLI split | TBD | |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
@@ -44,18 +44,33 @@ document containing a code block fail on the default template, and
 everything else §5–§9 got wrong, are recorded in
 [dev-notes/status-robo-papyro-phase-1.md](dev-notes/status-robo-papyro-phase-1.md).
 
-Phase 2.5 promotes `rp-pptx` out of the old Phase 3 bundle into its own phase,
-now specced ([rp-pptx-spec](docs/specs/rp-pptx-spec.md)): slide decks are part
-of the target corpus, python-pptx (MIT) was vetted in §7 from the start, and
-Phase 1 built almost everything the package needs — the template
-manifest/synthesis loop, the run-spanning replacement algorithm, the
-content-type retyping that `.potx` turns out to need exactly as `.dotx` did
-(verified: python-pptx refuses a `.potx` outright, python-pptx 1.0.2). It is
-independent of Phase 2 and may land before or after it; whichever of the two
-lands second wires the pptx FastMCP server into `rp-mcp`. Markdown conversion
-is hand-rolled both ways — the existing converters were rejected on
-dependencies, not licenses (`pptx2md` drags in `tqdm`, MPL-2.0 AND MIT, which
-§7.1 bars from the base install path).
+Phase 2.5 added `rp-pptx`: reading (index, text, tables, images, notes, classic
+comments, charts, properties, Markdown), writing (create and append from
+Markdown, replace, set notes and properties), native `{{ placeholder }}`
+templating, and safe slide delete/reorder through `p:sldIdLst`. `.potx` needed
+the same content-type retyping `.dotx` did, verified against python-pptx 1.0.2
+rather than assumed.
+
+It also took both of the extractions its spec asked for, rather than the
+documented fallback: `rp_core.markdown` now holds the block/inline parser
+rp-docx hand-rolled, and `rp_core.ooxml` holds zip read/repack, content-type
+rewriting, and the compiled-XPath helper. rp-docx was refactored onto both in
+the same change, with its tests passing unchanged. Markdown conversion stays
+hand-rolled both ways — the existing converters were rejected on dependencies,
+not licenses (`pptx2md` drags in `tqdm`, MPL-2.0 AND MIT, which §7.1 bars from
+the base install path).
+
+Two things the spec had wrong in practice: `synthesize` needs raw XML because
+python-pptx cannot author a layout or a master at all, and `shape.shape_type`
+*raises* for any shape it cannot classify, so one unrecognised shape would sink
+an entire read. **Modern threaded comments are deferred** — no
+PowerPoint-authored reference deck was available, and §11.1 forbids encoding a
+guess at the schema — so a deck carrying them fails loudly with exit 3 rather
+than returning an empty list. Classic comments are unaffected. All of it is in
+[dev-notes/status-robo-papyro-phase-2.5.md](dev-notes/status-robo-papyro-phase-2.5.md).
+
+Phase 2.5 is independent of Phase 2 and may land before or after it; whichever
+of the two lands second wires the pptx FastMCP server into `rp-mcp`.
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now

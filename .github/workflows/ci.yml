@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [rp-core, rp-pdf, rp-docx, robo-papyro]
+        package: [rp-core, rp-pdf, rp-docx, rp-pptx, robo-papyro]
         python-version: ["3.11", "3.13"]
     name: test ${{ matrix.package }} (py${{ matrix.python-version }})
     steps:
@@ -93,6 +93,9 @@ jobs:
           uv run rp docx --help
           uv run rp-docx --help
           uv run rp-docx doctor
+          uv run rp pptx --help
+          uv run rp-pptx --help
+          uv run rp-pptx doctor
       - name: rp pdf and rp-pdf are the same code path
         run: |
           uv run --with reportlab python -c "
@@ -124,6 +127,31 @@ jobs:
           uv run rp-docx templates manifest sample.docx -o sample.manifest.json
           uv run rp-docx templates synthesize sample.manifest.json -o rebuilt.dotx
           uv run rp-docx index rebuilt.dotx > /dev/null
+      # The third leaf. Same assertion, same reason: entry-point discovery
+      # breaking shows up only as a subcommand nobody notices is missing.
+      - name: rp pptx and rp-pptx are the same code path
+        run: |
+          printf '# Deck Title\n\nOpening line.\n\n## Content\n\n- first\n  - nested\n' > slides.md
+          uv run rp-pptx create -o sample.pptx --from-markdown slides.md
+          uv run rp pptx index sample.pptx > pptx-umbrella.json
+          uv run rp-pptx index sample.pptx > pptx-direct.json
+          diff pptx-umbrella.json pptx-direct.json
+      # As for rp-docx: no external binary is needed for any read or write path,
+      # so the whole round trip must work on a machine with no LibreOffice. The
+      # manifest/synthesize pair is the interesting part — it is what lets CI
+      # exercise a house template's shape without the template (spec section 5.2).
+      - name: rp-pptx needs no external binary to read or write
+        run: |
+          uv run rp-pptx replace sample.pptx --map '{"first":"edited"}' -o edited.pptx
+          uv run rp-pptx text edited.pptx --plain
+          uv run rp-pptx markdown edited.pptx
+          uv run rp-pptx tables sample.pptx
+          uv run rp-pptx notes sample.pptx
+          uv run rp-pptx slides reorder sample.pptx --order 2,1 -o reordered.pptx
+          uv run rp-pptx slides delete reordered.pptx --slides 2 -o trimmed.pptx
+          uv run rp-pptx templates manifest sample.pptx -o sample.manifest.json
+          uv run rp-pptx templates synthesize sample.manifest.json -o rebuilt.potx
+          uv run rp-pptx index rebuilt.potx > /dev/null
       - name: Exit codes are the suite's, not a flat 1
         run: |
           expect() {
@@ -144,6 +172,14 @@ jobs:
           expect 1 uv run rp-docx index missing.docx
           expect 1 uv run rp-docx create -o x.docx --template nonexistent
           expect 0 uv run rp-docx index sample.docx
+          # And the third. A taxonomy only two leaves honour is not a taxonomy.
+          echo "not a pptx" > fake.pptx
+          expect 3 uv run rp-pptx index fake.pptx
+          expect 1 uv run rp-pptx index missing.pptx
+          expect 1 uv run rp-pptx text sample.pptx --slides 99
+          expect 1 uv run rp-pptx create -o x.pptx --template nonexistent
+          expect 1 uv run rp-pptx replace sample.pptx --map '{}'
+          expect 0 uv run rp-pptx index sample.pptx
       - name: Errors are ErrorEnvelopes on stderr, results on stdout
         run: |
           uv run rp-pdf index missing.pdf > out.txt 2> err.txt || true
