@@ -14,12 +14,25 @@ dependencies = [
     "typer>=0.26.8",
 ]
 
+# `rp-mcp` is an extra, not a runtime dependency, so a plain `pip install
+# robo-papyro` still gets a document toolkit and none of the MCP SDK. `rp mcp`
+# then appears exactly when rp-mcp is installed — by this extra or on its own —
+# because the umbrella discovers subcommands through entry points and degrades
+# when one is absent.
+#
+# This is a packaging choice, not a licensing one: ci/license_gate.py computes
+# the base install path from every workspace member, so the MCP tree is in it
+# either way (docs/specs/rp-mcp-spec.md §2).
+[project.optional-dependencies]
+mcp = ["rp-mcp"]
+
 [project.scripts]
 rp = "robo_papyro.cli:main"
 
 [tool.uv.sources]
 rp-core = { workspace = true }
 rp-docx = { workspace = true }
+rp-mcp = { workspace = true }
 rp-pdf = { workspace = true }
 rp-pptx = { workspace = true }
 

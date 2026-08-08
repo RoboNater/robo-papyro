@@ -85,7 +85,10 @@ uv run rp pdf index FILE         # identical to `rp-pdf index FILE`
 ```
 
 Installing a new package (say `rp-xlsx`) makes it appear under `rp`
-automatically; nothing in `robo-papyro` changes.
+automatically; nothing in `robo-papyro` changes. That is also how `rp mcp`
+works: `robo-papyro` installs the three document leaves, and the MCP servers
+are a deliberate opt-in — `pip install robo-papyro[mcp]`, or install `rp-mcp`
+on its own — so a plain install carries none of the MCP SDK.
 
 ## rp-pdf
 

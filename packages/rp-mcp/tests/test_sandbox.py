@@ -142,6 +142,55 @@ class TestResolveInput:
         with pytest.raises(PathNotAllowedError, match=str(docs.resolve())):
             Sandbox([docs]).resolve_input(elsewhere)
 
+    def test_the_refusal_never_names_a_symlink_s_target(self, docs: Path, outside: Path):
+        """Reported in review: the message interpolated the *resolved* path.
+
+        Containment must be judged on the resolved path, but naming it in the
+        error hands the caller a location they never asked about — and one they
+        may have had no way to learn. The message may only echo the spelling
+        they sent.
+        """
+        (docs / "shortcut.docx").symlink_to(outside)
+        with pytest.raises(PathNotAllowedError) as caught:
+            Sandbox([docs]).resolve_input("shortcut.docx")
+        message = str(caught.value)
+        assert str(outside) not in message
+        assert outside.name not in message
+        assert "shortcut.docx" in message
+
+    def test_outside_paths_are_refused_the_same_way_however_they_resolve(
+        self, docs: Path, outside: Path, elsewhere: str
+    ):
+        """The three cases §3 of docs/security-mcp.md says must not be tellable
+        apart: a symlink that leaves a root, a path that is outside and exists,
+        and one that is outside and does not.
+
+        Each error may name only what the caller supplied, so the wording
+        carries no information about what is on the disk.
+        """
+        sandbox = Sandbox([docs])
+        (docs / "shortcut.docx").symlink_to(outside)
+        spellings = {
+            "symlink out": "shortcut.docx",
+            "outside, present": str(outside),
+            "outside, absent": elsewhere,
+        }
+        messages = {}
+        for label, spelling in spellings.items():
+            with pytest.raises(PathNotAllowedError) as caught:
+                sandbox.resolve_input(spelling)
+            messages[label] = str(caught.value)
+
+        for label, spelling in spellings.items():
+            assert repr(spelling) in messages[label], label
+        assert str(outside) not in messages["symlink out"]
+        # Strip the caller's own spelling and the three must be word-for-word equal.
+        skeletons = {
+            label: messages[label].replace(repr(spelling), "<path>")
+            for label, spelling in spellings.items()
+        }
+        assert len(set(skeletons.values())) == 1, skeletons
+
 
 class TestResolveOutput:
     def test_a_read_only_sandbox_refuses_every_write(self, docs: Path):

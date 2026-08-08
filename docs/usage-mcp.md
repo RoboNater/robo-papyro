@@ -76,7 +76,9 @@ genuinely absent.
   sees a shorter tool list rather than tools that always fail.
 - **Nothing is overwritten.** Every write tool names an output, and that output
   must not exist. There is no in-place edit over MCP, because there is no
-  `--in-place` to opt into.
+  `--in-place` to opt into. The one exception is `output_dir` on the `*_images`
+  tools, which accepts an existing directory so ranged extraction can
+  accumulate in one folder — see [Extracting images](#extracting-images).
 - The write root is also readable, so an agent can read back what it wrote.
 - Relative paths in tool calls resolve against the **first** root.
 
@@ -108,7 +110,7 @@ server. Arguments and defaults match the CLIs.
 | `pdf_tables` | Tables as rows of cells |
 | `pdf_search` | Find text; whitespace-normalized so phrases match across line wraps |
 | `pdf_markdown` | Markdown with page provenance delimiters |
-| `pdf_images` | Embedded image metadata; extracts to disk given `output_dir` and a write root |
+| `pdf_images` | Embedded image metadata; extracts to disk given `output_dir` and a write root (see [Extracting images](#extracting-images)) |
 
 Page specs behave exactly as on the CLI: `all`, `5`, `3-7`, `-4`, `7-`,
 `1,3-5,9`, interpreted against the document's page labels unless
@@ -152,6 +154,29 @@ reports `comment_count: null`. See [usage-pptx.md](usage-pptx.md#comments).
 Slide numbers are presentation order, 1-based. After a delete or a reorder, a
 follow-up call must use the *new* file's numbering.
 
+### Extracting images
+
+`pdf_images`, `docx_images`, and `pptx_images` write nothing unless given an
+`output_dir`, which must be under the write root. **An existing directory is
+accepted**, so working through a long document in ranges accumulates in one
+place:
+
+```json
+{"name": "pdf_images", "arguments": {"path": "report.pdf", "pages": "1-20",  "output_dir": "figures"}}
+{"name": "pdf_images", "arguments": {"path": "report.pdf", "pages": "21-40", "output_dir": "figures"}}
+```
+
+That is safe because extracted names carry their position — rp-pdf writes
+`page0007_img00_…`, and rp-pptx numbers pictures across the whole deck before
+applying the slide filter — so the second call adds files rather than replacing
+the first call's.
+
+**Give each source document its own directory.** Two different documents
+extracting into one folder can produce the same filename, and the second write
+replaces the first with no warning. This is the one place the "nothing is
+overwritten" rule does not reach; it is spelled out in
+[security-mcp.md](security-mcp.md#what-the-guarantee-covers-and-what-it-does-not).
+
 ### Templates
 
 `docx_fill_template` and `pptx_fill_template` take either a house-template name
@@ -175,9 +200,9 @@ Error executing tool pdf_index: /etc/hostname is outside this server's allowed r
 
 | `exit_code` | Meaning |
 |---|---|
-| `1` | Bad arguments — a path outside the roots, a bad page spec, a missing placeholder value, an output that already exists |
+| `1` | Bad arguments — a path outside the roots, a bad page spec, a wrong or missing PDF `password`, a missing placeholder value, an output that already exists |
 | `2` | A required external binary is absent (`rp-mcp doctor` reports what is installed) |
-| `3` | The file is corrupt, encrypted-unreadable, or uses something unsupported |
+| `3` | The file is corrupt, not the format it claims to be, or uses something unsupported |
 
 These are the suite's codes, unchanged. A bug in the server is *not* wrapped —
 it arrives as a traceback in the server log rather than as a tidy message that

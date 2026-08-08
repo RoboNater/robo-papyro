@@ -23,8 +23,9 @@ answered wrongly.
 
 ### Verification
 
-- 1256 tests green (148 in `rp-mcp`, up from 1108 before this phase), 9 skipped
-  — the same nine as before, all LibreOffice or root-permission environment skips.
+- 1302 tests green (152 in `rp-mcp`, 83 in `ci`, up from 1108 before this
+  phase), 9 skipped — the same nine as before, all LibreOffice or
+  root-permission environment skips.
 - `rp-mcp` at 99% line coverage.
 - `ruff check` and `ruff format --check` clean; the full suite re-run with
   `CI=true GITHUB_ACTIONS=true`.
@@ -32,8 +33,13 @@ answered wrongly.
   copyleft.
 - One end-to-end run over real stdio against the installed `rp-pdf-mcp`, plus a
   manual `rp mcp`/`rp-*-mcp` console-script pass.
+- `uv build --package robo-papyro` inspected: the published wheel declares the
+  three leaves and `Provides-Extra: mcp`, which `uv sync` cannot tell you.
 - Every command quoted in the three skills was executed against the real CLIs;
-  four were wrong and are corrected below.
+  four were wrong. A fifth was wrong and *not* caught that way, because it needs
+  an API key — see finding 12.
+- Each regression test from review was run against the unfixed code first and
+  observed to fail.
 
 ## Findings — where the plan of record turned out to be wrong
 
@@ -193,6 +199,98 @@ correctly and are consistent with the sibling commands they are not.
 The rule this suggests, for `skills/` specifically: **a skill is a set of
 claims about a command line, so run every command in it.** The usage guides get
 the same protection from the CI smoke job; the skills had none until this pass.
+
+## What review caught, and the one pattern behind it
+
+Four findings, and they are the same defect wearing different clothes: **the
+documentation claimed more than the code delivered, and the tests agreed with
+the documentation because the same person wrote both.** Worth naming, because
+none of them was catchable by reading the diff.
+
+### 9. The refusal message was itself an oracle (§3 of the security doc)
+
+`resolve_input` judged containment on the resolved path — correct — and then
+interpolated *that* path into the error. Asking for `shortcut.docx` under a root
+got back `/home/me/private/taxes.docx is outside this server's allowed roots`:
+the symlink's target, handed to a caller who had no other way to learn it, with
+wording that changed depending on whether the link resolved. Precisely the
+oracle §3 spends four paragraphs preventing, reintroduced one layer up.
+
+`_writable_target` had the identical bug; the review flagged only one of the
+two, which is the usual shape — a reviewer finds an instance, and the author has
+to find the class.
+
+Fixed by quoting the caller's own spelling and saying "resolves outside" rather
+than naming the target. Two tests, both verified to fail against the old code:
+one asserting the target never appears, one asserting the three outside cases
+(symlink out, outside-and-present, outside-and-absent) reduce to the same string
+once the caller's own spelling is removed.
+
+### 10. `resolve_output_dir` — where the review was right and the fix was wrong
+
+Reported as: accepting an existing extraction directory breaks "nothing is
+overwritten", since the leaves write deterministic names with `write_bytes`.
+True. The proposed fix — require a new directory — was **rejected after
+checking what the names actually are.**
+
+rp-pdf names extracted files per page (`page0007_img00_…`) and rp-pptx numbers
+pictures across the whole deck *before* the slide filter applies. So the
+workflow this would have broken — `--pages 1-20`, then `21-40`, into one folder
+— never collides, and the page-scoped naming was evidently designed for it. The
+owner confirmed it is their daily use. Requiring a new directory would have cost
+a real workflow to defend against losing a *generated artifact*.
+
+What is real is narrower: two **different** documents extracting into one
+directory can collide (deck A's `image-1.png` and deck B's), and the second
+write wins silently. That is now stated in `security-mcp.md` §4 and in
+`resolve_output_dir`'s docstring, with the guarantee scoped to outputs a tool
+*names*, plus two tests pinning that ranged extraction accumulates rather than
+replaces.
+
+The lesson is not "the reviewer was wrong". The finding was right and the doc
+was overclaiming. It is that **the remedy for an overclaiming document is
+sometimes the document**, and you cannot tell which without checking what the
+code actually does — here, reading three filename formats.
+
+### 11. `uv sync` hides the packaging contract
+
+`rp mcp` worked in CI and would have been absent from `pip install
+robo-papyro`, because the umbrella declared only the three leaves and a
+workspace sync installs every member regardless. Nothing in the suite read the
+declared metadata, so the docs and the packaging could drift indefinitely.
+
+`rp-mcp` is now an **extra** (`robo-papyro[mcp]`) rather than a runtime
+dependency: the servers are already documented as a deliberate second install,
+the umbrella degrades gracefully when a subcommand is absent, and a hard
+dependency would put starlette and uvicorn in front of every `rp` user.
+`TestPackagingContract` reads `pyproject.toml` and asserts the declared shape,
+which is the only thing that fails when this drifts. No license-gate effect:
+`base_install_path` seeds from every workspace member either way.
+
+### 12. The one skill command that was never run
+
+`--ocr` requires `--ai`; the skill quoted it alone. I had claimed every skill
+command was executed, and every one *was* — except this, because it needs an API
+key, and that is exactly the one that was wrong. The class is now closed
+mechanically by `ci/test_skill_commands.py`, which checks every flag a skill
+quotes against the parsed command and catches all four of the originals when
+replanted. It cannot catch this one: `--ocr` parses fine and is refused at
+runtime. So the rule in AGENTS.md is the real fix — **a command you cannot
+execute in CI must be checked against the spec, not assumed.**
+
+### 13. One finding was resolved backwards
+
+Review reported "wrong password is exit 3, not exit 1" against the PDF skill.
+The contradiction was real — the skill's prose said 3 and its table said 1 — but
+the table was the correct side: `PasswordError(RpPdfError, InputError)` is exit
+1, raised at `core.py:83` and `:85` for missing and wrong passwords alike. Exit
+3 is for a file pypdf cannot parse at all.
+
+The likely cause is ours: `docs/usage.md` described exit 3 as covering
+"encrypted-unreadable", which reads like *wrong password*, and the phrase had
+been copied into `usage-mcp.md`. Both now distinguish a password you can fix
+(exit 1) from a file that cannot be parsed (exit 3). **A misleading phrase in a
+convention table propagates into every consumer of it, including reviewers.**
 
 ## Deliberate omissions
 

@@ -217,6 +217,43 @@ class TestWrites:
         )
         assert "Revenue held" in body
 
+    def test_ranged_extraction_accumulates_in_one_directory(
+        self, writable, pptx_with_images: Path, outbox: Path, mcp
+    ):
+        """The rp-pptx half of the same guarantee, which holds for a different reason.
+
+        rp-pptx names images `image-<n>` where `n` counts every picture in the
+        deck *before* the slide filter is applied — so `--slides 3-4` continues
+        the numbering rather than restarting at 1, and a second range cannot
+        land on the first range's filenames. Asserted here because
+        `Sandbox.resolve_output_dir` states it as the reason an existing
+        directory is allowed.
+        """
+        first = mcp.structured(
+            mcp.call(
+                writable,
+                "pptx_images",
+                {"path": pptx_with_images.name, "slides": "1-2", "output_dir": "shots"},
+            )
+        )["result"]
+        early = {p.name: p.read_bytes() for p in (outbox / "shots").iterdir()}
+        assert len(first) == len(early) == 2
+
+        second = mcp.structured(
+            mcp.call(
+                writable,
+                "pptx_images",
+                {"path": pptx_with_images.name, "slides": "3-4", "output_dir": "shots"},
+            )
+        )["result"]
+        assert len(second) == 2
+
+        after = {p.name: p.read_bytes() for p in (outbox / "shots").iterdir()}
+        assert len(after) == 4, sorted(after)
+        for name, blob in early.items():
+            assert after[name] == blob
+        assert [image["index"] for image in second] == [3, 4]
+
     def test_fill_template_cannot_reach_outside_the_roots(self, writable, tmp_path: Path, mcp):
         stray = tmp_path / "stray" / "deck.pptx"
         stray.parent.mkdir()

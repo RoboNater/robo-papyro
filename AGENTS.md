@@ -546,7 +546,22 @@ above and the dev-notes.
 - **A skill is a set of claims about a command line, so run every command in
   it.** Four commands in `skills/` were wrong on the first pass — written from
   the usage guides, consistent with their sibling commands, and non-existent.
-  Review does not catch these; execution does.
+  `ci/test_skill_commands.py` now checks every quoted flag against the parsed
+  command, which catches that whole class. It cannot catch a *semantic*
+  constraint: `--ocr` parses fine and is rejected at runtime without `--ai`,
+  which is exactly the one that survived to review, because needing an API key
+  meant it was the one command never run. **A command you cannot execute in CI
+  must be checked against the spec, not assumed.**
+- **Documentation that claims more than the code delivers is a defect, and
+  writing both yourself hides it.** Every blocking finding in the Phase 2 review
+  had this shape: `resolve_input`'s message leaked the resolved path while the
+  security doc promised it disclosed nothing; `resolve_output_dir` accepted an
+  existing directory under a heading that said "nothing is overwritten"; the
+  umbrella's docs advertised `rp mcp` that a published install would not have.
+  Each had a passing test, because the test came from the same understanding as
+  the prose. When you write a guarantee, find the *observable* it constrains and
+  assert on that — the error string, the installed metadata — not on the code
+  path you had in mind.
 - **Writes to a user's persistent file are all-or-nothing.** `Path.write_text`
   truncates before writing, so a failure part-way leaves a config that is empty
   or half-written — and worse when the caller merged the user's existing

@@ -10,12 +10,68 @@ from __future__ import annotations
 import ast
 import json
 import pathlib
+import re
 import subprocess
 
 import pytest
 import typer
 
 from robo_papyro import cli
+
+
+class TestPackagingContract:
+    """What a *published* install gets, which `uv sync` cannot tell you.
+
+    Raised in review: `rp mcp` worked in CI while `pip install robo-papyro`
+    would not have had it, because a uv workspace sync installs every member
+    regardless of what any member declares. Nothing in the suite looked at the
+    declared metadata, so the docs and the packaging could drift apart silently.
+    These read the manifest itself.
+    """
+
+    @staticmethod
+    def _manifest() -> dict:
+        import tomllib
+
+        path = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+
+    @staticmethod
+    def _names(requirements: list[str]) -> set[str]:
+        """Distribution names, dropping any version specifier."""
+        return {re.split(r"[<>=!~\[ ]", item, maxsplit=1)[0] for item in requirements}
+
+    def test_runtime_dependencies_are_the_three_leaves(self):
+        """The documented contract: the umbrella installs the document toolkit."""
+        assert self._names(self._manifest()["project"]["dependencies"]) == {
+            "rp-core",
+            "rp-docx",
+            "rp-pdf",
+            "rp-pptx",
+            "typer",
+        }
+
+    def test_rp_mcp_is_an_extra_and_not_a_runtime_dependency(self):
+        """`pip install robo-papyro` must not drag in the MCP SDK.
+
+        The servers are a deliberate second install (docs/usage-mcp.md); if this
+        ever becomes a runtime dependency, every `rp` user starts installing
+        starlette, uvicorn and the rest of the tree without asking for it.
+        """
+        manifest = self._manifest()
+        assert "rp-mcp" not in self._names(manifest["project"]["dependencies"])
+        assert self._names(manifest["project"]["optional-dependencies"]["mcp"]) == {"rp-mcp"}
+
+    def test_every_workspace_dependency_is_sourced(self):
+        """A `rp-*` requirement with no `[tool.uv.sources]` entry resolves from
+        an index that has never published it, which fails only at install time."""
+        manifest = self._manifest()
+        required = self._names(manifest["project"]["dependencies"]) | self._names(
+            manifest["project"]["optional-dependencies"]["mcp"]
+        )
+        sources = set(manifest["tool"]["uv"]["sources"])
+        assert {name for name in required if name.startswith("rp-")} <= sources
 
 
 class FakeEntryPoint:

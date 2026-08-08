@@ -98,6 +98,11 @@ codebase has already hit once.
 
 `NUL` bytes and other unusable paths become the same refusal, not a traceback.
 
+**The refusal names only what the caller supplied.** Containment is judged on
+the resolved path; interpolating that path into the error discloses a symlink's
+target and makes the wording depend on whether the link exists, which is §4.3's
+oracle by another route. Corrected in review — see `../security-mcp.md` §3.
+
 ### 4.3 Existence is not the sandbox's business
 
 `resolve_input` does **not** check that the file exists. A missing file is the
@@ -120,6 +125,10 @@ it the server is read-only.
   never named — the *spelled* path is checked with `lstat` before the resolved
   one is checked for existence.
 - Parent directories are created, inside the write root only.
+- **`resolve_output_dir` is exempt, deliberately.** An existing extraction
+  directory is accepted so that ranged extraction can accumulate in one folder;
+  the leaves' file naming is what makes that safe. Two different documents
+  extracting into one directory can still collide. See `../security-mcp.md` §4.
 - The write root is added to the readable roots, so an agent can read back what
   it wrote.
 

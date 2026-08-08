@@ -58,7 +58,9 @@ A client config entry looks like this:
   agent sees a smaller tool list rather than tools that always fail.
 - **Nothing is overwritten.** Every write tool names an output that must not
   exist. There is no in-place edit over MCP, because there is no `--in-place`
-  to opt into.
+  to opt into. `output_dir` on the `*_images` tools is the deliberate
+  exception: an existing directory is accepted so ranged extraction can
+  accumulate in one folder.
 - The write root is also readable, so an agent can read back what it wrote.
 - `rp_sandbox` is a tool: an agent can ask where it may read and write rather
   than discovering it by failing.

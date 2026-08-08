@@ -139,16 +139,28 @@ which paths exist across the whole machine — not read them, but confirm them,
 which is more than enough for reconnaissance and for confirming a guess about
 someone's home directory layout.
 
-So containment is checked **first and unconditionally**. The refusal for a path
-outside the roots is the same error, with the same wording, carrying nothing
-that varies with whether the file is there — which is the property that matters;
-the message does echo the path the caller itself supplied.
-Two tests pin the two halves:
+So containment is checked **first and unconditionally**, and the refusal quotes
+**only what the caller sent** — never the path it resolved to.
+
+That second half was wrong in the first version of this package, and review
+caught it. Containment was judged on the resolved path (correct) and the *error
+message* interpolated that same resolved path (not correct): asking for
+`shortcut.docx` under a root got back
+`/home/me/private/taxes.docx is outside …`, handing over a symlink's target the
+caller had no other way to learn, and making the wording differ depending on
+whether the link resolved. That is the oracle this section exists to prevent,
+reintroduced one layer up. The fix was to echo the spelling supplied and say
+"resolves outside" rather than naming the target.
+
+Three tests pin it:
 
 - `test_a_missing_file_outside_every_root_is_still_refused` — outside is outside,
   present or not.
 - `test_a_missing_file_inside_a_root_is_not_the_sandbox_s_error` — inside, the
   sandbox gets out of the way and lets the leaf speak.
+- `test_outside_paths_are_refused_the_same_way_however_they_resolve` — a symlink
+  out of a root, a path outside that exists, and one that does not, all produce
+  the same message once the caller's own spelling is removed from it.
 
 The refusal message *does* name the allowed roots
 (`test_the_message_names_the_roots_that_were_allowed`). That is deliberate: the
@@ -224,7 +236,7 @@ editing is simply unreachable.
 | Symlinked directory leaving the write root | `PathNotAllowedError` | `test_a_symlink_out_of_the_write_root_is_refused` |
 
 Together with the required `output`, this means **no sequence of tool calls can
-destroy an input document.** `test_replace_text_leaves_the_input_untouched`
+destroy an input document** — subject to the extraction caveat below. `test_replace_text_leaves_the_input_untouched`
 compares the input's bytes before and after an edit.
 
 The dangling-symlink row is the one that was wrong first. `resolve_output`
@@ -236,12 +248,33 @@ named. Fixed by checking the *spelled* path with `is_symlink()` (an `lstat`)
 before checking the resolved one for existence. The test was written from the
 docstring's "refuses an existing path of any kind" and failed on first run.
 
-### One write the agent did not ask for
+### What the guarantee covers, and what it does not
 
-`resolve_output` creates parent directories, and `resolve_output_dir` creates the
-destination. Both only ever inside the write root. The alternative was an agent
-needing a `mkdir` tool it does not have, and guessing which of its own outputs
-required one. Recorded as a limitation rather than defended as a feature.
+The rules above are about the outputs a tool **names**: `docx_create`,
+`pptx_set_notes`, `docx_fill_template` and the rest. They are not about the
+*contents* of an extraction directory, and the difference is deliberate.
+
+`pdf_images`, `docx_images`, and `pptx_images` take an `output_dir`, and an
+existing directory is accepted. Working through a long document in ranges —
+pages 1–20, then 21–40, into one folder — is the normal way to use these tools,
+and it is safe, because the leaves name extracted files so those runs cannot
+collide: rp-pdf's names are page-scoped (`page0007_img00_…`) and rp-pptx's index
+counts every picture in the deck *before* the slide filter applies, so a second
+range continues the numbering instead of restarting it. Both are asserted —
+`test_paged_extraction_accumulates_in_one_directory` and
+`test_ranged_extraction_accumulates_in_one_directory`.
+
+**The sharp edge is two different documents extracting into one directory.**
+The leaves write with `write_bytes`, so a genuine name collision — deck A's
+`image-1.png` and deck B's — replaces the earlier file with no warning. Review
+proposed refusing an existing `output_dir` to close this. That was rejected: it
+would break the range workflow above, which the page-scoped naming was
+evidently designed for, in order to defend against losing a *generated
+artifact*. Give each source document its own directory.
+
+`resolve_output` also creates parent directories, and `resolve_output_dir`
+creates the destination — both only ever inside the write root. The alternative
+was an agent needing a `mkdir` tool it does not have.
 
 ---
 
@@ -429,6 +462,9 @@ A short checklist:
 | A symlink out of a root is refused | `TestResolveInput::test_a_symlink_pointing_out_of_a_root_is_refused` |
 | A symlinked root compares as its target | `TestConstruction::test_a_symlinked_root_is_recorded_as_its_target` |
 | Outside is refused whether or not the file exists | `TestResolveInput::test_a_missing_file_outside_every_root_is_still_refused` |
+| A refusal never names a symlink's target | `TestResolveInput::test_the_refusal_never_names_a_symlink_s_target` |
+| The three outside cases are indistinguishable | `TestResolveInput::test_outside_paths_are_refused_the_same_way_however_they_resolve` |
+| Ranged extraction into one directory adds, never replaces | `test_pdf_server.py::…::test_paged_extraction_accumulates_in_one_directory`, `test_pptx_server.py::…::test_ranged_extraction_accumulates_in_one_directory` |
 | A missing file inside a root is the leaf's error | `TestResolveInput::test_a_missing_file_inside_a_root_is_not_the_sandbox_s_error` |
 | An unusable path is a refusal, not a traceback | `TestResolveInput::test_a_null_byte_is_a_refusal_rather_than_a_traceback` |
 | A read-only sandbox refuses every write | `TestResolveOutput::test_a_read_only_sandbox_refuses_every_write` |

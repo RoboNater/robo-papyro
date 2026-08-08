@@ -52,12 +52,19 @@ positions instead. Every result carries both `physical_page` and
 `1,3-5,9`. A bare `-` is rejected; `all` already means everything.
 
 **Empty text usually means a scan.** If `text` returns little or nothing, the
-page is an image. `rp-pdf markdown FILE --ocr` transcribes it with a vision
-model — that needs an API key in the environment and is opt-in for a reason:
-it sends page images to a third-party service. Never turn it on for material
-you have not been told is safe to send.
+page is an image. `rp-pdf markdown FILE --ai --ocr` transcribes it with a
+vision model. **`--ocr` requires `--ai`** — on its own it is rejected, because
+OCR is a third stage of the AI pass rather than a separate engine. The run also
+needs a model (`--model NAME` or `RP_PDF_VLM_MODEL`), a key in the environment
+(`RP_PDF_VLM_API_KEY`, falling back to `OPENAI_API_KEY`), poppler for page
+rendering, and the `ai` optional dependencies installed.
 
-**Encrypted files** take `--password PW`. A wrong or missing password is exit 3.
+It is opt-in for a reason: it sends page images to a third-party service. Never
+turn it on for material you have not been told is safe to send.
+
+**Encrypted files** take `--password PW`. A missing or wrong password is
+**exit 1** — it is an argument you can fix, not a broken document. Exit 3 means
+the file could not be parsed as a PDF at all.
 
 **Large documents:** `text` on a 500-page PDF is a lot of output. Use
 `--pages` to narrow it, or `search` to find the part you want first.

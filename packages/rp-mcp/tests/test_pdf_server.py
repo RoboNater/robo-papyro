@@ -159,3 +159,43 @@ class TestWithAWriteRoot:
             server, "pdf_images", {"path": sample_pdf.name, "output_dir": str(docs / "shots")}
         )
         assert mcp.error_type(result) == "PathNotAllowedError"
+
+    def test_paged_extraction_accumulates_in_one_directory(
+        self, server, pdf_with_images: Path, outbox: Path, mcp
+    ):
+        """Working through a long document in ranges, into a single folder.
+
+        Raised in review as a case where extraction could silently overwrite.
+        It cannot, for this shape: rp-pdf names extracted files per page
+        (`page0003_img00_…`), so a later range adds files rather than replacing
+        the earlier ones. Reviewed and kept deliberately — refusing an existing
+        `output_dir` would have broken the normal way of working through a big
+        PDF for no benefit. See `Sandbox.resolve_output_dir` and
+        docs/security-mcp.md §4 for what is *not* guaranteed.
+        """
+        first = mcp.structured(
+            mcp.call(
+                server,
+                "pdf_images",
+                {"path": pdf_with_images.name, "pages": "1-2", "output_dir": "shots"},
+            )
+        )["result"]
+        assert len(first) == 2
+        early = {p.name: p.read_bytes() for p in (outbox / "shots").iterdir()}
+        assert len(early) == 2
+
+        second = mcp.structured(
+            mcp.call(
+                server,
+                "pdf_images",
+                {"path": pdf_with_images.name, "pages": "3-4", "output_dir": "shots"},
+            )
+        )["result"]
+        assert len(second) == 2
+
+        after = {p.name: p.read_bytes() for p in (outbox / "shots").iterdir()}
+        assert len(after) == 4, sorted(after)
+        # The first range's files are untouched, not replaced.
+        for name, blob in early.items():
+            assert after[name] == blob
+        assert not set(early) & {Path(image["saved_path"]).name for image in second}

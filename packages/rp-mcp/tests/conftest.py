@@ -22,7 +22,11 @@ import anyio
 import pytest
 from mcp import Client
 from mcp.server.mcpserver import MCPServer
+from PIL import Image as PILImage
+from pptx import Presentation
+from pptx.util import Inches
 from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas as rl_canvas
 
 import rp_docx
@@ -147,6 +151,47 @@ def sample_docx(docs: Path) -> Path:
 def sample_pptx(docs: Path) -> Path:
     path = docs / "deck.pptx"
     rp_pptx.create(path, markdown=PPTX_MARKDOWN)
+    return path
+
+
+@pytest.fixture
+def pdf_with_images(docs: Path, tmp_path: Path) -> Path:
+    """A four-page PDF carrying one embedded image per page.
+
+    Exists for the accumulate-into-one-directory tests: rp-pdf names extracted
+    files per page, and that is what makes `--pages 1-2` then `3-4` into a
+    single folder safe. Proving it needs a document with images on known pages.
+    """
+    photo = tmp_path / "photo.png"
+    PILImage.new("RGB", (32, 24), "red").save(photo)
+    path = docs / "illustrated.pdf"
+    canvas = rl_canvas.Canvas(str(path), pagesize=letter)
+    for number in range(1, 5):
+        canvas.drawImage(ImageReader(str(photo)), 72, 600, width=32, height=24)
+        canvas.drawString(72, 720, f"page {number}")
+        canvas.showPage()
+    canvas.save()
+    return path
+
+
+@pytest.fixture
+def pptx_with_images(docs: Path, tmp_path: Path) -> Path:
+    """A four-slide deck with one picture per slide.
+
+    The rp-pptx counterpart of :func:`pdf_with_images`. rp-pptx numbers images
+    across the whole deck *before* applying the slide filter, so a second range
+    continues the numbering instead of restarting it — which is the claim these
+    tests exist to hold up.
+    """
+    photo = tmp_path / "photo.png"
+    PILImage.new("RGB", (32, 24), "blue").save(photo)
+    presentation = Presentation()
+    blank = presentation.slide_layouts[6]
+    for _ in range(4):
+        slide = presentation.slides.add_slide(blank)
+        slide.shapes.add_picture(str(photo), Inches(1), Inches(1))
+    path = docs / "illustrated.pptx"
+    presentation.save(path)
     return path
 
 

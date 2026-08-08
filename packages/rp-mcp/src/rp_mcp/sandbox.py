@@ -147,12 +147,19 @@ class Sandbox:
         error to raise, with its own message and exit code, and checking it here
         would make the sandbox report "no such file" for paths outside it — an
         existence oracle for the whole filesystem, one call at a time.
+
+        **The refusal quotes what the caller sent, never what it resolved to.**
+        Containment is judged on the resolved path, but naming that path in the
+        message hands back a symlink's target — a path the caller may never have
+        known — and makes the wording differ depending on whether the link
+        exists. Either one turns the error into the oracle the paragraph above
+        exists to prevent.
         """
         resolved = self._real(path, base=self.roots[0])
         if self._containing_root(resolved) is None:
             allowed = ", ".join(str(root) for root in self.roots)
             raise PathNotAllowedError(
-                f"{resolved} is outside this server's allowed roots ({allowed}). "
+                f"{str(path)!r} resolves outside this server's allowed roots ({allowed}). "
                 "Start the server with --root DIR to widen them."
             )
         return resolved
@@ -165,9 +172,10 @@ class Sandbox:
             )
         resolved = self._real(path, base=self.write_root)
         if not resolved.is_relative_to(self.write_root):
+            # Quotes the caller's spelling for the same reason resolve_input does.
             raise PathNotAllowedError(
-                f"{resolved} is outside this server's write root ({self.write_root}). "
-                "Every file a tool creates goes there."
+                f"{str(path)!r} resolves outside this server's write root "
+                f"({self.write_root}). Every file a tool creates goes there."
             )
         return resolved
 
@@ -205,6 +213,23 @@ class Sandbox:
 
         Unlike :meth:`resolve_output` an existing directory is fine — it is the
         destination, not the artifact. An existing non-directory is not.
+
+        **This method does not carry the "never overwrites" guarantee, and
+        deliberately so.** Accumulating extractions in one directory is the
+        normal way to work through a long document — ``--pages 1-20``, then
+        ``21-40``, into the same folder — and refusing an existing directory
+        would break it for no benefit, because the leaves name extracted files
+        so that those runs do not collide: rp-pdf's names are page-scoped
+        (``page0007_img00_…``) and rp-pptx's index runs across the whole deck
+        before the slide filter is applied, so a second range continues the
+        numbering rather than restarting it.
+
+        What is *not* guaranteed is what happens when two different source
+        documents extract into one directory: the leaves write with
+        ``write_bytes``, so a genuine name collision replaces the earlier file
+        without warning. That is a sharp edge on generated artifacts, not on
+        input documents, and it is written down in ``docs/security-mcp.md`` §4
+        rather than designed away at the cost of the workflow above.
         """
         resolved = self._writable_target(path)
         if resolved.exists() and not resolved.is_dir():
