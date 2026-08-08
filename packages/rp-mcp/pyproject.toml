@@ -1,0 +1,50 @@
+[project]
+name = "rp-mcp"
+version = "0.1.0"
+description = "MCP servers for the robo-papyro suite: rp-pdf, rp-docx, and rp-pptx over stdio"
+readme = "README.md"
+requires-python = ">=3.11"
+# The one distribution in the suite that imports the leaves. It is a consumer,
+# not a peer: nothing in rp-pdf/rp-docx/rp-pptx imports rp_mcp, so the
+# dependency direction stays one-way (parent spec §10).
+#
+# `mcp` is floored at 2.0 and capped below 3, deliberately. The server class was
+# named `FastMCP` through 1.x and is `MCPServer` in 2.x — a rename across a
+# major, which is exactly what a cap is for. 2.x also drops `certifi` (MPL-2.0)
+# from the tree in favour of `truststore` + `httpx2`, and this distribution is
+# in the base install path, so that difference is load-bearing for the license
+# gate rather than incidental. See dev-notes/status-robo-papyro-phase-2.md.
+dependencies = [
+    "mcp>=2.0.0,<3",
+    "pydantic>=2.13.4",
+    "rp-core",
+    "rp-docx",
+    "rp-pdf",
+    "rp-pptx",
+    "typer>=0.26.8",
+]
+
+# `rp-mcp` drives any of the three servers; the three per-package scripts are
+# what an MCP client config names when it wants exactly one of them, and each
+# serves on bare invocation with no subcommand to remember.
+[project.scripts]
+rp-mcp = "rp_mcp.cli:app"
+rp-pdf-mcp = "rp_mcp.cli:pdf_app"
+rp-docx-mcp = "rp_mcp.cli:docx_app"
+rp-pptx-mcp = "rp_mcp.cli:pptx_app"
+
+[project.entry-points."robo_papyro.commands"]
+mcp = "rp_mcp.cli:app"
+
+[tool.uv.sources]
+rp-core = { workspace = true }
+rp-docx = { workspace = true }
+rp-pdf = { workspace = true }
+rp-pptx = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rp_mcp"]

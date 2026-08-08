@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [rp-core, rp-pdf, rp-docx, rp-pptx, robo-papyro]
+        package: [rp-core, rp-pdf, rp-docx, rp-pptx, rp-mcp, robo-papyro]
         python-version: ["3.11", "3.13"]
     name: test ${{ matrix.package }} (py${{ matrix.python-version }})
     steps:
@@ -96,6 +96,12 @@ jobs:
           uv run rp pptx --help
           uv run rp-pptx --help
           uv run rp-pptx doctor
+          uv run rp mcp --help
+          uv run rp-mcp --help
+          uv run rp-mcp doctor
+          uv run rp-pdf-mcp --help
+          uv run rp-docx-mcp --help
+          uv run rp-pptx-mcp --help
       - name: rp pdf and rp-pdf are the same code path
         run: |
           uv run --with reportlab python -c "
@@ -180,6 +186,24 @@ jobs:
           expect 1 uv run rp-pptx create -o x.pptx --template nonexistent
           expect 1 uv run rp-pptx replace sample.pptx --map '{}'
           expect 0 uv run rp-pptx index sample.pptx
+      # rp-mcp's servers are what an agent actually talks to, and a broken
+      # registration is invisible until a client connects. `tools` builds the
+      # real server and lists it without serving, so the smoke job can assert
+      # the surface — including that the write tools appear only with a write
+      # root, which is the sandbox's central promise.
+      - name: rp-mcp exposes the tools it advertises
+        run: |
+          uv run rp-mcp tools --server pdf --root . > mcp-read.json
+          uv run rp-mcp tools --server docx --root . --write-root ./out > mcp-write.json
+          uv run python -c "
+          import json
+          read = {t['name'] for t in json.load(open('mcp-read.json'))['tools']}
+          write = {t['name'] for t in json.load(open('mcp-write.json'))['tools']}
+          assert 'pdf_index' in read, sorted(read)
+          assert 'rp_sandbox' in read, sorted(read)
+          assert 'docx_create' in write, sorted(write)
+          assert not json.load(open('mcp-read.json'))['sandbox']['writable']
+          print('mcp surface ok:', len(read), 'read tools,', len(write), 'docx tools')"
       - name: Errors are ErrorEnvelopes on stderr, results on stdout
         run: |
           uv run rp-pdf index missing.pdf > out.txt 2> err.txt || true
