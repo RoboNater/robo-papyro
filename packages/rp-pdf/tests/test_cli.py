@@ -5,13 +5,27 @@ import json
 import pytest
 
 
-def test_no_json_flag_on_any_command(run_cli):
+def test_no_json_flag_on_any_command():
     """Spec section 10: JSON is the default output and `--plain` is the human
-    opt-out, so no `--json` flag exists in the suite."""
-    from rp_pdf.cli import COMMAND_NAMES
+    opt-out, so no `--json` flag exists in the suite.
 
+    Read from the parsed parameter list rather than from rendered `--help`.
+    This test used to grep the help text, and that made it a false pass exactly
+    where it mattered: rich colorizes when it sees `CI`/`GITHUB_ACTIONS` and
+    emits an option's leading hyphen as its own span, so the literal `--json` is
+    absent from the output whether or not the flag exists. Planting a real
+    `--json` on `text` and running under CI rendering confirmed the old shape
+    passed; this one fails.
+    """
+    import typer.main
+
+    from rp_pdf.cli import COMMAND_NAMES, app
+
+    group = typer.main.get_command(app)
     for command in sorted(COMMAND_NAMES):
-        assert "--json" not in run_cli(command, "--help").stdout, command
+        params = group.commands[command].params
+        spellings = {name for p in params for name in (*p.opts, *p.secondary_opts)}
+        assert "--json" not in spellings, command
 
 
 def test_doctor_is_json_by_default(run_cli):

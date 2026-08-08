@@ -85,23 +85,37 @@ absent; tests needing LibreOffice carry `@pytest.mark.requires_soffice` and skip
 unless it is present *and demonstrably working*. **No test may require
 LibreOffice to pass** — mock the subprocess, or mark it and let it skip.
 
-### Install poppler at the start of any session touching rp-pdf
+### Make sure poppler is installed before trusting a test run
 
 `uv sync` is not the whole setup. **77 tests carry `requires_poppler`** and skip
-silently without it, and they are not incidental ones: page rendering, the
+*silently* without it, and they are not incidental ones: page rendering, the
 default text engine, and the entire AI/OCR path go untested — which is where the
-interesting bugs live. A green run in a bare container proves much less than it
+interesting bugs live. A green run without poppler proves much less than it
 looks like, and a skip count is easy to read past.
 
+So the invariant is: **check first, install if missing, using whatever package
+manager the machine has.**
+
 ```sh
-apt-get update -q && apt-get install -y -q poppler-utils
+uv run rp doctor          # or: command -v pdftotext pdftoppm
 ```
 
-The `update` is not optional — a bare container's package index is stale enough
-that the install 404s without it. This is container-local, so a fresh session
-starts without it again; do it before trusting a test run. LibreOffice is
-heavier and its tests are allowed to skip by policy, so leave it alone unless
-you are working on conversion.
+If it reports them missing, install poppler the way the table above describes
+for your platform — `brew install poppler` on macOS, `winget install
+oschwartz10612.Poppler` on Windows, your distribution's package on Linux. On the
+root-owned Debian container these sessions usually get, that is:
+
+```sh
+apt-get update -q && apt-get install -y -q poppler-utils    # prefix with sudo if not root
+```
+
+The `update` matters *there* because that image ships an index stale enough for
+the install to 404; on a maintained machine it is unnecessary. An ephemeral
+container also starts fresh every session, so expect to repeat this; a
+workstation needs it once.
+
+LibreOffice is heavier and its tests are allowed to skip by policy, so leave it
+alone unless you are working on conversion.
 
 ### Adding a package to the workspace
 
@@ -399,13 +413,22 @@ Two habits that follow:
   `>=` floor lets the gate change what it enforces whenever a release widens
   ruff's implicit default, which is what forced the Phase 0 workaround. Bump the
   pin in its own commit, with the resulting fixes.
-- **Never assert on rendered `--help`.** rich detects `CI`/`GITHUB_ACTIONS` and
-  colorizes, and its option highlighter emits an option's leading hyphen as its
-  own span — so `"--describe" in help_text` is True locally and False on CI,
-  which is a failure only the runner can show you. Assert against the parsed
-  command instead:
-  `typer.main.get_command(app).commands[name].params`. (A *negative* assertion
-  like `"--json" not in ...` survives colorization and is fine.)
+- **Don't test option registration through rendered `--help`.** rich detects
+  `CI`/`GITHUB_ACTIONS` and colorizes, and its option highlighter emits an
+  option's leading hyphen as its own span, so the literal `--describe` is in the
+  output locally and absent on CI. Read the parsed command instead:
+  `typer.main.get_command(app).commands[name].params`, unioning `.opts` and
+  `.secondary_opts`. (Rendered output is the right representation when help
+  *rendering itself* is what you are testing — then normalize the ANSI first.)
+
+  **A negative check is the dangerous direction, not the safe one.**
+  `"--json" not in help_text` is true on CI whether or not the flag exists, so
+  it passes for the wrong reason precisely where the merge gate runs.
+  `test_no_json_flag_on_any_command` had that shape: planting a real `--json` on
+  `text` failed it locally and *passed* it under CI rendering, which means the
+  suite's "no `--json` anywhere" invariant was unenforced on the only run that
+  gates a merge. Fixed to read parameters. Any absence assertion needs a
+  representation where the thing could actually have appeared.
 - **Run the suite once as CI sees it** before pushing anything that touches
   output: `CI=true GITHUB_ACTIONS=true uv run pytest -q`.
 - **The dev container runs as root, so file permissions do not deny it
