@@ -13,7 +13,7 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **0** | Workspace scaffold, `pdfx` → `rp-pdf` rename, extract `rp-core`, `rp` umbrella | robo-papyro-spec §8 | ✅ |
 | **0.5** | Contract decisions and extraction cleanup | robo-papyro-spec §8 | ✅ |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
-| **2** | `rp-mcp`: FastMCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | TBD | next |
+| **2** | `rp-mcp`: MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | [rp-mcp-spec](docs/specs/rp-mcp-spec.md) | ✅ |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ✅ |
 | **3** | `rp-xlsx` (openpyxl), same core/CLI split | TBD | |
 
@@ -69,9 +69,27 @@ guess at the schema — so a deck carrying them fails loudly with exit 3 rather
 than returning an empty list. Classic comments are unaffected. All of it is in
 [dev-notes/status-robo-papyro-phase-2.5.md](dev-notes/status-robo-papyro-phase-2.5.md).
 
-Phase 2.5 was independent of Phase 2 and, as anticipated, landed first. Phase 2
-now must include the `rp-pptx` FastMCP server alongside `rp-pdf` and `rp-docx`
-in `rp-mcp`, since all three leaves are implemented by the time it starts.
+Phase 2.5 was independent of Phase 2 and, as anticipated, landed first, so
+Phase 2 covered all three leaves rather than two.
+
+Phase 2 added `rp-mcp`: MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`,
+each tool a name, a docstring, and a call into a leaf; a path sandbox every
+argument is resolved through; and the bridge that gets a suite error to a
+client with its envelope and exit code intact. Reads are confined to `--root`
+directories, writes need an explicit `--write-root`, and the file-creating
+tools are not registered at all without one. `skills/` holds one skill per
+format for agents that have a shell and need no server at all.
+
+Two things the parent spec had wrong in practice. **"FastMCP" is `MCPServer`**
+in the SDK's 2.x line — the same class, renamed across a major. And the claim
+that a separate distribution keeps the SDK "out of the base install path by
+construction" is only half true: the license gate computes that path from every
+workspace member, so `rp-mcp` puts the SDK tree squarely in it. What actually
+keeps §7.1 satisfied is the version floor — `mcp` 1.x reaches `certifi`
+(MPL-2.0) through `httpx`, while 2.x uses `httpx2` + `truststore` and pulls no
+weak copyleft at all. Rendering, the AI review pass, progress reporting, and
+non-stdio transports are all deliberately not exposed; the reasons are in
+[dev-notes/status-robo-papyro-phase-2.md](dev-notes/status-robo-papyro-phase-2.md).
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now
@@ -83,8 +101,10 @@ real house template — a separate manual pass, described in
 
 Version bumps: 0.2.0 after Phase 1, 0.3.0 after Phase 2, 0.4.0 after Phase 3
 (OCR), 0.5.0 after Phase 4 (quality of life), 0.6.0 after Phase 5 (RAG), 0.7.0
-after Phase 6 (MCP). Phase 6 below is superseded by suite Phase 2, which covers
-MCP servers for every package rather than `rp-pdf` alone.
+after Phase 6 (MCP). Phase 6 below is superseded by suite Phase 2, which shipped
+MCP servers for every package rather than `rp-pdf` alone — see
+[rp-mcp-spec](docs/specs/rp-mcp-spec.md) for what was built and what was left
+out.
 
 ### Phase 1 — Search ✅ (shipped in 0.2.0)
 
@@ -420,9 +440,20 @@ paragraph preservation. Store tests inject a deterministic dummy embedding
 function (no model download in CI); one optional integration test runs the real
 default embedder when the model is available locally.
 
-### Phase 6 — MCP server
+### Phase 6 — MCP server ✅ (shipped in `rp-mcp` 0.1.0, suite Phase 2)
 
-The spec's v2 goal: expose the same core to agents via MCP.
+The spec's v2 goal: expose the same core to agents via MCP. Shipped as its own
+distribution rather than as an `rp-pdf` extra, so the SDK stays out of the
+toolkit's dependency graph. What the plan below got right and wrong:
+
+- **Right**: the console script `rp-pdf-mcp`, stdio transport, tools mapped 1:1
+  onto core functions returning their pydantic models, page specs behaving
+  exactly as on the CLI, a root allowlist, and an in-process test client.
+- **Wrong**: `FastMCP` is `MCPServer` in the SDK's 2.x line, and an "optional
+  dependency group" would have put the servers in `rp-pdf` — parent spec §9 puts
+  them in `rp-mcp` instead. `pdf_query` waits on Phase 5.
+
+The original plan, kept for the reasoning:
 
 - `FastMCP` from the official `mcp` SDK; optional dependency group `mcp`;
   console script `rp-pdf-mcp` (stdio transport).

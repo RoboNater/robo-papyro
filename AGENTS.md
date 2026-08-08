@@ -11,6 +11,7 @@ workspace.
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word documents — read, create, edit, template |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint decks — read, create, edit, template, slide operations |
+| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the three leaves to agents |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
 
 ## Layout
@@ -20,9 +21,11 @@ packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doct
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, describe, cli
 packages/rp-docx/src/rp_docx/     ooxml, templates, models, errors, cli, docx/{read,write,runs,template}
 packages/rp-pptx/src/rp_pptx/     ooxml, templates, models, errors, cli, pptx/{read,write,runs,slides,template}
+packages/rp-mcp/src/rp_mcp/       sandbox, tools, errors, models, {pdf,docx,pptx}, server, cli
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
 dev-notes/                        investigation write-ups and phase status notes
+skills/                           agent skills for the three CLIs, one directory each
 templates/                        house .dotx/.docx and .potx/.pptx templates; templates/local/ is gitignored
 ```
 
@@ -33,9 +36,13 @@ dependencies, ruff config, and pytest config live in the **root**
 ## The four rules that matter most
 
 1. **One-way dependencies.** `rp-core` imports no leaf package, ever. Leaf
-   packages (`rp-pdf`, `rp-docx`, …) never import each other. Only
-   `robo-papyro` depends on leaves, and it reaches them through entry-point
-   discovery rather than imports.
+   packages (`rp-pdf`, `rp-docx`, …) never import each other. `robo-papyro`
+   depends on leaves and reaches them through entry-point discovery rather than
+   imports. **`rp-mcp` is the one distribution that imports leaves** — it is a
+   consumer sitting above them, not a peer, and nothing imports `rp_mcp` back.
+   It reaches only their public library surface: never a leaf's `cli` or
+   `config`, which is asserted by
+   `packages/rp-mcp/tests/test_invariants_mcp.py`.
 2. **Import from `rp-core`, don't reimplement.** Range-spec parsing, binary
    discovery, rasterization, error envelopes, exit codes, generic OPC/OOXML zip
    mechanics, and the shared Markdown block/inline parser have exactly one
@@ -141,6 +148,8 @@ if you trip one; each explains what breaks and why.
 | Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
 | `rp-docx`'s command surface matches the one its spec §10 specifies | `packages/rp-docx/tests/test_invariants.py` |
 | `rp-pptx`'s command surface matches the one its spec §10 specifies | `packages/rp-pptx/tests/test_invariants.py` |
+| Every `rp-mcp` tool resolves its path arguments through the sandbox | `packages/rp-mcp/tests/test_invariants_mcp.py` |
+| No leaf imports `rp_mcp`, and `rp_mcp` imports no leaf's CLI layer | `packages/rp-mcp/tests/test_invariants_mcp.py` |
 | `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
 | Test modules are imported by path, so same-named ones cannot collide | `ci/test_workspace_invariants.py` |
 | `rp_core` holds no page-label logic and imports no leaf | `ci/test_workspace_invariants.py` |
@@ -321,6 +330,35 @@ if you trip one; each explains what breaks and why.
   classify (SmartArt, ink, hand-authored shapes), so classification keys on the
   element tag (`p:pic`, `p:grpSp`, …) instead, which cannot raise.
 
+### rp-mcp
+
+- **A tool is a name, a docstring, and a call.** Every leaf function already
+  returns a pydantic model, so the model *is* the structured content and its
+  annotations *are* the JSON schema. Nothing here reformats a result or
+  implements a document operation; if a tool needs logic, that logic belongs in
+  the leaf, where the CLI gets it too.
+- **Every path argument goes through `sandbox.resolve_input` /
+  `resolve_output` before a leaf sees it.** Containment is checked on the
+  *resolved* path, so `..` and symlinks cannot climb out. Existence is
+  deliberately not checked — a missing file is the leaf's error, and checking it
+  here would make the sandbox an existence oracle for the rest of the disk.
+- **The write tools are registered only when `sandbox.writable`.** A tool that
+  exists and always fails teaches a model to retry; an absent tool teaches it to
+  ask. No tool ever passes `output=None` to a leaf, so in-place editing is
+  unreachable — there is no `--in-place` over MCP to opt into.
+- `guarded` sits *under* `@server.tool()` so the schema is still generated from
+  the wrapped signature. It catches `RoboPapyroError` only: a foreign exception
+  is a bug and should arrive as a traceback, not as a tidy expected-looking
+  message. The tool error's text is the message, then the `ErrorEnvelope` as the
+  **last line** — the same ordering `clikit.error_handler` uses on stderr.
+- **stdio is the only transport the CLI offers**, and there is no `--transport`
+  flag to add one by accident. Binding a port would leave a path allowlist as
+  the only thing between the internet and the user's documents.
+- Tests drive real servers through `mcp.Client` over in-memory streams; one
+  module drives the installed console script over real stdio, because a stray
+  `print` on the import path corrupts JSON-RPC and every in-memory test still
+  passes.
+
 ### robo-papyro
 
 `cli.py` reaches leaves through entry-point discovery only — see the
@@ -333,7 +371,13 @@ typer app, which means argv preprocessing done by a leaf's console script
 **Approved:** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3),
 pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter
 (BSD-2, transitive via python-pptx), typer (MIT), pydantic (MIT), Pillow
-(MIT-CMU), pytest/ruff (MIT).
+(MIT-CMU), pytest/ruff (MIT), `mcp` 2.x (MIT) and its tree.
+
+**`mcp` is floored at 2.0 for licensing, not only for its API.** 1.x depends on
+`httpx` → `certifi` (MPL-2.0); `rp-mcp` is a published distribution, so that
+lands in the base install path and fails §7.1 — *and* invalidates the
+`extra:ai` tags on `certifi` and `tqdm` in the same run. 2.x uses `httpx2` +
+`truststore` and pulls no weak copyleft. Do not lower the floor.
 
 **Forbidden — these are blockers, not preferences:** `docxtpl` (LGPL-2.1-only),
 `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
@@ -483,6 +527,23 @@ above and the dev-notes.
 - **A documentation change records a code gap; it does not fix it.** The
   asymmetry above was written up in `templates/README.md` as a known gap rather
   than patched inside a docs-only PR. Keep the scopes apart.
+- **`Path.resolve()` follows symlinks, so a check *after* it is a check on the
+  target, not on what the caller named.** `resolve_output` refused an existing
+  path and a symlink — but only after resolving, so a *dangling* link passed
+  both tests (the target does not exist and is not itself a link) and a write
+  through it would have landed on a path nobody named. When a rule is about the
+  name the caller used, check the name with `lstat` before you resolve it.
+- **An enumerated invariant is complete on the day it is written and never
+  again.** `rp-mcp`'s sandbox check walks the *registered* tool list rather than
+  a list of tools to check, so a tool added later that forgets to resolve a path
+  fails without anyone remembering. Two things make that real: the synthesized
+  arguments must *pass* schema validation, or the call never reaches the body
+  being tested, and a result the check cannot interpret must be reported as its
+  own failure rather than crashed on.
+- **A skill is a set of claims about a command line, so run every command in
+  it.** Four commands in `skills/` were wrong on the first pass — written from
+  the usage guides, consistent with their sibling commands, and non-existent.
+  Review does not catch these; execution does.
 - **Writes to a user's persistent file are all-or-nothing.** `Path.write_text`
   truncates before writing, so a failure part-way leaves a config that is empty
   or half-written — and worse when the caller merged the user's existing
@@ -496,8 +557,10 @@ above and the dev-notes.
 - Run the full suite and both ruff commands before committing; keep
   `README.md`, `docs/usage.md`, and `ROADMAP.md` in sync with behavior in the
   same commit. A behavior claim usually lives in more than one of those, plus
-  `docs/usage-docx.md`, `docs/usage-pptx.md`, and the package READMEs — grep the
-  claim, don't just fix the file you were looking at.
+  `docs/usage-docx.md`, `docs/usage-pptx.md`, `docs/usage-mcp.md`, the three
+  `skills/*/SKILL.md`, and the package READMEs — grep the claim, don't just fix
+  the file you were looking at. **A changed CLI flag or command name is a
+  `skills/` change**, and the skills quote commands verbatim, so run them.
 - A feature is: core/library function returning pydantic models + CLI wrapper +
   tests + `docs/usage.md` update.
 - A phase or a batch of related work also gets a status note in `dev-notes/`,

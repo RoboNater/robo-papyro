@@ -43,7 +43,7 @@ packages/rp-docx/
 │   │   ├── runs.py         # run-offset mapping — the §6 utility, standalone
 │   │   └── template.py     # {{ placeholder }} substitution
 │   ├── cli.py              # typer — formatting and printing only
-│   └── mcp_server.py       # documented Phase 2 stub
+│   └──                     # (no mcp_server.py: Phase 2 put the server in rp-mcp)
 └── tests/
     ├── conftest.py         # generates all fixture documents and templates — nothing binary is committed
     ├── fixtures/
@@ -513,7 +513,7 @@ Prerequisite: Phase 0.5 steps 1–4 merged. **No corporate template is required 
 
 **Step 7.** Implement `docx/write.py`, then `docx/template.py`. Both build on `runs.py` and the resolved `StyleMap`.
 
-**Step 8.** Implement `cli.py` per §10 using `rp_core.clikit`. Leave `mcp_server.py` as a documented stub.
+**Step 8.** Implement `cli.py` per §10 using `rp_core.clikit`. Leave `mcp_server.py` as a documented stub. **Resolved:** Phase 2 implemented the server as `rp_mcp.docx` and deleted the stub. This package has no `mcp_server.py`, and must not grow one — see `rp-mcp-spec.md`.
 
 **Step 9.** Run the full suite. Then run each CLI command against a generated sample document, and verify `rp docx index FILE` and `rp-docx index FILE` produce identical output.
 

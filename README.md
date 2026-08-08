@@ -12,10 +12,9 @@ composes with shell pipelines; given `-o` it writes the file, and what it
 prints instead of the Markdown varies by package — see each package's usage
 guide.
 
-**Status:** Phases 0, 0.5, 1, and 2.5 are complete — `rp-core`, `rp-pdf`,
-`rp-docx`, and `rp-pptx` all ship. Phase 2 (`rp-mcp`, MCP servers for PDF,
-Word, and PowerPoint) is next; `rp-xlsx` (Phase 3) remains future work. See
-[ROADMAP.md](ROADMAP.md) for details.
+**Status:** Phases 0, 0.5, 1, 2, and 2.5 are complete — `rp-core`, `rp-pdf`,
+`rp-docx`, `rp-pptx`, and `rp-mcp` all ship. `rp-xlsx` (Phase 3) remains future
+work. See [ROADMAP.md](ROADMAP.md) for details.
 
 One repository, several independently versioned distributions:
 
@@ -25,10 +24,12 @@ One repository, several independently versioned distributions:
 | [`rp-pdf`](packages/rp-pdf) | `rp_pdf` | `rp-pdf`, `rp pdf` | PDF read/extract/render |
 | [`rp-docx`](packages/rp-docx) | `rp_docx` | `rp-docx`, `rp docx` | Word read/create/edit |
 | [`rp-pptx`](packages/rp-pptx) | `rp_pptx` | `rp-pptx`, `rp pptx` | PowerPoint read/create/edit |
+| [`rp-mcp`](packages/rp-mcp) | `rp_mcp` | `rp-mcp`, `rp mcp` | MCP servers for the three above |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
 Dependency direction is strictly one-way: leaf packages never import each
-other, and `robo-papyro` reaches the leaves through entry-point discovery.
+other, `robo-papyro` reaches the leaves through entry-point discovery, and
+`rp-mcp` sits above all three — it imports them, nothing imports it back.
 `rp-core` knows nothing PDF- or format-specific, but it does own the generic,
 format-agnostic mechanics every OOXML leaf needs — package zip read/repack,
 content-type rewriting, and a shared Markdown block/inline parser
@@ -39,8 +40,10 @@ no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries
 
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
 [docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
-[docs/usage-pptx.md](docs/usage-pptx.md) for `rp-pptx`. The governing
-specifications are in [docs/specs/](docs/specs).
+[docs/usage-pptx.md](docs/usage-pptx.md) for `rp-pptx`,
+[docs/usage-mcp.md](docs/usage-mcp.md) for `rp-mcp`. The governing
+specifications are in [docs/specs/](docs/specs). Agent skills for the three
+CLIs are in [skills/](skills).
 
 ## Setup
 
@@ -302,6 +305,31 @@ loudly rather than reporting an empty list. Classic comments are read normally.
 
 Full guide: [docs/usage-pptx.md](docs/usage-pptx.md).
 
+## rp-mcp
+
+The same three toolkits as MCP tools, for a client that has no shell. One
+server per format, or all three at once, over stdio:
+
+```sh
+uv run rp-mcp serve --root ~/documents                    # read-only
+uv run rp-mcp serve --root ~/documents --write-root ~/documents/out
+uv run rp-pdf-mcp --root ~/documents                      # one format
+uv run rp-mcp tools --server docx --root .                # the surface, as JSON
+```
+
+Every path in every tool call is resolved through a sandbox before a leaf sees
+it: reads are confined to `--root` directories (checked on the resolved path,
+so `..` and symlinks cannot climb out), writes need an explicit `--write-root`,
+and nothing is ever overwritten — there is no `--in-place` over MCP to opt
+into. Without a write root the file-creating tools are **not registered at
+all**, so an agent sees a shorter tool list rather than tools that always fail.
+
+Failures carry the suite's error envelope as the last line of the tool error,
+with the same exit codes the CLIs use. Rendering and the AI review pass are
+deliberately not exposed — see the guide.
+
+Full guide: [docs/usage-mcp.md](docs/usage-mcp.md).
+
 ## Library
 
 ```python
@@ -337,6 +365,12 @@ slides = get_text(Path("deck.pptx"), slides="1-3")       # list[SlideText]
 create(Path("out.pptx"), markdown="# Title", template="house")
 result = replace_text(Path("in.pptx"), {"{{ k }}": "v"}, output=Path("out.pptx"))
 reorder_slides(Path("deck.pptx"), [3, 1, 2], output=Path("out.pptx"))
+```
+
+```python
+from rp_mcp import Sandbox, build_server
+
+build_server(Sandbox(roots=["/docs"], write_root="/docs/out")).run(transport="stdio")
 ```
 
 Core functions return pydantic models; serialize with `.model_dump_json()`. The
