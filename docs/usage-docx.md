@@ -342,6 +342,26 @@ re-exports of `rp-core` — no rendering implementation lives in this package.
 `--pages` takes the suite's range syntax (`all`, `5`, `3-7`, `-4`, `7-`,
 `1,3-5,9`).
 
+These two are the only commands here that can take a while — everything else is
+in-process and returns immediately — so they are also the only two that take
+`--describe` and `--progress`:
+
+```console
+$ rp-docx render report.docx -o ./pages
+rp-docx render — report.docx
+  pages   all
+  format  png at 150 dpi
+  output  ./pages
+  via     LibreOffice to PDF, then poppler to images
+⠹ Converting report.docx to PDF with LibreOffice [21s]
+```
+
+Both write to stderr only, and both are on by default *only when stderr is a
+terminal*, so piped output is unchanged. `--describe`/`--progress` force them
+on, `--no-describe`/`--no-progress` off. A LibreOffice conversion that has hung
+and one that is merely slow look identical without this — the elapsed clock
+keeps ticking on its own thread, so they no longer do.
+
 Run `rp-docx doctor` to see what is installed.
 
 ## Library

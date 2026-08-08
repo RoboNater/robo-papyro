@@ -156,6 +156,24 @@ These need LibreOffice (and poppler for rendering); `rp-pptx doctor` reports wha
 is installed. Nothing else in this package needs an external binary — reading,
 creating, editing, templating, and slide operations all work without one.
 
+They are also the only two commands here that can take long enough for silence
+to be ambiguous, so they take `--describe` (what the run will do, before it
+starts) and `--progress` (a live line with an elapsed clock while it runs):
+
+```console
+$ rp-pptx render deck.pptx -o ./slides
+rp-pptx render — deck.pptx
+  slides  all
+  format  png at 150 dpi
+  output  ./slides
+  via     LibreOffice to PDF, then poppler to images
+⠹ Converting deck.pptx to PDF with LibreOffice [18s]
+```
+
+Both go to stderr and are on by default *only when stderr is a terminal*, so
+piped output is unchanged; `--describe`/`--progress` force them on and
+`--no-describe`/`--no-progress` off.
+
 ## Exit codes
 
 | Code | Meaning |

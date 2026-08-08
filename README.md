@@ -123,11 +123,42 @@ right on pages extracted mid-document; see
 configuration. The AI pass needs the optional dependencies:
 `uv sync --extra ai`.
 
+### Watching a long run
+
+A `--ai` conversion of a few hundred pages is minutes of mostly waiting, so the
+commands that do real work (`text`, `tables`, `search`, `images`, `markdown`,
+`render`) describe themselves and report progress:
+
+```console
+$ rp-pdf markdown report.pdf --ai --jobs 4 -o report.md
+rp-pdf markdown — report.pdf
+  pages      all
+  engine     poppler (needs pdftotext installed)
+  AI review  on, model gpt-4o-mini at https://openrouter.ai/api/v1; 4 concurrent, pages rendered at 150 dpi
+  OCR        off — pages with no text layer stay empty (--ocr to transcribe them)
+  cache      on — responses reused from ~/.cache/rp-pdf
+  output     report.md
+✔ Finding tables 142/142 [3s]
+⠹ AI review 27/142 [1m48s]
+```
+
+The description checks your flags *before* the bill, naming what is off as well
+as what is on; the progress line is ticked by a background thread, so the clock
+keeps moving even when the work is blocked on a stalled network read. Both go to
+**stderr only** and are on by default *only when stderr is a terminal* — an
+agent or a pipeline sees exactly what it saw before. `--describe`/`--progress`
+force them on, `--no-describe`/`--no-progress` off, and `[ui]` in the config
+file sets them for good. `rp-docx`/`rp-pptx` `convert` and `render` take the
+same two options.
+
 ### Configuration file
 
 Any `rp-pdf` option can be given a persistent default in an optional TOML config
 file, so a bare `rp-pdf FILE.pdf` (just the PDF path, no subcommand) finds the
-config and runs the action it prescribes:
+config and runs the action it prescribes. Two fixed locations, both optional and
+both applying at once: a **project** file named `rp-pdf.toml` in the current
+directory or any parent, and a **user** file at
+`~/.config/rp-pdf/config.toml`.
 
 ```toml
 [default]
@@ -149,6 +180,19 @@ organization = "org-abc123"
 cache_dir = "~/.cache/rp-pdf"
 # the API key is never read from the config file — it stays in the environment
 # (RP_PDF_VLM_API_KEY / OPENAI_API_KEY).
+
+[ui]                          # progress line and job description
+progress = true               # default for both: on only when stderr is a terminal
+```
+
+You don't have to write it by hand. `--save-config rp-pdf.toml` on any run
+writes the options *you passed* — after the run succeeds, so what is recorded is
+a command line known to have worked. Built-in defaults, environment values, and
+`markdown -o FILE` (this document's output, not the next one's) are left out:
+
+```sh
+uv run rp-pdf markdown report.pdf --ai --model gpt-4o-mini --jobs 4 --save-config rp-pdf.toml
+uv run rp-pdf markdown other.pdf     # same options, no flags needed
 ```
 
 Every option resolves by precedence **flag → environment variable → config file
@@ -158,11 +202,13 @@ overrides `[markdown] ai = true`, and every `--flag` has a matching `--no-flag`.
 VLM keys set in a command section (say `[markdown] model`) override the same key
 in `[vlm]` for that command.
 
-The file is discovered, in order: an explicit `--config PATH` (or
-`$RP_PDF_CONFIG`); the nearest `rp-pdf.toml` walking up from the current
-directory; then `~/.config/rp-pdf/config.toml`. When both a project and a user
-file are found they merge per key with the project file winning. A malformed
-file reports a clear error rather than a traceback.
+Discovery: `--config PATH` (or `$RP_PDF_CONFIG`) names one file and, when given,
+is the only file read. Otherwise both auto-discovered files apply — the nearest
+`rp-pdf.toml` walking up from the current directory, and
+`~/.config/rp-pdf/config.toml` — merged per key with the project file winning.
+Having neither is normal. A malformed file reports a clear error rather than a
+traceback. Full details in
+[docs/usage.md](docs/usage.md#configuration-file).
 
 The default-command shortcut lives in the `rp-pdf` console script, so it applies
 to `rp-pdf FILE.pdf` but not to `rp pdf FILE.pdf`, which needs an explicit

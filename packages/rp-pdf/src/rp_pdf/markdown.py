@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pdfplumber
 
+from rp_core.progress import NULL, Progress
 from rp_pdf import core
 from rp_pdf.models import ImageInfo, MarkdownPage, MarkdownResult
 from rp_pdf.pages import PageSpec
@@ -76,6 +77,7 @@ def to_markdown(
     poppler_path: str | Path | None = None,
     cache_dir: Path | None = None,
     use_cache: bool = True,
+    progress: Progress | None = None,
 ) -> MarkdownResult:
     """Convert pages to Markdown.
 
@@ -108,14 +110,19 @@ def to_markdown(
     needed). outline_context=True (requires ai=True) tells the VLM each page's
     position in the outline so the levels it assigns match the document
     hierarchy rather than the single page's visual scale.
+
+    progress (rp_core.progress.Progress) reports each stage as it runs — table
+    scan, text extraction, assembly, page rendering, AI review, OCR — counted in
+    pages. It defaults to the no-op reporter; this function writes nothing to
+    stdout or stderr itself either way.
     """
     if outline_context and not ai:
         raise VlmError("outline_context requires the AI pass (--outline-context needs --ai).")
     if ocr and not ai:
         raise VlmError("OCR requires the AI pass (--ocr needs --ai).")
+    reporter = progress if progress is not None else NULL
     path = Path(path)
-    reader = core._open_reader(path, password)
-    numbers, labels = core._resolve_pages(reader, pages, physical)
+    reader, numbers, labels = core._open_pages(path, password, pages, physical, reporter)
 
     flat_outline: list[tuple[str, int, int]] = []
     if outline_headings or outline_context:
@@ -128,32 +135,44 @@ def to_markdown(
     if images_dir is not None:
         spec = ",".join(str(n) for n in numbers)
         for info in core.get_images(
-            path, spec, out_dir=images_dir, password=password, physical=True
+            path, spec, out_dir=images_dir, password=password, physical=True, progress=reporter
         ):
             images_by_page.setdefault(info.physical_page, []).append(info)
 
     bodies: dict[int, str] = {}
     has_content: dict[int, bool] = {}
     with pdfplumber.open(path, password=password) as pdf:
-        tables_by_page = {n: pdf.pages[n - 1].find_tables() for n in numbers}
+        # Table detection is the slow half of stage 1 on a long document, and
+        # text extraction is the other half, so they are separate steps: which
+        # of the two a stalled run is sitting in is the first thing worth
+        # knowing about it.
+        with reporter.step("Finding tables", total=len(numbers)) as step:
+            tables_by_page = {}
+            for n in numbers:
+                tables_by_page[n] = pdf.pages[n - 1].find_tables()
+                step.advance()
         plain_pages = [n for n in numbers if not tables_by_page[n]]
         texts = (
-            core._page_texts(path, reader, plain_pages, engine, False, password, poppler_path)
+            core._page_texts(
+                path, reader, plain_pages, engine, False, password, poppler_path, reporter
+            )
             if plain_pages
             else {}
         )
-        for n in numbers:
-            found = tables_by_page[n]
-            if found:
-                body = _page_with_tables(pdf.pages[n - 1], found)
-            else:
-                body = _clean_text(texts[n])
-            if outline_headings:
-                body = _tag_outline_headings(body, entries_by_page.get(n, []))
-            image_links = _image_links(images_by_page.get(n, []), images_dir)
-            body = "\n\n".join(part for part in (body, image_links) if part)
-            bodies[n] = body
-            has_content[n] = bool(body)
+        with reporter.step("Assembling Markdown", total=len(numbers)) as step:
+            for n in numbers:
+                found = tables_by_page[n]
+                if found:
+                    body = _page_with_tables(pdf.pages[n - 1], found)
+                else:
+                    body = _clean_text(texts[n])
+                if outline_headings:
+                    body = _tag_outline_headings(body, entries_by_page.get(n, []))
+                image_links = _image_links(images_by_page.get(n, []), images_dir)
+                body = "\n\n".join(part for part in (body, image_links) if part)
+                bodies[n] = body
+                has_content[n] = bool(body)
+                step.advance()
 
     result_pages = [
         MarkdownPage(
@@ -184,6 +203,7 @@ def to_markdown(
             use_cache=use_cache,
             warnings=warnings,
             contexts=contexts,
+            progress=reporter,
         )
 
         no_text = [p for p in result_pages if not p.has_text]
@@ -208,6 +228,7 @@ def to_markdown(
                     cache_dir=cache_dir,
                     use_cache=use_cache,
                     warnings=warnings,
+                    progress=reporter,
                 )
             }
             for page in result_pages:
@@ -396,12 +417,14 @@ def _refine_pages(
     use_cache: bool,
     warnings: list[str],
     contexts: dict[int, str],
+    progress: Progress | None = None,
 ) -> None:
     """Review each page's draft against its rendered image; mutate accepted
     pages in place. Every failure path keeps the draft and appends a warning."""
     client, model = make_client(model, base_url, organization)
     if not pages:
         return
+    reporter = progress if progress is not None else NULL
     file_hash = file_sha256(path)
     cache = cache_path(cache_dir) if use_cache else None
 
@@ -417,34 +440,46 @@ def _refine_pages(
                 password=password,
                 poppler_path=poppler_path,
                 physical=True,
+                progress=reporter,
             )
         }
 
-        def refine(page: MarkdownPage) -> str | None:
+        def refine(page: MarkdownPage, step) -> str | None:
             n = page.physical_page
             context = contexts.get(n, "")
             key = hashlib.sha256(
                 f"{file_hash}:{n}:{model}:{PROMPT_VERSION}:{dpi}:{context}".encode()
             ).hexdigest()
-            if cache is not None:
-                hit = cache_read(cache, key)
-                if hit is not None:
-                    page.markdown, page.ai_refined = hit, True
-                    return None
             try:
-                response = _call_vlm(client, model, page.markdown, rendered[n], context)
-            except Exception as exc:  # any API failure keeps the draft
-                return f"page {n}: AI pass failed ({exc}); kept programmatic draft"
-            accepted, reason = _accept_response(page.markdown, response)
-            if accepted is None:
-                return f"page {n}: AI response rejected ({reason}); kept programmatic draft"
-            page.markdown, page.ai_refined = accepted, True
-            if cache is not None:
-                cache_write(cache, key, accepted, PROMPT_VERSION)
-            return None
+                if cache is not None:
+                    hit = cache_read(cache, key)
+                    if hit is not None:
+                        page.markdown, page.ai_refined = hit, True
+                        return None
+                try:
+                    response = _call_vlm(client, model, page.markdown, rendered[n], context)
+                except Exception as exc:  # any API failure keeps the draft
+                    return f"page {n}: AI pass failed ({exc}); kept programmatic draft"
+                accepted, reason = _accept_response(page.markdown, response)
+                if accepted is None:
+                    return f"page {n}: AI response rejected ({reason}); kept programmatic draft"
+                page.markdown, page.ai_refined = accepted, True
+                if cache is not None:
+                    cache_write(cache, key, accepted, PROMPT_VERSION)
+                return None
+            finally:
+                # In the finally so a rejected or failed page still counts:
+                # the number that matters to someone watching is pages handled,
+                # not pages the model got right.
+                step.advance()
 
-        with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-            warnings.extend(w for w in pool.map(refine, pages) if w is not None)
+        # This is the step the whole feature exists for: one request per page
+        # against a remote model, minutes of nothing to show for it otherwise.
+        with reporter.step("AI review", total=len(pages)) as step:
+            with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+                warnings.extend(
+                    w for w in pool.map(lambda page: refine(page, step), pages) if w is not None
+                )
 
 
 def _call_vlm(client, model: str, draft: str, image_path: Path, context: str = "") -> str | None:

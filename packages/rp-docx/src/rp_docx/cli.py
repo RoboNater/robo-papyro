@@ -122,6 +122,22 @@ def _errors():
     return clikit.error_handler()
 
 
+def _job(title: str, entries: clikit.JobEntries, describe: bool | None, progress: bool | None):
+    """Describe and report on a job, on stderr, when a human is watching.
+
+    Only ``convert`` and ``render`` take these options: they are the two commands
+    that shell out to LibreOffice and poppler, where a run takes long enough for
+    silence to be ambiguous. Everything else here is in-process and finishes
+    before a progress line would repaint once.
+    """
+    return clikit.job(
+        title,
+        entries,
+        describe=clikit.display_enabled(describe),
+        progress=clikit.display_enabled(progress),
+    )
+
+
 def _load_json(value: str, what: str) -> dict:
     """A JSON mapping given either as a file path or inline.
 
@@ -549,6 +565,8 @@ def convert(
     to: Annotated[ConvertTarget, typer.Option("--to", help="Target format")],
     out: OutFileOpt = None,
     plain: clikit.plain_option = False,
+    show_progress: clikit.progress_option = None,
+    show_description: clikit.describe_option = None,
 ) -> None:
     """Convert a document with LibreOffice. Needs soffice on PATH."""
     with _errors():
@@ -556,9 +574,14 @@ def convert(
         if destination.resolve() == file.resolve():
             raise RpDocxError(f"Refusing to overwrite {file.name}: pass --out.")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        produced = binaries.soffice_convert(file, to.value, destination.parent)
-        if produced != destination:
-            produced.replace(destination)
+        entries = [("to", f"{to.value}, via LibreOffice"), ("output", str(destination))]
+        with _job(
+            f"rp-docx convert — {file}", entries, show_description, show_progress
+        ) as reporter:
+            with reporter.step(f"Converting {file.name} to {to.value}"):
+                produced = binaries.soffice_convert(file, to.value, destination.parent)
+                if produced != destination:
+                    produced.replace(destination)
         clikit.emit(ConversionResult(source=file, output=destination, format=to.value), plain)
 
 
@@ -572,10 +595,21 @@ def render(
     ] = None,
     fmt: Annotated[str, typer.Option("--format", help="Image format: png or jpeg")] = "png",
     plain: clikit.plain_option = False,
+    show_progress: clikit.progress_option = None,
+    show_description: clikit.describe_option = None,
 ) -> None:
     """Rasterize pages to images. Needs LibreOffice and poppler."""
     with _errors():
-        written = core_render.render_pages(file, out, dpi=dpi, pages=pages, fmt=fmt)
+        entries = [
+            ("pages", pages or "all"),
+            ("format", f"{fmt} at {dpi} dpi"),
+            ("output", str(out)),
+            ("via", "LibreOffice to PDF, then poppler to images"),
+        ]
+        with _job(f"rp-docx render — {file}", entries, show_description, show_progress) as reporter:
+            written = core_render.render_pages(
+                file, out, dpi=dpi, pages=pages, fmt=fmt, progress=reporter
+            )
         clikit.emit(
             [RenderResult(page=number, path=path) for number, path in enumerate(written, start=1)],
             plain,

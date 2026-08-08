@@ -16,8 +16,8 @@ workspace.
 ## Layout
 
 ```
-packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit, markdown, ooxml
-packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, cli
+packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doctor, clikit, progress, markdown, ooxml
+packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, describe, cli
 packages/rp-docx/src/rp_docx/     ooxml, templates, models, errors, cli, docx/{read,write,runs,template}
 packages/rp-pptx/src/rp_pptx/     ooxml, templates, models, errors, cli, pptx/{read,write,runs,slides,template}
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
@@ -44,7 +44,10 @@ dependencies, ruff config, and pytest config live in the **root**
    look in `rp_core` first.
 3. **Core logic never prints and never imports typer.** Library functions
    return pydantic models; CLI modules do all formatting. (`rp_core.clikit` is
-   the deliberate exception — it *is* the shared CLI layer.)
+   the deliberate exception — it *is* the shared CLI layer.) Progress reporting
+   does not bend this: a long-running function takes a
+   `progress: Progress | None` and *calls* it, defaulting to the no-op reporter,
+   and only the CLI decides that means writing to stderr.
 4. **Permissive licenses only.** See below. If a forbidden dependency seems
    necessary, stop and ask rather than adding it.
 
@@ -137,6 +140,16 @@ if you trip one; each explains what breaks and why.
   envelope is always the final line. **There is no `--json` flag** anywhere —
   `packages/rp-pdf/tests/test_cli.py::test_no_json_flag_on_any_command`
   enforces that.
+- `progress.py` — `Progress`/`Step`, whose base implementation does nothing, and
+  `StderrProgress`, which does. **Never on by default**: `NULL` is what every
+  library function substitutes for `progress=None`, and a CLI only swaps in the
+  real one when stderr is a terminal or a flag said so, so nothing an agent sees
+  changes. Its display thread is what makes an indeterminate step useful — the
+  elapsed clock has to advance while the caller is blocked, or "stuck" and
+  "slow" look the same. Everything goes to stderr; stdout is results.
+  Note the identifier ban: `label` means *page label* in this suite and
+  `ci/test_workspace_invariants.py` fails on it in rp-core, so a step's display
+  string is its `name`.
 - `ooxml.py` — generic OPC/OOXML package mechanics shared by every OOXML leaf:
   zip read/repack (`part_names`, `read_part`, `parse_part`, `repack`),
   relationship target resolution (`resolve_target`), content-type reading and
@@ -174,7 +187,21 @@ if you trip one; each explains what breaks and why.
   `config.resolve(...)` so flag → env → config → default holds. A bare
   `rp-pdf FILE` runs the `[default].command` (else `index`); new subcommands
   must be registered in `COMMAND_NAMES` — see the invariants table above.
-  Secrets (API key, `--password`) are never read from the config file.
+  Secrets (API key, `--password`) are never read from the config file — nor
+  written by `--save-config`, which persists the options a run was *given*,
+  after it succeeds (per-command keys to `[command]`, shared VLM keys to
+  `[vlm]`). Explicitly-passed flags only: a saved built-in default freezes
+  today's default into the user's file, and `cli.NEVER_SAVED` additionally drops
+  `markdown -o`, which names this document's output rather than the next one's.
+- Each job command resolves its options through **one `Options` object**, which
+  records the resolved value (what runs, and what `describe.py` reports) and
+  whether a flag supplied it (what `--save-config` writes). One call per option,
+  so the run, the description, and the saved file cannot drift apart; a new
+  option goes through it, not around it.
+- `--describe`/`--progress` resolve through `clikit.display_enabled` (flag →
+  `RP_PDF_*` → config → `stderr.isatty()`) rather than `config.resolve`, which
+  cannot express "no fixed default". `[ui]` backs them like `[vlm]` backs the
+  model settings.
 - Heavy/optional deps are imported lazily — `openai` must never be imported
   unless the AI pass runs.
 - Errors subclass `rp_pdf.errors.RpPdfError`, which is parented onto

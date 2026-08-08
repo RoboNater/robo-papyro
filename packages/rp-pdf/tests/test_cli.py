@@ -223,3 +223,81 @@ def test_validate_vlm_ocr_config_error(run_cli, cli_error):
     result = run_cli("validate-vlm-ocr")
     assert result.returncode == 1
     assert "model" in cli_error(result)["message"]
+
+
+# --------------------------------------------------------------------------- #
+# --describe / --progress: human affordances on stderr, off for everyone else
+# --------------------------------------------------------------------------- #
+class TestDescribeAndProgress:
+    """The contract that keeps these safe to add: stdout is byte-for-byte what
+    it was, and stderr stays empty unless a human is watching or asked."""
+
+    def test_neither_appears_when_stderr_is_a_pipe(self, run_cli, text_pdf):
+        result = run_cli("index", text_pdf)
+        assert result.returncode == 0
+        assert result.stderr == ""
+
+    def test_describe_writes_to_stderr_and_leaves_stdout_parseable(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--describe", "--no-progress")
+        assert result.returncode == 0
+        assert result.stderr.startswith("rp-pdf images — ")
+        assert isinstance(json.loads(result.stdout), list)
+
+    def test_progress_writes_to_stderr_and_leaves_stdout_parseable(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--progress", "--no-describe")
+        assert result.returncode == 0
+        assert "Extracting images: done 3/3" in result.stderr
+        assert isinstance(json.loads(result.stdout), list)
+
+    def test_no_describe_and_no_progress_silence_them(self, run_cli, text_pdf):
+        result = run_cli("images", text_pdf, "--no-describe", "--no-progress")
+        assert result.stderr == ""
+
+    def test_markdown_body_on_stdout_is_unaffected(self, run_cli, text_pdf):
+        """The one that would actually corrupt output: `markdown` writes its
+        body to stdout, so a description leaking there is a broken document."""
+        described = run_cli("markdown", text_pdf, "--engine", "pypdf", "--describe", "--progress")
+        quiet = run_cli("markdown", text_pdf, "--engine", "pypdf", "--no-describe")
+        assert described.stdout == quiet.stdout
+        assert "rp-pdf markdown" in described.stderr
+
+    def test_describe_reports_the_resolved_options_not_the_typed_ones(self, run_cli, text_pdf):
+        """Defaults the user never typed are part of what they need to check."""
+        result = run_cli("markdown", text_pdf, "--engine", "pypdf", "--describe")
+        assert "AI review  off" in result.stderr
+        assert "pypdf" in result.stderr
+
+    def option_names(self, command: str) -> set[str]:
+        """Every flag spelling a command accepts, read from the parsed CLI
+        rather than from rendered `--help`.
+
+        Not a shortcut: on a CI runner rich colorizes the help table and
+        highlights an option's leading hyphen as its own span, so the literal
+        text `--describe` is not present in the output even though the flag is.
+        The parameter list is what the assertion is actually about.
+        """
+        import typer.main
+
+        from rp_pdf.cli import app
+
+        params = typer.main.get_command(app).commands[command].params
+        return {name for param in params for name in (*param.opts, *param.secondary_opts)}
+
+    def test_the_job_commands_take_all_three_options(self):
+        for command in ("text", "tables", "search", "images", "markdown", "render"):
+            assert {
+                "--describe",
+                "--no-describe",
+                "--progress",
+                "--no-progress",
+                "--save-config",
+            } <= self.option_names(command), command
+
+    def test_the_flags_stay_off_commands_with_no_job_to_describe(self):
+        """`index` and `doctor` are near-instant and have nothing to configure;
+        an option that never helps is still an option to read past."""
+        for command in ("index", "doctor"):
+            names = self.option_names(command)
+            assert "--progress" not in names, command
+            assert "--describe" not in names, command
+            assert "--save-config" not in names, command

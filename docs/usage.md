@@ -59,6 +59,8 @@ identical across the suite.
   These codes are shared across the whole robo-papyro suite.
 - **Encrypted PDFs**: pass `--password PW` (library: `password="PW"`). Missing or
   wrong passwords produce a clear error.
+- **Long runs describe themselves and report progress** — on stderr, and only
+  when a person is watching. See [Watching a long run](#watching-a-long-run).
 
 ## CLI
 
@@ -196,6 +198,11 @@ uv run rp-pdf markdown report.pdf -o report.md --ai --model gpt-4o-mini
 uv run rp-pdf markdown report.pdf --ai --ocr --model gpt-4o-mini  # with OCR for scanned pages
 ```
 
+This is the command most likely to run for minutes, so it is also the one
+[`--describe` and `--progress`](#watching-a-long-run) were written for: check
+the model and the flags before it starts, and watch the page count move while
+it runs. Both are automatic on a terminal.
+
 Converts pages to Markdown in up to three stages.
 
 **Stage 1 (always runs)** assembles each page programmatically: prose text via
@@ -328,12 +335,170 @@ label first (what you see in your PDF reader), with the physical position as a
 | with labels   | `page0030_pp0038.png` | `page0030_pp0038_img00_Im1.png` | `table_page0030_pp0038_00.csv` |
 | without labels| `page0038.png`    | `page0038_img00_Im1.png`  | `table_page0038_00.csv`    |
 
+## Watching a long run
+
+`rp-pdf markdown --ai` on a few hundred pages is minutes of work, most of it
+spent waiting on a remote model. Two options make that wait legible, and a third
+records the options that produced it. All three are available on `text`,
+`tables`, `search`, `images`, `markdown`, and `render` — the commands with a job
+worth describing.
+
+**Nothing here touches stdout.** The description and the progress line are
+written to stderr, and both default to *on only when stderr is a terminal*, so a
+pipeline, a script, or an agent sees exactly the output it saw before.
+
+Each resolves as **flag → environment variable → config file → is stderr a
+terminal**: `--describe`/`--no-describe` and `--progress`/`--no-progress`,
+then `RP_PDF_DESCRIBE` / `RP_PDF_PROGRESS` (`1`/`true`/`yes`/`on` and their
+opposites), then `[ui]` — or a per-command section — in the config file.
+
+### `--describe` — what is about to happen
+
+Prints the resolved options — flags, environment variables, and config file all
+folded together — before the work starts:
+
+```console
+$ rp-pdf markdown report.pdf --ai --jobs 4 -o report.md
+rp-pdf markdown — report.pdf
+  pages      all
+  engine     poppler (needs pdftotext installed)
+  images     skipped (--images-dir DIR to extract and link them)
+  AI review  on, model gpt-4o-mini at https://openrouter.ai/api/v1; 4 concurrent, pages rendered at 150 dpi
+  OCR        off — pages with no text layer stay empty (--ocr to transcribe them)
+  outline    not used (--outline-headings, --outline-context; no-ops without bookmarks)
+  cache      on — responses reused from ~/.cache/rp-pdf
+  output     report.md
+```
+
+Options that are **off** name the flag that turns them on, because that is the
+half worth checking: the description is there to answer "did I remember
+`--ocr`?" and "is it really using the model I meant?" before the bill, not
+after. `--no-describe` suppresses it; `--describe` forces it on when stderr is
+not a terminal (useful in a log).
+
+### `--progress` — proof it is still moving
+
+A single line on stderr, rewritten in place, with a spinner, a count, and an
+elapsed clock:
+
+```
+⠹ AI review 27/142 [1m48s]
+```
+
+The clock is driven by a background thread rather than by the work, so it keeps
+ticking while a page render or an API call is blocked — a stalled network read
+looks different from a slow one, which is the entire point. **Opening the file
+is itself a reported stage**, so a document on a share that stopped answering
+shows a ticking `Opening report.pdf` rather than nothing; the whole job is one
+outer step, so no phase happens in silence. Each stage leaves a completed line
+behind:
+
+```
+✔ Opening report.pdf [0s]
+✔ Finding tables 142/142 [3s]
+✔ Extracting text (poppler) 130/130 [11s]
+✔ Rendering pages 142/142 [1m02s]
+⠹ AI review 27/142 [1m48s]
+```
+
+Redirected to a file or a CI log, where there is no line to rewrite, it switches
+to one line per stage boundary plus a "still working" line every 15 seconds:
+
+```
+AI review: started (142)
+AI review: still working 12/142 [15s]
+AI review: still working 31/142 [30s]
+AI review: done 142/142 [4m07s]
+```
+
+Progress **never** appears without a terminal unless you ask for it with
+`--progress`, `RP_PDF_PROGRESS=1`, or `[ui] progress = true` in the config.
+
+### `--save-config` — keep the options that worked
+
+Writes the options you passed to a TOML file, so the next document does not need
+the command line again:
+
+```console
+$ rp-pdf markdown report.pdf --ai --model gpt-4o-mini --jobs 4 --engine pypdf \
+    -o report.md --save-config rp-pdf.toml
+Saved the options you passed to /work/rp-pdf.toml as [markdown].
+'out' was not saved: it names this document's output, and reusing it would overwrite this run's result on the next document.
+It will be picked up automatically on the next run.
+
+$ cat rp-pdf.toml
+[markdown]
+ai = true
+jobs = 4
+engine = "pypdf"
+
+[vlm]
+model = "gpt-4o-mini"
+
+$ rp-pdf markdown other.pdf -o other.md   # same AI pass, same model, same engine
+```
+
+What it does and does not record:
+
+- **Only the options you actually passed.** Not every resolved value: writing
+  back a built-in default would freeze today's default into your file, and the
+  file is meant to record a decision, not take a snapshot.
+- Values that came from the **environment** or from an **existing config file**
+  are not copied in either. They already live somewhere that outlasts the run.
+- **`markdown -o FILE` is never saved**, even though you passed it: it names
+  *this* document's output, and persisting it would make the next document
+  silently overwrite this one's result. Directory options (`images --out`,
+  `render --out`, `tables --csv`) are saved — a directory is reusable.
+- It writes **after the run succeeds**, so what gets recorded is a command line
+  known to have worked, not one that was merely typed.
+- Per-command options land in `[markdown]` (or `[text]`, `[render]`, …); the
+  shared settings land in the shared sections — `model`, `base_url`,
+  `organization`, `cache_dir` in `[vlm]`, and `--describe`/`--progress` in
+  `[ui]` — where every command can see them, which is also where they are read
+  back from. That is the layout a hand-written file uses, and `--save-config` is
+  a decent way to learn it. The message names the sections it wrote.
+- Writing the file can fail (a directory in the way, a read-only parent). That
+  is reported as an ordinary rp-pdf error — message plus error envelope on
+  stderr, exit 1 — not a traceback.
+- The **API key is never written**, and neither is `--password`. Secrets stay in
+  the environment.
+- An existing file is *merged*: other sections and other keys survive. But it is
+  rewritten from its parsed contents, so **comments and formatting in it are
+  lost** — the command says so when that applies. The replacement is atomic (a
+  complete temporary file, then one rename), so a failure part-way through
+  leaves your existing config exactly as it was rather than truncated.
+- `rp-pdf.toml` in the current directory (or any parent) is found automatically
+  next time. Saving anywhere else works, and the command tells you that you will
+  need `--config PATH` to read it back.
+
 ## Configuration file
 
 Any option can be given a persistent default in an optional TOML config file, so
 you don't have to repeat flags or export environment variables. With one in
 place, a bare `rp-pdf FILE.pdf` — just the PDF path, no subcommand — finds the
 config and runs the action it prescribes.
+
+**Where does it go, and what is it called?** Two fixed locations, both optional:
+
+| | Path | Use it for |
+|---|---|---|
+| **Project** | `rp-pdf.toml` — in the current directory, or any parent | settings for one repository or one batch of documents |
+| **User** | `~/.config/rp-pdf/config.toml` | your personal defaults, everywhere |
+
+Both names are fixed: a project file is called `rp-pdf.toml` and nothing else,
+and the user file lives at exactly that path. **They are not alternatives — both
+apply at once**, merged per key with the project file winning, so a repository
+can override one of your personal defaults without restating the rest. There can
+be at most one of each; rp-pdf does not read several project files, only the
+nearest one walking up from where you are.
+
+`--config PATH` (or `$RP_PDF_CONFIG`) is the escape hatch: it names *any* file,
+anywhere, with any name — and when you use it, that file is the **only** one
+read. Neither the project nor the user file applies.
+
+Not sure which files are in play? `--describe` shows the options that actually
+resolved, from all sources at once, which is usually the question behind the
+question.
 
 ```toml
 [default]
@@ -354,7 +519,14 @@ base_url = "https://openrouter.ai/api/v1"
 organization = "org-abc123"
 cache_dir = "~/.cache/rp-pdf"
 # the API key is never read from the config file (see "Secrets" below).
+
+[ui]                          # shared human-output settings (see "Watching a long run")
+progress = true               # default: on only when stderr is a terminal
+describe = false
 ```
+
+You don't have to write this by hand: `--save-config rp-pdf.toml` on any run
+produces it from the options that run used.
 
 ### Precedence
 
@@ -374,20 +546,25 @@ rp-pdf report.pdf --no-ai
 ```
 
 A VLM key placed in a command section (e.g. `[markdown] model`) overrides the
-same key in the shared `[vlm]` section for that command.
+same key in the shared `[vlm]` section for that command. The two `[ui]` keys
+work the same way.
 
 ### Discovery
 
-The file is located, first match wins:
+In order:
 
-1. an explicit `--config PATH` (or the `$RP_PDF_CONFIG` env var);
-2. the nearest `rp-pdf.toml` walking up from the current directory (project-local);
-3. `~/.config/rp-pdf/config.toml` (user-level).
+1. `--config PATH` (or `$RP_PDF_CONFIG`). If given, **this file and no other**
+   is read — discovery stops here.
+2. Otherwise both of the following, merged per key with the project file
+   winning:
+   - the nearest **`rp-pdf.toml`** walking up from the current directory;
+   - **`~/.config/rp-pdf/config.toml`**.
 
-When both a project and a user file exist they are merged per key, with the
-project file winning. A missing auto-discovered file is simply ignored; a
-missing `--config`/`$RP_PDF_CONFIG` file, or a malformed file, reports a clear
-error (not a traceback).
+A missing auto-discovered file is simply ignored — having neither is normal, and
+every option falls through to its built-in default. A missing
+`--config`/`$RP_PDF_CONFIG` file is an error, because you named it explicitly. A
+malformed file is always an error, reported clearly rather than as a traceback,
+so a typo surfaces instead of being silently skipped.
 
 ### Secrets
 
@@ -395,6 +572,7 @@ The config file supports every setting **except** the API key. The key stays in
 the environment (`RP_PDF_VLM_API_KEY`, falling back to `OPENAI_API_KEY`) — reading
 a key from a file on disk is a footgun rp-pdf deliberately avoids. Passwords for
 encrypted PDFs are likewise flag/`--password`-only and never read from config.
+`--save-config` honors the same rule: neither is ever written out.
 
 ## Page labels
 
@@ -473,6 +651,13 @@ for page in transcribe_pages("scanned.pdf", model="gpt-4o-mini", warnings=warnin
     if page.has_text:
         print(f"page {page.physical_page}: {len(page.text)} chars transcribed")
 print(warnings)                                               # per-page OCR failures
+
+# Progress, for a caller with a UI of its own. Library functions never print;
+# they call the reporter you pass, and the default one does nothing.
+from rp_core.progress import StderrProgress
+
+with StderrProgress() as reporter:                            # or your own Progress
+    result = to_markdown("report.pdf", ai=True, model="gpt-4o-mini", progress=reporter)
 ```
 
 Errors raise subclasses of `rp_pdf.errors.RpPdfError`, which is parented onto

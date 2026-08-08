@@ -291,6 +291,51 @@ API key is env-only, never read from the file. Config loading lives in the CLI
 layer; `core` stays import-clean. Tests: `tests/test_config.py` (discovery,
 precedence matrix, default action, key-not-from-config).
 
+### Progress, job descriptions, and `--save-config` ✅
+
+Four requests from human users of a tool built primarily for agents — the three
+below plus a documentation fix for the config file's discovery rules. All are
+stderr-only and change no stdout byte, which is what made them safe to add
+without an agent-vs-human mode. Full write-up, including the decisions that
+went the other way first, in
+[dev-notes/status-cli-ux-progress-and-config.md](dev-notes/status-cli-ux-progress-and-config.md).
+
+**Progress** (`rp_core.progress`, shared). A long run that prints nothing is
+indistinguishable from a hung one. `Progress`/`Step` is a callback interface
+whose default implementation does nothing, so core functions take a `progress`
+argument and *call* it without breaking the "core never prints" rule; the CLI
+supplies `StderrProgress`, which repaints one line on a terminal and writes one
+line per stage boundary (plus a 15s heartbeat) off one. A daemon thread drives
+the repaint, so the elapsed clock advances while the caller is blocked in a
+socket read — the difference between "slow" and "stuck". Counted steps thread
+through `to_markdown` (table scan, text, assembly, render, AI review, OCR),
+`transcribe_pages`, `get_images`, `get_tables`, `_page_texts`, and
+`rp_core.render`; `rp-docx`/`rp-pptx` `convert` and `render` get the LibreOffice
+and poppler steps.
+
+**Job descriptions** (`rp_pdf.describe`). The AI pass costs money and minutes,
+and its options come from four places, so `--describe` prints the resolved
+options before the work starts — including what is *off*, with the flag that
+turns it on ("did I remember `--ocr`?"). Pure functions over the same resolved
+`values` dict the command runs from, so the description cannot drift from what
+happens.
+
+Both default to on **only when stderr is a terminal** (`clikit.display_enabled`:
+flag → `RP_PDF_*` → config → `isatty`), so agents, pipelines, and CI are
+untouched without anyone configuring anything. `[ui]` backs them across
+commands the way `[vlm]` backs the model settings.
+
+**`--save-config PATH`** writes the options a run was *given* to a TOML file,
+after it succeeds, so what is recorded is a command line known to have worked.
+Explicitly-passed flags only: saving every resolved value would freeze today's
+built-in defaults into the user's file, and `markdown -o FILE` names this
+document's output, so persisting it would make the next document overwrite this
+one's result (`cli.NEVER_SAVED`). Environment and existing-config values are
+left alone — they already outlast the run. Per-command keys go to `[command]`
+and shared VLM keys to `[vlm]` — the layout a hand-written file uses. An existing file is merged (comments are not preserved,
+and the command says so), and the message reports whether the path is one
+discovery will find. Secrets are still never written.
+
 ### Phase 4 — Quality of life
 
 Three independent, small items.
