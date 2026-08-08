@@ -85,6 +85,24 @@ absent; tests needing LibreOffice carry `@pytest.mark.requires_soffice` and skip
 unless it is present *and demonstrably working*. **No test may require
 LibreOffice to pass** — mock the subprocess, or mark it and let it skip.
 
+### Install poppler at the start of any session touching rp-pdf
+
+`uv sync` is not the whole setup. **77 tests carry `requires_poppler`** and skip
+silently without it, and they are not incidental ones: page rendering, the
+default text engine, and the entire AI/OCR path go untested — which is where the
+interesting bugs live. A green run in a bare container proves much less than it
+looks like, and a skip count is easy to read past.
+
+```sh
+apt-get update -q && apt-get install -y -q poppler-utils
+```
+
+The `update` is not optional — a bare container's package index is stale enough
+that the install 404s without it. This is container-local, so a fresh session
+starts without it again; do it before trusting a test run. LibreOffice is
+heavier and its tests are allowed to skip by policy, so leave it alone unless
+you are working on conversion.
+
 ### Adding a package to the workspace
 
 1. `packages/<dist>/` with `pyproject.toml`, `src/<import_name>/`, `tests/`.
@@ -140,6 +158,11 @@ if you trip one; each explains what breaks and why.
   envelope is always the final line. **There is no `--json` flag** anywhere —
   `packages/rp-pdf/tests/test_cli.py::test_no_json_flag_on_any_command`
   enforces that.
+  Also here: `progress_option`/`describe_option`, `display_enabled` (flag → env
+  → config → `stderr.isatty()`), `job`, and `parse_bool`. **typer 0.27 accepts
+  `is_flag`/`flag_value` and forwards neither to click** — `typer.main` never
+  mentions them — so an optional-value option (`--save-config` with no argument)
+  cannot be spelled. Check before designing an option shape around one.
 - `progress.py` — `Progress`/`Step`, whose base implementation does nothing, and
   `StderrProgress`, which does. **Never on by default**: `NULL` is what every
   library function substitutes for `progress=None`, and a CLI only swaps in the
@@ -318,6 +341,42 @@ moves. Don't add one you haven't verified — the gate will, and it will fail.
 
 ## Testing notes
 
+### Test the behavior you want, not the behavior you wrote
+
+**This is the rule that has caught the most real bugs here, by being broken.**
+Write each assertion from the docstring, the spec, or the bug report — then make
+it pass. A test written by reading the implementation and asserting what it does
+is a description, not a check: it passes on the day you write it and every day
+after, including the days the behavior is wrong.
+
+Defects have shipped here with green suites for exactly this reason, more than
+once. Two are worth knowing by shape, because both looked *self-consistent*: the
+code did what the tests said, the tests said what the code did, and only the
+docstring disagreed — and nothing checks a docstring.
+
+- `to_markdown`'s docstring promised progress reporting on a hung file read.
+  Every progress test opened a step first, so not one of them could have
+  noticed that the reporter's thread starts *after* the file is opened. The
+  feature missed the only scenario it existed for.
+- `save_command_options`' docstring promised a mid-write failure could not lose
+  a section. No test ever failed a write, and `write_text` truncates the target,
+  so any interruption destroyed the file.
+
+The tell in both: **a test that would have to be edited before it could fail.**
+If catching the bug means changing the test rather than just running it, the
+test was written from the code.
+
+Two habits that follow:
+
+- **A guarantee in a docstring is a claim, and a claim needs a test.** If you
+  write "cannot", "always", or "never" in prose, add the assertion in the same
+  commit or delete the word.
+- **Reproduce a reported bug before fixing it**, and keep the reproduction as
+  the test. Every review finding on PRs #7 and #9 was reproduced first; two
+  turned out to be worse than reported, which the fix would have missed.
+
+### Fixtures, fakes, and environment traps
+
 - Fixture PDFs are generated at run time with reportlab in
   `packages/rp-pdf/tests/conftest.py`; every docx fixture and template is
   built in `packages/rp-docx/tests/conftest.py`; every pptx fixture and
@@ -340,6 +399,72 @@ moves. Don't add one you haven't verified — the gate will, and it will fail.
   `>=` floor lets the gate change what it enforces whenever a release widens
   ruff's implicit default, which is what forced the Phase 0 workaround. Bump the
   pin in its own commit, with the resulting fixes.
+- **Never assert on rendered `--help`.** rich detects `CI`/`GITHUB_ACTIONS` and
+  colorizes, and its option highlighter emits an option's leading hyphen as its
+  own span — so `"--describe" in help_text` is True locally and False on CI,
+  which is a failure only the runner can show you. Assert against the parsed
+  command instead:
+  `typer.main.get_command(app).commands[name].params`. (A *negative* assertion
+  like `"--json" not in ...` survives colorization and is fine.)
+- **Run the suite once as CI sees it** before pushing anything that touches
+  output: `CI=true GITHUB_ACTIONS=true uv run pytest -q`.
+- **The dev container runs as root, so file permissions do not deny it
+  anything.** A test that expects `PermissionError` from a `0o500` directory
+  fails with "DID NOT RAISE" here and passes on CI. Guard it —
+  `@pytest.mark.skipif(getattr(os, "geteuid", lambda: 1)() == 0, ...)` — rather
+  than deleting it; CI runs as a normal user and will exercise it.
+- Tests that need a terminal (progress rendering, `isatty` behavior) can get one
+  with `pty.fork`; `subprocess` with `capture_output` never will. A helper that
+  applies carriage-return semantics to the captured bytes lets a test assert on
+  what a terminal would *display* rather than on the escape sequence soup —
+  see `rendered()` in `packages/rp-core/tests/test_progress.py`.
+
+## Failure modes this repo has already hit
+
+Each of these was a real defect found in review, generalized. They recur because
+each one is locally reasonable; the specific fixes are in the package notes
+above and the dev-notes.
+
+- **A part's filename is not its position, and our own commands are what make
+  that unsafe.** `reorder_slides` deliberately rewrites `p:sldIdLst` and leaves
+  every part where it was, so `comment3.xml` is not slide 3's — a filename
+  assumption elsewhere in the same package became a reachable data-corruption
+  path (comments reported against inverted slides). Scanning `slideN.xml` until
+  a gap has the same root cause: deletion leaves numbering non-contiguous. When
+  one operation deliberately breaks an invariant, audit every reader of it.
+- **Validating a proxy is worse than validating nothing**, because it looks like
+  validation. Checking that a layout *name* exists and then dropping content
+  into a layout with no matching placeholder produced exactly the silent wrong
+  output the name check was there to prevent. Validate the thing you actually
+  need, at the point you need it.
+- **"The first one that looks right" is not a selector.** `_body_placeholder`
+  took the first placeholder with a text frame and put bullets into the
+  *picture* placeholder of PowerPoint's Picture-with-Caption layout. Match an
+  allowlist of expected types.
+- **Presence and placement are different questions with different
+  reliability.** When deferring a feature (§7 modern comments), key the guard on
+  what you can detect for certain — a content type is in the package — not on
+  what you cannot — which slide it belongs to. A part that cannot be attributed
+  is still unreadable, and must still fail loudly.
+- **A suite-wide claim is a claim about every command.** The docs had
+  `convert`/`render` writing artifacts *instead of* JSON when they do both, and
+  named `markdown` the stdout exception without saying that its `-o` form
+  behaves three different ways across the three packages. Conventions are
+  written once and then hold for a dozen commands nobody re-checked. The claim
+  also appeared in six files — `README.md`, three `docs/usage*.md`, and two
+  package READMEs — so correcting one was not correcting it. Grep for the copies.
+- **Sibling packages that look symmetric often are not.** Still true today:
+  `RP_DOCX_TEMPLATE_DIR` splits on `os.pathsep` and searches ancestor repo
+  roots, while `RP_PPTX_TEMPLATE_DIR` takes a single directory and looks only at
+  `./templates`. Read both before documenting either as "the same".
+- **A documentation change records a code gap; it does not fix it.** The
+  asymmetry above was written up in `templates/README.md` as a known gap rather
+  than patched inside a docs-only PR. Keep the scopes apart.
+- **Writes to a user's persistent file are all-or-nothing.** `Path.write_text`
+  truncates before writing, so a failure part-way leaves a config that is empty
+  or half-written — and worse when the caller merged the user's existing
+  sections into what it is writing. Use `config._write_atomically`'s shape:
+  complete temporary file in the same directory, fsync, one rename.
 
 ## Workflow
 
@@ -347,6 +472,13 @@ moves. Don't add one you haven't verified — the gate will, and it will fail.
   tested, then merges to `main` via PR.
 - Run the full suite and both ruff commands before committing; keep
   `README.md`, `docs/usage.md`, and `ROADMAP.md` in sync with behavior in the
-  same commit.
+  same commit. A behavior claim usually lives in more than one of those, plus
+  `docs/usage-docx.md`, `docs/usage-pptx.md`, and the package READMEs — grep the
+  claim, don't just fix the file you were looking at.
 - A feature is: core/library function returning pydantic models + CLI wrapper +
   tests + `docs/usage.md` update.
+- A phase or a batch of related work also gets a status note in `dev-notes/`,
+  written for whoever picks it up next: what was asked, what shipped, and
+  **every decision that went the other way first**. The corrections are the
+  valuable part — `status-cli-ux-progress-and-config.md` is the current model.
+  Link it from the `ROADMAP.md` entry.
