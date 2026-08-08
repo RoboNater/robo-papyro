@@ -464,7 +464,9 @@ What it does and does not record:
   the environment.
 - An existing file is *merged*: other sections and other keys survive. But it is
   rewritten from its parsed contents, so **comments and formatting in it are
-  lost** — the command says so when that applies.
+  lost** — the command says so when that applies. The replacement is atomic (a
+  complete temporary file, then one rename), so a failure part-way through
+  leaves your existing config exactly as it was rather than truncated.
 - `rp-pdf.toml` in the current directory (or any parent) is found automatically
   next time. Saving anywhere else works, and the command tells you that you will
   need `--config PATH` to read it back.

@@ -46,6 +46,7 @@ next time.
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -232,9 +233,9 @@ def save_command_options(path: Path, command: str, values: dict[str, Any]) -> Pa
 
     Failures reaching the file (a directory in its place, a read-only parent, a
     full disk) become :class:`ConfigError`, so they exit with the suite's code
-    and envelope rather than as a traceback. The write is not atomic, but it
-    reads the old contents before touching the file, so a mid-write failure
-    cannot lose a section the caller never mentioned.
+    and envelope rather than as a traceback. **The replacement is atomic** — see
+    :func:`_write_atomically` — so a failure part-way through leaves the previous
+    file exactly as it was rather than truncated.
     """
     path = Path(path).expanduser()
     existing = _read_toml(path) if path.is_file() else {}
@@ -249,10 +250,52 @@ def save_command_options(path: Path, command: str, values: dict[str, Any]) -> Pa
         merged.setdefault(section, {})[key] = value.as_posix() if isinstance(value, Path) else value
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(dump_toml(merged), encoding="utf-8")
+        _write_atomically(path, dump_toml(merged))
     except OSError as exc:
         raise ConfigError(f"Could not write config file {path}: {exc}") from exc
     return path
+
+
+def _write_atomically(path: Path, text: str) -> None:
+    """Replace ``path``'s contents with ``text``, all or nothing.
+
+    ``Path.write_text`` truncates the target *before* writing, so a full disk, a
+    short write, or an interruption leaves a config file that is empty or cut in
+    half — and this function's caller has just merged the user's existing
+    sections into what it is writing, so a partial write does not lose one
+    option, it loses the file. Persistent configuration is worth the extra
+    syscalls.
+
+    So: write the whole thing to a temporary file beside the target (same
+    directory, therefore the same filesystem, which is what makes the rename
+    atomic), flush it to disk, then rename over the target in one step. A
+    failure anywhere before the rename leaves the original untouched, and the
+    temporary file is removed on the way out.
+
+    Not fsync'd at the directory level: that would protect the *rename* against
+    a power cut, which is a durability guarantee well past what a CLI writing a
+    defaults file owes anyone. The property being bought here is that the file
+    is never observed half-written.
+    """
+    # Unique per process so two concurrent saves cannot collide, dot-prefixed so
+    # a leaked one is not mistaken for a config file, and O_EXCL so a stale one
+    # is never silently reused. 0o666 is masked by the umask exactly as an
+    # ordinary create would be — `tempfile.mkstemp` would force 0600 and make a
+    # shared project file unreadable to everyone else.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if path.is_file():  # keep whatever mode the file already had
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        with suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise
 
 
 def is_auto_discovered(path: Path) -> bool:

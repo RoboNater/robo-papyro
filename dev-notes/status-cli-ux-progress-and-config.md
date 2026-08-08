@@ -21,8 +21,10 @@ the architectural rules this established are in
 | 3 | Write the selected options to a `.toml` so they are reused for the next PDF | ✅ `--save-config PATH` |
 | 4 | `docs/usage.md` is unclear whether there is one config file or several, and what the default is named | ✅ docs rewritten |
 
-Three gaps found in review are recorded in "Review round" below, including one
-where the progress reporting did not cover the very failure it was written for.
+Four gaps found across two review rounds are recorded in "Review round" below.
+Two are worth reading: the progress reporting did not cover the very failure it
+was written for, and a config write documented as safe against a mid-write
+failure was not.
 
 **The unifying constraint, and the reason 1 and 2 needed no agent-vs-human
 mode.** The request raised the possibility of hiding these behind a flag kept
@@ -45,7 +47,7 @@ the rest of the matrix.
 
 ### Verification
 
-- `uv run pytest`: **1100 passed, 9 skipped** (988 → 1109 collected; **121 new
+- `uv run pytest`: **1108 passed, 9 skipped** (988 → 1117 collected; **129 new
   tests**). 8 skips are LibreOffice-gated and unrelated; the 9th is a
   permissions test that cannot fail as root and runs on CI.
 - Coverage on the new and heavily-changed modules: `rp_core/progress.py` 97%,
@@ -234,7 +236,7 @@ actually in play", which is usually the question underneath.
 
 ---
 
-## Review round: three gaps found on PR #9
+## Review round: four gaps found on PR #9
 
 All three were real, and two of them are the interesting kind — the
 implementation was self-consistent and the tests passed; what was wrong was that
@@ -300,6 +302,40 @@ Related, found while fixing it: the save message said `as [markdown]` regardless
 of where the keys actually went, so a run that set only `--model` claimed
 `[markdown]` while writing `[vlm]`. `config.sections_for` now drives the message
 from the same routing function the writer uses.
+
+### 4. The config write was not atomic, and the docstring said it was
+
+Second review, one finding — and the sharpest of the four, because the code had
+just been touched to fix the *reporting* of write failures while leaving the
+failure itself destructive.
+
+`Path.write_text` truncates the target before writing, so a full disk or an
+interruption leaves the config empty or cut in half. That is worse than losing
+one option: `save_command_options` merges the user's existing sections into what
+it writes, so a partial write loses sections this run never mentioned. The
+docstring claimed the opposite — "reads the old contents before touching the
+file, so a mid-write failure cannot lose a section the caller never mentioned"
+— which is true of the *merge* and false of the *file*. Reading old contents
+into memory protects the data being written, not the data on disk.
+
+`_write_atomically` now writes the whole file to a dot-prefixed temporary beside
+the target (same directory, therefore same filesystem, which is what makes the
+rename atomic), fsyncs it, and renames over the target in one step. The
+temporary is removed on any failure path. Two details that took a second pass:
+
+- **`tempfile.mkstemp` forces 0600**, which would silently make a shared project
+  `rp-pdf.toml` unreadable to a teammate. A plain `os.open(..., O_CREAT|O_EXCL,
+  0o666)` gets the umask applied exactly as an ordinary create would.
+- **A rename replaces the inode**, so an existing file would inherit the
+  temporary's mode. The target's mode is copied onto the temporary first.
+
+No directory-level fsync: that guards the *rename* against a power cut, a
+durability promise well beyond what a CLI writing a defaults file owes anyone.
+The property bought here is that the file is never observed half-written.
+
+Regression tests parametrize the failure over `os.fsync` and `os.replace` and
+assert the previous file is byte-identical and no temporary survives, plus
+mode-preservation and new-file-permission tests.
 
 ## Known limits and future work
 

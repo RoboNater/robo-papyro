@@ -645,3 +645,98 @@ def test_sections_for_routes_shared_keys():
         "ui",
         "vlm",
     ]
+
+
+# --------------------------------------------------------------------------- #
+# The write is atomic: a failure part-way through must not damage the file
+# --------------------------------------------------------------------------- #
+ORIGINAL = '[default]\ncommand = "markdown"\n\n[ui]\nprogress = false\n\n[text]\nengine = "pypdf"\n'
+
+
+@pytest.mark.parametrize(
+    ("victim", "what"),
+    [
+        ("fsync", "a full disk part-way through the write"),
+        ("replace", "a failure at the final rename"),
+    ],
+)
+def test_a_failed_write_leaves_the_previous_file_byte_identical(
+    tmp_path, monkeypatch, victim, what
+):
+    """`write_text` would truncate the target first, so a failure here does not
+    lose one option — it loses the file, including sections this call merged in
+    from disk and never mentioned."""
+    target = write(tmp_path / "rp-pdf.toml", ORIGINAL)
+    before = target.read_bytes()
+
+    def boom(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(config.os, victim, boom)
+    with pytest.raises(ConfigError, match="Could not write config file"):
+        config.save_command_options(target, "text", {"engine": "poppler", "layout": True})
+
+    assert target.read_bytes() == before, f"the config was damaged by {what}"
+
+
+@pytest.mark.parametrize("victim", ["fsync", "replace"])
+def test_a_failed_write_leaves_no_temporary_file_behind(tmp_path, monkeypatch, victim):
+    target = write(tmp_path / "rp-pdf.toml", ORIGINAL)
+
+    def boom(*args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(config.os, victim, boom)
+    with pytest.raises(ConfigError):
+        config.save_command_options(target, "text", {"engine": "poppler"})
+
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["rp-pdf.toml"]
+
+
+def test_the_new_contents_are_readable_after_an_atomic_replace(tmp_path):
+    target = write(tmp_path / "rp-pdf.toml", ORIGINAL)
+    config.save_command_options(target, "text", {"engine": "poppler"})
+    saved = config.load(target)
+    assert saved.section("text") == {"engine": "poppler"}
+    assert saved.section("ui") == {"progress": False}  # merged, not lost
+    assert saved.default_command() == "markdown"
+
+
+def test_an_existing_file_keeps_its_permissions(tmp_path):
+    """The replacement is a rename, so without care the file would inherit the
+    temporary file's mode instead of its own."""
+    target = write(tmp_path / "rp-pdf.toml", ORIGINAL)
+    target.chmod(0o640)
+    config.save_command_options(target, "text", {"engine": "poppler"})
+    assert target.stat().st_mode & 0o777 == 0o640
+
+
+def test_a_new_file_is_readable_by_the_usual_umask(tmp_path):
+    """`tempfile.mkstemp` would force 0600 and make a shared project config
+    unreadable to a teammate; a plain create respects the umask instead."""
+    target = tmp_path / "rp-pdf.toml"
+    config.save_command_options(target, "text", {"engine": "poppler"})
+    mode = target.stat().st_mode & 0o777
+    assert mode & 0o400  # owner can read
+    assert mode == 0o666 & ~_current_umask()
+
+
+def _current_umask() -> int:
+    current = os.umask(0)
+    os.umask(current)
+    return current
+
+
+def test_a_failed_save_is_a_clean_cli_error_and_keeps_the_old_file(text_pdf, tmp_path):
+    """End to end. A directory standing where the config should be is the
+    reachable version of "the write failed": the run reports the suite's
+    envelope, and the file that was already there is untouched."""
+    nested = tmp_path / "cfg"
+    nested.mkdir()
+    target = write(nested / "rp-pdf.toml", ORIGINAL)
+    before = target.read_bytes()
+    # Point --save-config at the *directory*: open() cannot write to it.
+    result = run_cli("text", text_pdf, "--engine", "poppler", "--save-config", nested, cwd=tmp_path)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    assert target.read_bytes() == before
