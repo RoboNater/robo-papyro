@@ -41,9 +41,10 @@ no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
 [docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
 [docs/usage-pptx.md](docs/usage-pptx.md) for `rp-pptx`,
-[docs/usage-mcp.md](docs/usage-mcp.md) for `rp-mcp`. The governing
-specifications are in [docs/specs/](docs/specs). Agent skills for the three
-CLIs are in [skills/](skills).
+[docs/usage-mcp.md](docs/usage-mcp.md) for `rp-mcp`, whose security model and
+deliberate limitations are in [docs/security-mcp.md](docs/security-mcp.md). The
+governing specifications are in [docs/specs/](docs/specs). Agent skills for the
+three CLIs are in [skills/](skills).
 
 ## Setup
 
@@ -325,10 +326,13 @@ into. Without a write root the file-creating tools are **not registered at
 all**, so an agent sees a shorter tool list rather than tools that always fail.
 
 Failures carry the suite's error envelope as the last line of the tool error,
-with the same exit codes the CLIs use. Rendering and the AI review pass are
-deliberately not exposed — see the guide.
+with the same exit codes the CLIs use. Rendering, the AI review pass, and every
+non-stdio transport are deliberately not exposed.
 
-Full guide: [docs/usage-mcp.md](docs/usage-mcp.md).
+Full guide: [docs/usage-mcp.md](docs/usage-mcp.md). **Before pointing a server
+at anything sensitive**, read
+[docs/security-mcp.md](docs/security-mcp.md) — the threat model, and what the
+sandbox explicitly does not protect against.
 
 ## Library
 

@@ -337,6 +337,9 @@ if you trip one; each explains what breaks and why.
   annotations *are* the JSON schema. Nothing here reformats a result or
   implements a document operation; if a tool needs logic, that logic belongs in
   the leaf, where the CLI gets it too.
+- **`docs/security-mcp.md` is the reasoning for everything below**, including
+  the non-goals. If you change a sandbox rule, that document changes in the same
+  commit — it is what a reviewer reads to decide whether the change is safe.
 - **Every path argument goes through `sandbox.resolve_input` /
   `resolve_output` before a leaf sees it.** Containment is checked on the
   *resolved* path, so `..` and symlinks cannot climb out. Existence is

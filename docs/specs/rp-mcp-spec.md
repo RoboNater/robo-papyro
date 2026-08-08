@@ -74,6 +74,12 @@ read-only server accidentally grows write tools.
 
 ## 4. The sandbox
 
+Normative here; the reasoning, the threat model, and the explicit non-goals are
+in [`../security-mcp.md`](../security-mcp.md). Anything this section requires,
+that document explains — and anything it deliberately does not cover (resource
+limits, authentication, prompt injection, TOCTOU) is enumerated there rather
+than left to inference.
+
 ### 4.1 Roots
 
 Readable directories. Precedence: `--root` (repeatable) → `RP_MCP_ROOTS`

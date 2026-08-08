@@ -80,6 +80,11 @@ genuinely absent.
 - The write root is also readable, so an agent can read back what it wrote.
 - Relative paths in tool calls resolve against the **first** root.
 
+The reasoning behind each of these rules — and, more importantly, the list of
+things the sandbox does **not** protect against — is in
+[security-mcp.md](security-mcp.md). Read it before pointing a server at
+anything sensitive.
+
 An agent can ask rather than guess:
 
 ```json

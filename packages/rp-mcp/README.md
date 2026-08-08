@@ -124,5 +124,6 @@ suite each. **stdio is the only transport the CLI offers**; `MCPServer` can
 serve SSE and streamable HTTP, and a caller who wants either should reach for
 `build_server` and bring an authentication story — a path allowlist is not one.
 
-Full guide: [docs/usage-mcp.md](../../docs/usage-mcp.md). Specification:
-[docs/specs/rp-mcp-spec.md](../../docs/specs/rp-mcp-spec.md).
+Full guide: [docs/usage-mcp.md](../../docs/usage-mcp.md). Security model and
+deliberate limitations: [docs/security-mcp.md](../../docs/security-mcp.md).
+Specification: [docs/specs/rp-mcp-spec.md](../../docs/specs/rp-mcp-spec.md).

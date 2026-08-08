@@ -3,6 +3,11 @@
 **Branch:** `claude/robo-papyro-phase-2-5erlec`
 **Driving doc:** [`docs/specs/rp-mcp-spec.md`](../docs/specs/rp-mcp-spec.md), written
 during the phase — the parent spec listed Phase 2's driving doc as `TBD`.
+**Security model and deliberate limitations:**
+[`docs/security-mcp.md`](../docs/security-mcp.md) — the threat model, why each
+sandbox rule is shaped the way it is, what the sandbox explicitly does *not*
+protect, and the test behind every claim. Findings 3, 4, and 5 below are the
+short version; that document is the long one.
 
 ## BLUF
 
@@ -101,6 +106,13 @@ Consequences, all in `rp_mcp.sandbox`:
   `output=None` ("edit in place") is never passed, because parent §10's rule is
   "never overwrite an input without `--in-place`" and MCP has no `--in-place`.
 - The write root is also a read root, so an agent can read back what it wrote.
+
+The reasoning behind each of those, the threat model they answer, and the list
+of things they deliberately do not cover — resource limits, authentication,
+prompt injection, TOCTOU — are in
+[`docs/security-mcp.md`](../docs/security-mcp.md). It is the document to hand
+someone who asks "is this safe to point at my documents?", and the one to update
+if any of these rules changes.
 
 ### 4. A dangling symlink defeated "never overwrites", and a test caught it
 
