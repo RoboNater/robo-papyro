@@ -12,6 +12,7 @@ working directory so config-file discovery is deterministic; they use the
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -207,9 +208,7 @@ def test_api_key_not_read_from_config(tmp_path, clean_env, monkeypatch):
 # Integration: the `rp-pdf FILE` default action + CLI precedence via subprocess
 # --------------------------------------------------------------------------- #
 def run_cli(*args, cwd=None, env=None):
-    base = {
-        k: v for k, v in __import__("os").environ.items() if not k.startswith(("RP_", "OPENAI_"))
-    }
+    base = {k: v for k, v in os.environ.items() if not k.startswith(("RP_", "OPENAI_"))}
     if env:
         base.update(env)
     return subprocess.run(
@@ -542,3 +541,107 @@ def test_save_config_keeps_directory_targets(text_pdf, tmp_path):
     target = tmp_path / "rp-pdf.toml"
     run_cli("images", text_pdf, "--out", tmp_path / "media", "--save-config", target, cwd=tmp_path)
     assert config.load(target).section("images")["out"] == str(tmp_path / "media")
+
+
+# --------------------------------------------------------------------------- #
+# --save-config failure paths and the [ui] round trip
+# --------------------------------------------------------------------------- #
+def test_save_to_a_directory_is_a_clean_error_not_a_traceback(tmp_path):
+    target = tmp_path / "adirectory"
+    target.mkdir()
+    with pytest.raises(ConfigError, match="Could not write config file"):
+        config.save_command_options(target, "text", {"engine": "pypdf"})
+
+
+@pytest.mark.skipif(
+    getattr(os, "geteuid", lambda: 1)() == 0,
+    reason="root ignores directory permissions, so there is nothing to fail on",
+)
+def test_save_to_an_unwritable_parent_is_a_clean_error(tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        with pytest.raises(ConfigError, match="Could not write config file"):
+            config.save_command_options(locked / "rp-pdf.toml", "text", {"engine": "pypdf"})
+    finally:
+        locked.chmod(0o700)  # so tmp_path cleanup can remove it
+
+
+def test_cli_reports_a_bad_save_target_as_an_error_envelope(text_pdf, tmp_path, cli_error):
+    """The suite's contract holds on this path too: a message and an envelope on
+    stderr, exit 1, no traceback."""
+    target = tmp_path / "adirectory"
+    target.mkdir()
+    result = run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    detail = cli_error(result)
+    assert detail["type"] == "ConfigError"
+    assert detail["exit_code"] == 1
+    assert str(target) in detail["message"]
+
+
+def test_display_flags_are_saved_to_the_ui_section(text_pdf, tmp_path):
+    """`--save-config` records the options you passed — with no carve-out for
+    these two, which is what `[ui]` exists to hold."""
+    target = tmp_path / "rp-pdf.toml"
+    result = run_cli(
+        "text",
+        text_pdf,
+        "--engine",
+        "pypdf",
+        "--no-progress",
+        "--describe",
+        "--save-config",
+        target,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = config.load(target)
+    assert saved.section("ui") == {"progress": False, "describe": True}
+    assert saved.section("text") == {"engine": "pypdf"}
+    assert "[ui]" in result.stderr  # the message names the sections it wrote
+
+
+def test_unpassed_display_flags_are_not_saved(text_pdf, tmp_path):
+    """A run in a terminal resolves progress to True; that is a fact about the
+    terminal, not a choice, and must not be frozen into the file."""
+    target = tmp_path / "rp-pdf.toml"
+    run_cli("text", text_pdf, "--engine", "pypdf", "--save-config", target, cwd=tmp_path)
+    assert "ui" not in config.load(target)._data
+
+
+def test_saved_ui_settings_are_read_back(text_pdf, tmp_path):
+    write(tmp_path / "rp-pdf.toml", "[ui]\ndescribe = true\n[text]\nengine = 'pypdf'\n")
+    result = run_cli("text", text_pdf, "--pages", "1", cwd=tmp_path)
+    assert "rp-pdf text — " in result.stderr
+
+
+def test_the_save_message_names_the_vlm_section(text_pdf, tmp_path):
+    """A run that set only --model writes `[vlm]`; saying `[markdown]` would
+    send someone looking in the wrong place."""
+    target = tmp_path / "rp-pdf.toml"
+    result = run_cli(
+        "markdown",
+        text_pdf,
+        "--engine",
+        "pypdf",
+        "--model",
+        "gpt-4o-mini",
+        "--save-config",
+        target,
+        cwd=tmp_path,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "[markdown], [vlm]" in result.stderr
+
+
+def test_sections_for_routes_shared_keys():
+    assert config.sections_for("markdown", {"ai": True}) == ["markdown"]
+    assert config.sections_for("markdown", {"model": "m"}) == ["vlm"]
+    assert config.sections_for("text", {"progress": False}) == ["ui"]
+    assert config.sections_for("text", {"engine": "pypdf", "model": "m", "describe": True}) == [
+        "text",
+        "ui",
+        "vlm",
+    ]

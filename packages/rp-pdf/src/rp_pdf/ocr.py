@@ -92,9 +92,9 @@ def transcribe_pages(
     and the transcription as counted steps, and defaults to the no-op reporter.
     """
     client, model = make_client(model, base_url, organization, feature="OCR")
+    reporter = progress if progress is not None else NULL
     path = Path(path)
-    reader = core._open_reader(path, password)
-    numbers, labels = core._resolve_pages(reader, pages, physical)
+    reader, numbers, labels = core._open_pages(path, password, pages, physical, reporter)
 
     # Same per-page has_text test as core.get_index.
     scanned = [n for n in numbers if not (reader.pages[n - 1].extract_text() or "").strip()]
@@ -102,7 +102,6 @@ def transcribe_pages(
         return []
 
     sink = warnings if warnings is not None else []
-    reporter = progress if progress is not None else NULL
     file_hash = file_sha256(path)
     cache = cache_path(cache_dir) if use_cache else None
     results: dict[int, str] = {}

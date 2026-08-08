@@ -192,7 +192,11 @@ def _render_pdf(
     poppler_path: str | Path | None,
     progress: Progress,
 ) -> list[Path]:
-    count = _page_count(source, poppler_path)
+    # Counting pages shells out to pdfinfo, which reads the file: on an
+    # unresponsive source this blocks before any counted step exists, so it gets
+    # a named step of its own rather than happening in silence.
+    with progress.step(f"Reading {source.name}"):
+        count = _page_count(source, poppler_path)
     if pages is None or pages.strip().lower() == "all":
         numbers = list(range(1, count + 1))
     else:

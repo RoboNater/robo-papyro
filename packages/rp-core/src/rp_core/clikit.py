@@ -235,12 +235,21 @@ def job(
     not branch. The reporter is always closed, including on the error path,
     which is what guarantees a half-painted progress line never ends up in front
     of an error message.
+
+    **The whole job is itself a step**, which is what makes the reporter live
+    from the first instruction inside the block rather than from whenever the
+    first inner step happens to open. The gap matters: opening the file is a
+    blocking read, and a job hung on a dead network mount before it reached any
+    counted work would otherwise show nothing at all — the exact failure this
+    reporting exists to make visible. Inner steps take over the display while
+    they run and hand it back here, so this also reports total elapsed time.
     """
     if describe:
         announce_job(title, entries, stream=stream)
     reporter = progress_module.reporter(progress, stream=stream)
     try:
-        yield reporter
+        with reporter.step(title):
+            yield reporter
     finally:
         reporter.close()
 

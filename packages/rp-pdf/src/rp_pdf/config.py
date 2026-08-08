@@ -195,18 +195,46 @@ def dump_toml(data: dict[str, dict[str, Any]]) -> str:
     return "\n\n".join(chunks) + "\n" if chunks else ""
 
 
+def section_for(command: str, key: str) -> str:
+    """The TOML section a saved option belongs in.
+
+    The shared sections are the same ones :meth:`Config.lookup` falls back to,
+    so an option is written where it will be read from.
+    """
+    for keys, shared in ((_VLM_KEYS, "vlm"), (_UI_KEYS, "ui")):
+        if key in keys:
+            return shared
+    return command
+
+
+def sections_for(command: str, values: dict[str, Any]) -> list[str]:
+    """The sections :func:`save_command_options` would write, sorted.
+
+    Callers report this rather than assuming ``[command]``: a run that set only
+    ``--model`` writes ``[vlm]`` and nothing else, and a message naming the
+    wrong section sends someone looking in the wrong place.
+    """
+    return sorted({section_for(command, k) for k, v in values.items() if v is not None})
+
+
 def save_command_options(path: Path, command: str, values: dict[str, Any]) -> Path:
     """Merge ``values`` into the config file at ``path`` and write it back.
 
-    Keys land in ``[command]``, except the shared VLM ones, which land in
-    ``[vlm]`` where every command can see them — the layout a hand-written file
-    would use, since this function's other job is to teach that layout.
-    ``None`` values are dropped rather than written as anything: an option that
-    was never set has no default to record.
+    Keys land in ``[command]``, except the shared ones — VLM settings to
+    ``[vlm]`` and the display flags to ``[ui]``, where every command can see
+    them, matching where :meth:`Config.lookup` falls back to and the layout a
+    hand-written file would use. ``None`` values are dropped rather than written
+    as anything: an option that was never set has no default to record.
 
     An existing file is *merged*, not replaced — other sections and other keys
     survive — but it is rewritten from its parsed contents, so **comments and
     formatting in it are lost**. Callers say so; this function does not print.
+
+    Failures reaching the file (a directory in its place, a read-only parent, a
+    full disk) become :class:`ConfigError`, so they exit with the suite's code
+    and envelope rather than as a traceback. The write is not atomic, but it
+    reads the old contents before touching the file, so a mid-write failure
+    cannot lose a section the caller never mentioned.
     """
     path = Path(path).expanduser()
     existing = _read_toml(path) if path.is_file() else {}
@@ -217,10 +245,13 @@ def save_command_options(path: Path, command: str, values: dict[str, Any]) -> Pa
     for key, value in values.items():
         if value is None:
             continue
-        section = "vlm" if key in _VLM_KEYS else command
+        section = section_for(command, key)
         merged.setdefault(section, {})[key] = value.as_posix() if isinstance(value, Path) else value
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(dump_toml(merged), encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(dump_toml(merged), encoding="utf-8")
+    except OSError as exc:
+        raise ConfigError(f"Could not write config file {path}: {exc}") from exc
     return path
 
 

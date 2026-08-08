@@ -387,11 +387,14 @@ elapsed clock:
 
 The clock is driven by a background thread rather than by the work, so it keeps
 ticking while a page render or an API call is blocked — a stalled network read
-looks different from a slow one, which is the entire point. Each stage
-(`Finding tables`, `Extracting text`, `Rendering pages`, `AI review`,
-`OCR transcription`) leaves a completed line behind:
+looks different from a slow one, which is the entire point. **Opening the file
+is itself a reported stage**, so a document on a share that stopped answering
+shows a ticking `Opening report.pdf` rather than nothing; the whole job is one
+outer step, so no phase happens in silence. Each stage leaves a completed line
+behind:
 
 ```
+✔ Opening report.pdf [0s]
 ✔ Finding tables 142/142 [3s]
 ✔ Extracting text (poppler) 130/130 [11s]
 ✔ Rendering pages 142/142 [1m02s]
@@ -449,9 +452,14 @@ What it does and does not record:
 - It writes **after the run succeeds**, so what gets recorded is a command line
   known to have worked, not one that was merely typed.
 - Per-command options land in `[markdown]` (or `[text]`, `[render]`, …); the
-  shared VLM settings — `model`, `base_url`, `organization`, `cache_dir` — land
-  in `[vlm]`, where every command can see them. That is the layout a
-  hand-written file uses, and `--save-config` is a decent way to learn it.
+  shared settings land in the shared sections — `model`, `base_url`,
+  `organization`, `cache_dir` in `[vlm]`, and `--describe`/`--progress` in
+  `[ui]` — where every command can see them, which is also where they are read
+  back from. That is the layout a hand-written file uses, and `--save-config` is
+  a decent way to learn it. The message names the sections it wrote.
+- Writing the file can fail (a directory in the way, a read-only parent). That
+  is reported as an ordinary rp-pdf error — message plus error envelope on
+  stderr, exit 1 — not a traceback.
 - The **API key is never written**, and neither is `--password`. Secrets stay in
   the environment.
 - An existing file is *merged*: other sections and other keys survive. But it is

@@ -42,6 +42,22 @@ class AsciiStream(io.StringIO):
     encoding = "ascii"
 
 
+def rendered(text: str) -> list[str]:
+    """What a terminal would end up showing, with carriage returns applied.
+
+    The raw stream is full of `\\r` and blanking spaces; asserting on it tests
+    the mechanism rather than the result. This applies overwrite-from-column-0
+    semantics so a test can say what the user sees.
+    """
+    lines = []
+    for raw in text.split("\n"):
+        current = ""
+        for chunk in raw.split("\r"):
+            current = chunk + current[len(chunk) :]
+        lines.append(current.rstrip())
+    return lines
+
+
 def build(*, tty: bool, clock: FakeClock | None = None, **kwargs) -> tuple[StderrProgress, Stream]:
     stream = Stream()
     return (
@@ -289,3 +305,37 @@ def test_module_constants_are_sane():
     flood a stream from a wide --jobs fan-out."""
     assert 0.05 <= progress_module.TICK <= 1.0
     assert progress_module.HEARTBEAT >= 5.0
+
+
+class TestLivenessBeforeTheFirstStep:
+    """The gap this closes: a job hung *opening* its file, before any counted
+    work exists. A reporter that only wakes up on the first `step()` reports
+    nothing at all for exactly the failure it was built to make visible."""
+
+    def test_message_does_not_land_on_top_of_the_painted_line(self):
+        rp, stream = build(tty=True)
+        with rp.step("Working", total=2) as step:
+            step.advance()
+            rp.message("Interpreting --pages using the PDF's page labels")
+        rp.close()
+        shown = rendered(stream.getvalue())
+        notice = "Interpreting --pages using the PDF's page labels"
+        # Asserted against what a terminal would *display*, not the raw bytes:
+        # the notice gets a line to itself, with no spinner text trailing off
+        # the end of it, and the step line is repainted underneath.
+        assert notice in shown
+        assert any(line.startswith("✔ Working 1/2") for line in shown)
+
+    def test_the_null_reporter_still_delivers_a_message(self):
+        """A notice is output the command chose to emit, not decoration: it has
+        to appear whether or not progress is switched on."""
+        import io as _io
+        import sys
+
+        captured, original = _io.StringIO(), sys.stderr
+        sys.stderr = captured
+        try:
+            NULL.message("still said")
+        finally:
+            sys.stderr = original
+        assert captured.getvalue() == "still said\n"

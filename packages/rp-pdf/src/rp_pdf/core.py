@@ -117,6 +117,28 @@ def _label_for(labels: list[str] | None, physical_page: int) -> str | None:
     return labels[physical_page - 1] if labels else None
 
 
+def _open_pages(
+    path: Path,
+    password: str | None,
+    pages: PageSpec,
+    physical: bool,
+    progress: Progress | None = None,
+) -> tuple[PdfReader, list[int], list[str] | None]:
+    """Open the document and resolve the page spec, as one reported step.
+
+    Every page-taking function starts with exactly this pair, and the pair is
+    the first thing that can block: `PdfReader(path)` reads the file, so a
+    document on a network share that stopped answering hangs here — before any
+    counted work exists to report on. Naming the phase is what lets a watching
+    human see that the job is stuck *opening the file* rather than stuck
+    somewhere unknowable.
+    """
+    reporter = progress if progress is not None else NULL
+    with reporter.step(f"Opening {Path(path).name}"):
+        reader = _open_reader(path, password)
+        return reader, *_resolve_pages(reader, pages, physical)
+
+
 def page_stem(physical_page: int, labeled_page: str | None = None) -> str:
     """Base file name for a page's outputs: 'page0007', or when the document has
     labels 'page0030_pp0007' — label first, since users think in labels."""
@@ -265,8 +287,7 @@ def get_text(
     run words together on such PDFs (issue #1) — opt in only when that risk is
     acceptable downstream.
     """
-    reader = _open_reader(path, password)
-    numbers, labels = _resolve_pages(reader, pages, physical)
+    reader, numbers, labels = _open_pages(path, password, pages, physical, progress)
     texts = _page_texts(path, reader, numbers, engine, layout, password, poppler_path, progress)
     return [
         PageText(
@@ -287,8 +308,7 @@ def get_tables(
     progress: Progress | None = None,
 ) -> list[Table]:
     """Extract tables via pdfplumber. rows is a list of rows of cell strings (or None)."""
-    reader = _open_reader(path, password)
-    numbers, labels = _resolve_pages(reader, pages, physical)
+    reader, numbers, labels = _open_pages(path, password, pages, physical, progress)
     reporter = progress if progress is not None else NULL
     results: list[Table] = []
     with pdfplumber.open(path, password=password) as pdf:
@@ -316,8 +336,7 @@ def get_images(
     progress: Progress | None = None,
 ) -> list[ImageInfo]:
     """Embedded images. Saves files to out_dir if given, otherwise metadata only."""
-    reader = _open_reader(path, password)
-    numbers, labels = _resolve_pages(reader, pages, physical)
+    reader, numbers, labels = _open_pages(path, password, pages, physical, progress)
     reporter = progress if progress is not None else NULL
     results: list[ImageInfo] = []
     if out_dir is not None:
@@ -385,8 +404,7 @@ def search(
     else:
         pattern = re.compile(re.escape(re.sub(r"\s+", " ", query)), flags)
 
-    reader = _open_reader(path, password)
-    numbers, labels = _resolve_pages(reader, pages, physical)
+    reader, numbers, labels = _open_pages(path, password, pages, physical, progress)
     texts = _page_texts(path, reader, numbers, engine, False, password, poppler_path, progress)
     hits: list[SearchHit] = []
     for n in numbers:
@@ -430,8 +448,7 @@ def render_pages(
     PDF's page labels, naming files by label, and reporting both numbering
     schemes in the result.
     """
-    reader = _open_reader(path, password)
-    numbers, labels = _resolve_pages(reader, pages, physical)
+    reader, numbers, labels = _open_pages(path, password, pages, physical, progress)
     poppler_path = poppler_path or os.environ.get(binaries.POPPLER_PATH_ENV) or None
 
     try:

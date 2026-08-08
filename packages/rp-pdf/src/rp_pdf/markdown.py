@@ -122,8 +122,7 @@ def to_markdown(
         raise VlmError("OCR requires the AI pass (--ocr needs --ai).")
     reporter = progress if progress is not None else NULL
     path = Path(path)
-    reader = core._open_reader(path, password)
-    numbers, labels = core._resolve_pages(reader, pages, physical)
+    reader, numbers, labels = core._open_pages(path, password, pages, physical, reporter)
 
     flat_outline: list[tuple[str, int, int]] = []
     if outline_headings or outline_context:

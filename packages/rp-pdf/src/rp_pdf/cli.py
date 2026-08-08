@@ -147,39 +147,11 @@ def _resolve_path(
     return Path(str(resolved)).expanduser()
 
 
-def _announce_labels(file: Path, pages: str, physical: bool, password: str | None) -> None:
-    """Tell the user (on stderr) when --pages is interpreted via page labels."""
-    if physical or pages.strip().lower() == "all":
-        return
-    if core.get_page_labels(file, password=password) is not None:
-        print(
-            "Interpreting --pages using the PDF's page labels; "
-            "pass --physical for 1-based physical page numbers.",
-            file=sys.stderr,
-        )
-
-
 def _errors():
     """The suite's error contract: an ErrorEnvelope on stderr, exit code from
     the error class (rp_core.errors). Every rp-pdf error subclasses that
     hierarchy, so nothing extra needs listing here."""
     return clikit.error_handler()
-
-
-def _display(command: str, key: str, flag: bool | None) -> bool:
-    """Resolve --describe/--progress: flag -> RP_PDF_* -> config -> terminal.
-
-    These read the config through `Config.lookup` rather than `config.resolve`
-    because they have no fixed default to pass it: when nothing sets them the
-    answer depends on whether stderr is a terminal, which is a question about
-    this process, not a configured value. Precedence is otherwise identical, and
-    `[ui]` backs the per-command sections the same way `[vlm]` does.
-    """
-    return clikit.display_enabled(
-        flag,
-        env_value=os.environ.get(f"RP_PDF_{key.upper()}"),
-        config_value=config.active().lookup(command, key),
-    )
 
 
 #: Options `--save-config` never writes, per command, even when they were given
@@ -221,6 +193,27 @@ class Options:
     def engine(self, flag: TextEngine | None) -> str:
         return self._record("engine", flag, _resolve_engine(self.command, flag))
 
+    def display(self, key: str, flag: bool | None) -> bool:
+        """Resolve --describe/--progress: flag -> RP_PDF_* -> config -> terminal.
+
+        These read the config through `Config.lookup` rather than
+        `config.resolve` because they have no fixed default to pass it: with
+        nothing set the answer is whether stderr is a terminal, which is a fact
+        about this process, not a configured value. Precedence is otherwise
+        identical, and `[ui]` backs the per-command sections the way `[vlm]`
+        backs the model settings — including on the way out, so an explicit
+        `--no-progress --save-config` records `[ui] progress = false`.
+        """
+        return self._record(
+            key,
+            flag,
+            clikit.display_enabled(
+                flag,
+                env_value=os.environ.get(f"RP_PDF_{key.upper()}"),
+                config_value=config.active().lookup(self.command, key),
+            ),
+        )
+
     def _record(self, key: str, flag: Any, value: Any) -> Any:
         self.values[key] = value
         if flag is not None:
@@ -238,6 +231,22 @@ class Options:
         return sorted(NEVER_SAVED.get(self.command, frozenset()) & set(self.chosen))
 
 
+def _announce_labels(file: Path, opts: Options, password: str | None, reporter) -> None:
+    """Tell the user (on stderr) when --pages is interpreted via page labels.
+
+    Written through the reporter rather than with a bare print: this runs inside
+    the job, so a progress line may be painted, and it also opens the PDF —
+    which is why it belongs inside, where the reporter is already ticking.
+    """
+    if opts["physical"] or str(opts["pages"]).strip().lower() == "all":
+        return
+    if core.get_page_labels(file, password=password) is not None:
+        reporter.message(
+            "Interpreting --pages using the PDF's page labels; "
+            "pass --physical for 1-based physical page numbers."
+        )
+
+
 def _save_config(options: Options, target: Path | None) -> None:
     """Persist the options this run was given, when --save-config asked for it.
 
@@ -247,9 +256,15 @@ def _save_config(options: Options, target: Path | None) -> None:
     if target is None:
         return
     command = options.command
+    savable = options.savable()
     existed = Path(target).expanduser().is_file()
-    written = config.save_command_options(target, command, options.savable())
-    print(f"Saved the options you passed to {written} as [{command}].", file=sys.stderr)
+    written = config.save_command_options(target, command, savable)
+    sections = ", ".join(f"[{name}]" for name in config.sections_for(command, savable))
+    print(
+        f"Saved the options you passed to {written}"
+        + (f" as {sections}." if sections else " — you passed none, so nothing changed."),
+        file=sys.stderr,
+    )
     for key in options.skipped():
         print(
             f"'{key}' was not saved: it names this document's output, and reusing "
@@ -331,14 +346,14 @@ def text(
         opts.engine(engine)
         opts.resolve("plain", plain, False)
         opts.path("poppler_path", poppler_path)
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.text_job(file, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = core.get_text(
                 file,
                 opts["pages"],
@@ -375,14 +390,14 @@ def tables(
         opts.resolve("pages", pages, "all")
         opts.resolve("physical", physical, False)
         opts.path("csv", csv_dir)
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.tables_job(file, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = core.get_tables(
                 file,
                 opts["pages"],
@@ -450,14 +465,14 @@ def search(
         opts.engine(engine)
         opts.resolve("plain", plain, False)
         opts.path("poppler_path", poppler_path)
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.search_job(file, query, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = core.search(
                 file,
                 query,
@@ -509,14 +524,14 @@ def images(
         opts.resolve("pages", pages, "all")
         opts.resolve("physical", physical, False)
         opts.path("out", out)
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.images_job(file, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = core.get_images(
                 file,
                 opts["pages"],
@@ -641,14 +656,14 @@ def markdown(
         opts.resolve("cache", cache, True)
         opts.path("cache_dir", cache_dir, env="RP_PDF_CACHE_DIR")
         opts.path("poppler_path", poppler_path)
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.markdown_job(file, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = md.to_markdown(
                 file,
                 opts["pages"],
@@ -712,14 +727,14 @@ def render(
             raise core.RpPdfError(
                 "render needs an output directory: pass --out or set [render].out in the config."
             )
-        _announce_labels(file, opts["pages"], opts["physical"], password)
         title, entries = describe.render_job(file, opts.values)
         with clikit.job(
             title,
             entries,
-            describe=_display(opts.command, "describe", show_description),
-            progress=_display(opts.command, "progress", show_progress),
+            describe=opts.display("describe", show_description),
+            progress=opts.display("progress", show_progress),
         ) as reporter:
+            _announce_labels(file, opts, password, reporter)
             result = core.render_pages(
                 file,
                 opts["pages"],

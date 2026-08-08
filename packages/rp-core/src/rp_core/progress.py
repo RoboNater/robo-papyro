@@ -85,6 +85,16 @@ class Progress:
         """Run a phase of the job named ``name``, over ``total`` items if known."""
         yield _NULL_STEP
 
+    def message(self, text: str) -> None:
+        """Write a one-off line to stderr without disturbing the display.
+
+        **CLI layer only.** Unlike everything else here this is not a no-op by
+        default, because a message is not decoration — it is something the
+        command decided to say, and it has to appear whether or not progress is
+        switched on. Core code calls :meth:`Step.advance`; it never calls this.
+        """
+        print(text, file=sys.stderr)
+
     def close(self) -> None:
         """Release anything the reporter holds. Idempotent."""
 
@@ -179,6 +189,15 @@ class StderrProgress(Progress):
             self._end(live, ok=False)
             raise
         self._end(live, ok=True)
+
+    def message(self, text: str) -> None:
+        """Write a line, taking the painted line down first and letting the next
+        tick put it back. Without this, anything else a command writes to stderr
+        mid-job lands on top of the progress line and both become unreadable."""
+        with self._lock:
+            self._clear()
+            self._line(text)
+            self._paint(force=True)
 
     def close(self) -> None:
         self._stop.set()

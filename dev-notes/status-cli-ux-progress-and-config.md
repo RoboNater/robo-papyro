@@ -21,6 +21,9 @@ the architectural rules this established are in
 | 3 | Write the selected options to a `.toml` so they are reused for the next PDF | ✅ `--save-config PATH` |
 | 4 | `docs/usage.md` is unclear whether there is one config file or several, and what the default is named | ✅ docs rewritten |
 
+Three gaps found in review are recorded in "Review round" below, including one
+where the progress reporting did not cover the very failure it was written for.
+
 **The unifying constraint, and the reason 1 and 2 needed no agent-vs-human
 mode.** The request raised the possibility of hiding these behind a flag kept
 off for agents. That turned out to be unnecessary, and a mode flag would have
@@ -42,8 +45,9 @@ the rest of the matrix.
 
 ### Verification
 
-- `uv run pytest`: **1081 passed, 8 skipped** (988 → 1089 collected; **101 new
-  tests**). The 8 skips are LibreOffice-gated and unrelated.
+- `uv run pytest`: **1100 passed, 9 skipped** (988 → 1109 collected; **121 new
+  tests**). 8 skips are LibreOffice-gated and unrelated; the 9th is a
+  permissions test that cannot fail as root and runs on CI.
 - Coverage on the new and heavily-changed modules: `rp_core/progress.py` 97%,
   `rp_core/clikit.py` 97%, `rp_pdf/config.py` 98%, `rp_pdf/describe.py` 93%.
 - `ruff check` and `ruff format` clean across the workspace.
@@ -229,6 +233,73 @@ line. `--describe` is pointed at as the runtime answer to "which settings are
 actually in play", which is usually the question underneath.
 
 ---
+
+## Review round: three gaps found on PR #9
+
+All three were real, and two of them are the interesting kind — the
+implementation was self-consistent and the tests passed; what was wrong was that
+it did not do what the *stated rationale* claimed.
+
+### 1. The progress thread started too late for the motivating failure
+
+`StderrProgress` starts its ticking thread on the first `step()`. But
+`_open_reader()` — the call that actually blocks on a dead network mount — ran
+*before* any step existed, in all six page-taking functions, plus `_page_count`
+in `rp_core.render` and the label check in `_announce_labels`. So the one
+scenario named in the original request, "stuck trying to read a file from a bad
+network connection", still produced total silence. The feature worked everywhere
+except the place it was written for.
+
+Fixed at two levels, deliberately:
+
+- **`clikit.job` now opens a step around the whole block**, so the reporter is
+  live from the first instruction inside it. This is the general fix: it does
+  not depend on anyone remembering to wrap the next blocking call added before a
+  counted step. It also gives a total-elapsed line for free.
+- **`core._open_pages`** does the open-and-resolve pair inside a named
+  `Opening <file>` step. This is the specific fix: the display says *which*
+  phase is stuck, not just that the job is. It also removed the same two-line
+  prologue duplicated across six functions.
+
+`_announce_labels` moved inside the job for the same reason — it opens the PDF
+too — which needed `Progress.message()`, a write that takes the painted line
+down and lets the next tick restore it. Without that, anything else a command
+writes to stderr mid-job lands on top of the progress line.
+
+Verified the way the bug was described rather than only by unit test: a `pty`
+run with `_open_reader` blocked for 1.5s now shows six repaints of
+`⠸ Opening demo.pdf [0s]` → `[1s]`. `test_a_blocked_open_still_ticks` pins it.
+
+### 2. Config write failures escaped as tracebacks
+
+`--save-config /tmp` (or any directory, or a read-only parent) let
+`IsADirectoryError`/`PermissionError` out raw — a Rich traceback on stderr,
+*after* the extraction result had already gone to stdout. Every other rp-pdf
+failure is a message plus an `ErrorEnvelope` with an exit code; this one was not.
+`save_command_options` now maps `OSError` to `ConfigError` (exit 1). The
+directory case has a CLI regression test asserting the envelope's `type` and
+`exit_code`; the permission case skips as root, where directory modes do not
+apply, and runs on CI where they do.
+
+### 3. The display flags bypassed `Options`
+
+`--describe`/`--progress` resolved through a free function rather than through
+the `Options` object, so `--no-progress --save-config` recorded everything
+*except* the flag the user had just set. That contradicted both the documented
+rule ("only the options you actually passed") and the single-source-of-truth
+invariant this note claims for `Options` above.
+
+The earlier reasoning for the exclusion — that persisting a UI preference might
+surprise someone later — did not survive contact with the rule: `-o` is excluded
+because reusing it *destroys this run's output*, which is a concrete harm;
+"someone might not want it" is not. A rule with one justified exception beats a
+rule with two, one of them undocumented. `Options.display()` now records them,
+and they save to `[ui]`, which is where `Config.lookup` already reads them from.
+
+Related, found while fixing it: the save message said `as [markdown]` regardless
+of where the keys actually went, so a run that set only `--model` claimed
+`[markdown]` while writing `[vlm]`. `config.sections_for` now drives the message
+from the same routing function the writer uses.
 
 ## Known limits and future work
 

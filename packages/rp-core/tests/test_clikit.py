@@ -271,3 +271,41 @@ class TestJob:
                 captured["reporter"] = reporter
                 raise RuntimeError("boom")
         assert captured["reporter"]._thread is None
+
+
+class TestJobIsItselfAStep:
+    """`job` opens a step around the whole block, so the reporter is ticking
+    from the first instruction inside it. Without this the display only wakes up
+    at the first inner step, and a job hung on the file-open before it — the
+    motivating failure — shows nothing at all."""
+
+    def test_work_before_any_inner_step_is_still_reported(self):
+        stream = io.StringIO()
+        with clikit.job("rp-pdf text — report.pdf", progress=True, stream=stream) as reporter:
+            reporter._tick()  # what the background thread does, deterministically
+            assert stream.getvalue() != "", "nothing painted before the first inner step"
+        assert "rp-pdf text — report.pdf" in stream.getvalue()
+
+    def test_the_ticking_thread_is_running_before_the_first_inner_step(self):
+        with clikit.job("t", progress=True, stream=io.StringIO()) as reporter:
+            assert reporter._thread is not None and reporter._thread.is_alive()
+
+    def test_an_inner_step_takes_over_and_hands_back(self):
+        """A plain StringIO is not a terminal, so this is the log shape: the
+        outer step brackets the inner one and reports total elapsed."""
+        stream = io.StringIO()
+        with clikit.job("whole job", progress=True, stream=stream) as reporter:
+            with reporter.step("inner", total=1) as step:
+                step.advance()
+        lines = stream.getvalue().splitlines()
+        assert lines[0] == "whole job: started"
+        assert lines[1] == "inner: started (1)"
+        assert lines[2].startswith("inner: done 1/1")
+        assert lines[3].startswith("whole job: done")
+
+    def test_no_step_is_opened_when_progress_is_off(self, capsys):
+        with clikit.job("quiet job") as reporter:
+            with reporter.step("inner"):
+                pass
+        captured = capsys.readouterr()
+        assert (captured.out, captured.err) == ("", "")

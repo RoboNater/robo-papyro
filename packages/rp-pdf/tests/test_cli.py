@@ -267,16 +267,37 @@ class TestDescribeAndProgress:
         assert "AI review  off" in result.stderr
         assert "pypdf" in result.stderr
 
-    def test_the_describe_flag_appears_on_the_job_commands(self, run_cli):
-        for command in ("text", "tables", "search", "images", "markdown", "render"):
-            help_text = run_cli(command, "--help").stdout
-            assert "--describe" in help_text, command
-            assert "--progress" in help_text, command
-            assert "--save-config" in help_text, command
+    def option_names(self, command: str) -> set[str]:
+        """Every flag spelling a command accepts, read from the parsed CLI
+        rather than from rendered `--help`.
 
-    def test_the_flags_stay_off_commands_with_no_job_to_describe(self, run_cli):
+        Not a shortcut: on a CI runner rich colorizes the help table and
+        highlights an option's leading hyphen as its own span, so the literal
+        text `--describe` is not present in the output even though the flag is.
+        The parameter list is what the assertion is actually about.
+        """
+        import typer.main
+
+        from rp_pdf.cli import app
+
+        params = typer.main.get_command(app).commands[command].params
+        return {name for param in params for name in (*param.opts, *param.secondary_opts)}
+
+    def test_the_job_commands_take_all_three_options(self):
+        for command in ("text", "tables", "search", "images", "markdown", "render"):
+            assert {
+                "--describe",
+                "--no-describe",
+                "--progress",
+                "--no-progress",
+                "--save-config",
+            } <= self.option_names(command), command
+
+    def test_the_flags_stay_off_commands_with_no_job_to_describe(self):
         """`index` and `doctor` are near-instant and have nothing to configure;
         an option that never helps is still an option to read past."""
         for command in ("index", "doctor"):
-            help_text = run_cli(command, "--help").stdout
-            assert "--progress" not in help_text, command
+            names = self.option_names(command)
+            assert "--progress" not in names, command
+            assert "--describe" not in names, command
+            assert "--save-config" not in names, command
