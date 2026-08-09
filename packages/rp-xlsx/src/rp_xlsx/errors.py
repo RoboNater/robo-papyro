@@ -41,6 +41,10 @@ class InvalidXlsxError(RpXlsxError, CorruptFileError):
     """
 
 
+class TemplateError(RpXlsxError, InputError):
+    """A template name or path could not be resolved. Exit 1."""
+
+
 class RefSpecError(RpXlsxError, InputError, ValueError):
     """A malformed A1 reference, column letters, or sheet selection. Exit 1.
 
@@ -69,4 +73,5 @@ __all__ = [
     "MissingFileError",
     "RefSpecError",
     "RpXlsxError",
+    "TemplateError",
 ]

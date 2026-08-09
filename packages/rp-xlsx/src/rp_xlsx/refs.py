@@ -198,12 +198,47 @@ def resolve_sheet_selection(
     return parse_range_spec(sheets, len(sheet_names), noun="sheet")
 
 
+#: Excel's own forbidden characters in a sheet title (verified: openpyxl
+#: raises ``ValueError`` for these).
+FORBIDDEN_SHEET_CHARS = frozenset(":\\/?*[]")
+
+#: Excel's sheet-title length limit. openpyxl only *warns* past this
+#: (verified) — a warning is invisible to an agent, so this package raises.
+MAX_SHEET_NAME_LENGTH = 31
+
+
+def validate_sheet_name(name: str, existing: list[str] = ()) -> None:
+    """Raise :class:`~rp_core.errors.InputError` on a sheet name Excel would
+    refuse, or openpyxl would only warn about (spec section 4).
+
+    Checks forbidden characters, the 31-character limit, non-emptiness, and
+    uniqueness against ``existing`` — none of which openpyxl itself raises
+    reliably on the write side (section 9).
+    """
+    if not name:
+        raise InputError("Sheet name must not be empty.")
+    if len(name) > MAX_SHEET_NAME_LENGTH:
+        raise InputError(
+            f"Sheet name {name!r} is {len(name)} characters; Excel's limit is "
+            f"{MAX_SHEET_NAME_LENGTH}."
+        )
+    found = FORBIDDEN_SHEET_CHARS & set(name)
+    if found:
+        offending = "".join(sorted(found))
+        raise InputError(f"Sheet name {name!r} contains forbidden character(s): {offending}")
+    if name in existing:
+        raise InputError(f"A sheet named {name!r} already exists.")
+
+
 __all__ = [
     "A1Range",
     "CellPosition",
+    "FORBIDDEN_SHEET_CHARS",
+    "MAX_SHEET_NAME_LENGTH",
     "column_index",
     "column_letters",
     "parse_a1_range",
     "parse_cell_ref",
     "resolve_sheet_selection",
+    "validate_sheet_name",
 ]

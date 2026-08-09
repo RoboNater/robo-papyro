@@ -36,6 +36,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from openpyxl.workbook import Workbook
 
 from rp_core import ooxml as core_ooxml
+from rp_core.errors import InputError
 from rp_xlsx.errors import InvalidXlsxError, MissingFileError
 
 #: Every namespace this package resolves, in one place (spec section 7).
@@ -211,7 +212,60 @@ def save(workbook: Workbook, output: Path) -> Path:
     return output
 
 
+#: Every header/footer text slot openpyxl models on a worksheet — odd/even/
+#: first, each with left/center/right. Shared by ``xlsx/write.py``'s
+#: ``replace_text`` and ``xlsx/template.py``'s ``fill_template`` (spec
+#: sections 4 and 8), which are the only two places this package touches
+#: header/footer text.
+HEADER_FOOTER_ATTRS = (
+    "oddHeader",
+    "evenHeader",
+    "firstHeader",
+    "oddFooter",
+    "evenFooter",
+    "firstFooter",
+)
+_HEADER_FOOTER_POSITIONS = ("left", "center", "right")
+
+
+def header_footer_fields(ws: Any) -> list[tuple[str, Any]]:
+    """Every populated header/footer text slot on ``ws``, as ``(label, part)``.
+
+    ``part.text`` is the slot's current text (``get``/``set`` both work
+    through it). The label is coarse (``"oddHeader"``, not
+    ``"oddHeader:center"``) because that is what
+    :class:`~rp_xlsx.models.ReplaceResult`'s ``locations`` reports.
+    """
+    fields: list[tuple[str, Any]] = []
+    for attr in HEADER_FOOTER_ATTRS:
+        container = getattr(ws, attr, None)
+        if container is None:
+            continue
+        for position in _HEADER_FOOTER_POSITIONS:
+            part = getattr(container, position, None)
+            if part is not None:
+                fields.append((attr, part))
+    return fields
+
+
+def require_output(output: Path | None) -> Path:
+    """The resolved output path for an edit — never optional at this layer.
+
+    Raises when ``output`` is ``None``: this package never overwrites an
+    input file implicitly. The CLI turns ``--in-place`` into
+    ``output=path`` explicitly, exactly as ``rp_pptx.ooxml.copy_for_edit``
+    does for its own package.
+    """
+    if output is None:
+        raise InputError(
+            "An output path is required — this package never overwrites implicitly. "
+            "Pass output=... (the CLI spells this -o OUT or --in-place)."
+        )
+    return Path(output)
+
+
 __all__ = [
+    "HEADER_FOOTER_ATTRS",
     "MACRO_SUFFIXES",
     "MACRO_TEMPLATE_CONTENT_TYPE",
     "MACRO_WORKBOOK_CONTENT_TYPE",
@@ -225,10 +279,12 @@ __all__ = [
     "check_readable",
     "content_type_of",
     "format_of",
+    "header_footer_fields",
     "opened",
     "parse_part",
     "part_names",
     "read_part",
+    "require_output",
     "save",
     "xpath",
 ]
