@@ -7,11 +7,18 @@ synthetic templates (``minimal``/``house_like``/``hostile``, spec section
 
 from __future__ import annotations
 
+import io
 import zipfile
+from datetime import date, datetime
 from pathlib import Path
 
 import openpyxl
 import pytest
+from openpyxl.chart import BarChart, Reference
+from openpyxl.comments import Comment
+from openpyxl.drawing.image import Image
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from PIL import Image as PILImage
 
 WORKBOOK_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"
 MACRO_WORKBOOK_CONTENT_TYPE = "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
@@ -136,4 +143,85 @@ def macro_workbook(tmp_path, plain_workbook) -> Path:
         extra={"xl/vbaProject.bin": b"FAKE-VBA-BYTES"},
         replace={"[Content_Types].xml": content_types.encode()},
     )
+    return path
+
+
+@pytest.fixture
+def rich_workbook_path(tmp_path) -> Path:
+    """One workbook exercising every read.py code path at once: formulas,
+    merges, a comment, an image, a chart, an Excel table, a defined name
+    (workbook- and sheet-scoped), freeze panes, autofilter, dates, a
+    percentage, a boolean, and a second sheet literally named ``"2"``
+    (spec section 4's disambiguation case) that is hidden."""
+    path = tmp_path / "rich.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Data"
+    ws["A1"], ws["B1"], ws["C1"] = "Name", "Amount", "Done"
+    ws["A2"], ws["B2"], ws["C2"] = "alpha", 10, True
+    ws["A3"], ws["B3"], ws["C3"] = "beta", 20, False
+    ws["B4"] = "=SUM(B2:B3)"
+    ws["D2"] = 0.25
+    ws["D2"].number_format = "0.00%"
+    ws["E2"] = datetime(2024, 5, 1, 12, 30)
+    ws["E3"] = date(2024, 5, 1)
+    ws.merge_cells("A6:B6")
+    ws["A6"] = "merged"
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = "A1:C3"
+    ws["A1"].comment = Comment("header note", "Author")
+
+    table = Table(displayName="DataTable", ref="A1:C3")
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
+    ws.add_table(table)
+
+    chart = BarChart()
+    chart.title = "Amounts"
+    data_ref = Reference(ws, min_col=2, min_row=1, max_row=3)
+    chart.add_data(data_ref, titles_from_data=True)
+    cats_ref = Reference(ws, min_col=1, min_row=2, max_row=3)
+    chart.set_categories(cats_ref)
+    ws.add_chart(chart, "F2")
+
+    buf = io.BytesIO()
+    PILImage.new("RGB", (12, 8), color="blue").save(buf, format="PNG")
+    buf.seek(0)
+    ws.add_image(Image(buf), "F10")
+
+    wb.defined_names["Revenue"] = openpyxl.workbook.defined_name.DefinedName(
+        "Revenue", attr_text="Data!$B$2:$B$3"
+    )
+    ws.defined_names["LocalNote"] = openpyxl.workbook.defined_name.DefinedName(
+        "LocalNote", attr_text="Data!$A$1"
+    )
+
+    hidden = wb.create_sheet("2")
+    hidden.sheet_state = "hidden"
+    hidden["A1"] = "second sheet"
+
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def phantom_dimension_workbook(tmp_path) -> Path:
+    """A sheet with one real value and a format-only cell far below it, so
+    `ws.dimensions`/`max_row` claim far more than the sheet actually holds
+    (spec section 9, verified in the probe note)."""
+    path = tmp_path / "phantom.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "only real value"
+    ws["E1000"].fill = openpyxl.styles.PatternFill(
+        start_color="FFFF00", end_color="FFFF00", fill_type="solid"
+    )
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def empty_workbook(tmp_path) -> Path:
+    """A workbook with a single, genuinely empty sheet."""
+    path = tmp_path / "empty.xlsx"
+    openpyxl.Workbook().save(path)
     return path
