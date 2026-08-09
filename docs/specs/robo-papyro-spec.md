@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.4
-**Status:** Phases 0, 0.5, 1, and 2.5 complete · Phase 2 (`rp-mcp`) next · Phase 3 (`rp-xlsx`) future work
-**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 (implemented — see `dev-notes/status-robo-papyro-phase-2.5.md`)
+**Version:** 1.5
+**Status:** Phases 0, 0.5, 1, 2, and 2.5 complete · Phase 3 (`rp-xlsx`) future work
+**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`)
+
+**Changes from v1.4:** §1, §3, and §9 record Phase 2 (`rp-mcp`) as complete and add the distribution, its package tree, and its spec · §9's Phase 2 row names `rp-mcp-spec.md` where it said `TBD` · §11.2 corrects what a separate distribution actually buys: the license gate computes the base install path from *every* workspace member, so `rp-mcp` puts the MCP SDK tree into it, and §7.1 holds because the SDK is floored at 2.x (1.x reaches `certifi`/MPL-2.0 through `httpx`) rather than because the distribution boundary excludes it · §7 adds the `mcp` 2.x tree to the approved set · §1 and §6 correct "installs the others": `robo-papyro` installs the document leaves, and `rp-mcp` is opt-in via the `mcp` extra, which is what the published wheel actually declares.
 
 **Changes from v1.3:** §1, §3, §9, and §10 record Phase 2.5 (`rp-pptx`) as complete rather than specified, and Phase 2 as the sole remaining "next" phase, now scoped to include `rp-pptx`'s MCP server alongside `rp-pdf`'s and `rp-docx`'s · §1 and §4 correct "`rp-core` knows nothing about PDF or OOXML" to describe the actual boundary: `rp_core.ooxml` and `rp_core.markdown` hold generic, format-agnostic OPC/OOXML and Markdown-parsing mechanics, promoted out of `rp-docx` once `rp-pptx` needed the same grammar (`rp-pptx-spec.md` §12 step 2); WordprocessingML/PresentationML knowledge itself stays in the leaves · §3's layout gains `rp_core`'s `ooxml.py`/`markdown.py` and the `rp-pptx` package tree.
 
@@ -24,7 +26,10 @@
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
-| `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the others, provides the umbrella `rp` dispatcher |
+| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the three leaves to agents (Phase 2) |
+| `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the document leaves, provides the umbrella `rp` dispatcher. `rp-mcp` is opt-in via `robo-papyro[mcp]` |
+
+`rp-mcp` is the one distribution that imports the leaves. It is a consumer sitting above them, not a peer: nothing in `rp-pdf`, `rp-docx`, or `rp-pptx` imports `rp_mcp`, so the dependency direction stays one-way. Its own spec is `rp-mcp-spec.md`.
 
 **Rationale for one repo, several distributions:** corporate overhead (license scan, SBOM, security review, CI onboarding) is charged per repo. Workspace path dependencies resolve with nothing but git — no internal package index required. Cross-cutting changes land atomically in one PR. Separate distributions keep version histories independent and keep `rp-pdf` users from installing `python-docx`.
 
@@ -99,10 +104,15 @@ robo-papyro/
 │   │   └── tests/
 │   ├── rp-docx/                    # Phase 1 — complete
 │   ├── rp-pptx/                    # Phase 2.5 — complete
+│   ├── rp-mcp/                     # Phase 2 — complete
+│   │   ├── pyproject.toml
+│   │   ├── src/rp_mcp/             # sandbox, tools, {pdf,docx,pptx}.py, server, cli
+│   │   └── tests/
 │   └── robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
 │       └── tests/
+├── skills/                         # agent skills for the three CLIs (Phase 2)
 └── templates/                      # corporate .dotx/.docx and .potx/.pptx style templates
     └── README.md                   # provenance + owner per template
 ```
@@ -280,6 +290,8 @@ For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and
 
 `robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, `rp-docx`, and `rp-pptx`, providing a single `rp` command that dispatches to each.
 
+**`rp-mcp` is an extra, not a runtime dependency.** `pip install robo-papyro` installs the document toolkit and none of the MCP SDK; `pip install robo-papyro[mcp]` adds the servers, and `rp mcp` then appears through the same entry-point discovery as every other subcommand. That is the packaging expression of §9's "deliberate second install", and it is asserted against the manifest by `TestPackagingContract` in `packages/robo-papyro/tests/test_umbrella_cli.py` — a workspace `uv sync` installs every member regardless of what any member declares, so nothing else in the suite would notice this drifting.
+
 **Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf`, `rp_docx`, or `rp_pptx` directly — enforced by a test that walks the module's AST.
 
 Consequences, all desirable:
@@ -296,6 +308,8 @@ Consequences, all desirable:
 
 **Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter (BSD-2, enters as python-pptx's dependency), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
 
+**Approved for `rp-mcp` (Phase 2):** `mcp` 2.x (MIT) and its tree — `mcp-types` (MIT), `httpx2`/`httpcore2` (BSD-3), `truststore` (MIT), `starlette`/`sse-starlette`/`uvicorn`/`click` (BSD-3), `jsonschema`/`referencing`/`rpds-py`/`jsonschema-specifications`/`attrs`/`PyJWT` (MIT), `opentelemetry-api`/`python-multipart` (Apache-2.0), `pywin32` (PSF-2.0, Windows only). Each license was read from the project's published metadata, not inferred from a sibling. **The 2.x floor is a §7.1 constraint**: `mcp` 1.x reaches `certifi` (MPL-2.0) through `httpx`, which the base-path check below rejects.
+
 **Forbidden:** `docxtpl` (LGPL-2.1-only), `pandoc` (GPL), `PyMuPDF`/`fitz` (AGPL), Aspose/Spire (commercial).
 
 ### 7.1 Weak-copyleft policy
@@ -305,7 +319,7 @@ MPL-2.0 and comparable file-level copyleft are **permitted for unmodified transi
 Reasoning:
 - MPL-2.0 obligations attach to distributing *modified* copies of covered files. The suite does neither.
 - `tqdm`'s expression is `AND`, not `OR` — a mixture, meaning MPL genuinely applies to part of it. It cannot be treated as MIT. It is permitted under this policy, not under the approved list.
-- Both enter only through the optional `ai` extra (`openai` → `httpx` → `certifi`; `openai` → `tqdm`). A base `uv pip install rp-core rp-pdf` resolves to 24 distributions, all fully permissive. This is asserted by the gate rather than recorded by hand — see the requirements below.
+- Both enter only through the optional `ai` extra (`openai` → `httpx` → `certifi`; `openai` → `tqdm`), and both were still reachable only that way after Phase 2 added `rp-mcp` — but only because `mcp` was taken at 2.x. The gate asserts this rather than any count recorded here by hand; it prints the base path's real size on every run.
 
 **Requirements:** every weak-copyleft entry in `ci/allowed-packages.toml` records the license, the path by which it enters, and why it is acceptable. A weak-copyleft package appearing in the base install path fails the gate regardless of allowlisting. Strong copyleft (GPL, LGPL, AGPL) is never allowlisted as a Python dependency.
 
@@ -371,7 +385,7 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | **0.5** | Contract decisions and extraction cleanup | §8 above | Complete |
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | `rp-pptx-spec.md` §12 | Complete — landed before Phase 2, per `dev-notes/status-robo-papyro-phase-2.5.md`; no house deck was needed |
-| **2** | `rp-mcp`: a fourth distribution isolating MCP's dependency tree, with FastMCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | TBD | Next |
+| **2** | `rp-mcp`: a fourth distribution holding the MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | `rp-mcp-spec.md` | Complete — see `dev-notes/status-robo-papyro-phase-2.md`. "FastMCP" is `MCPServer` in the SDK's 2.x line |
 | **3** | `rp-xlsx` (openpyxl) | TBD | Future work |
 
 ---
@@ -401,5 +415,7 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 ## 11. Open Decisions
 
 1. **Template provenance** — `templates/README.md` needs an owner and canonical location per template. If the source of truth is SharePoint, decide whether the repo holds a synced copy or a pointer; a stale letterhead is worse than a missing one. ~~**This is on the critical path for Phase 1 step 5.**~~ **No longer on any critical path.** Phase 1 shipped without a house template, and the manifest/synthesis loop (`rp-docx-spec.md` §5.2) means CI depends on committed JSON describing a template's shape rather than on the template itself. Still worth answering before the first real template lands — see `templates/README.md` — but nothing is blocked on it.
-2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting. Keeping the fallback that cheap is the point of the §7.1 gate check, and of putting MCP in its own `rp-mcp` distribution rather than in a leaf: whatever the MCP SDK drags in stays out of the base install path by construction.
+2. **Compliance sign-off on §7.1** — if anyone outside the team must ratify the weak-copyleft policy, start that now. The fallback if it is rejected is dropping the `ai` extra, not re-architecting. Keeping the fallback that cheap is the point of the §7.1 gate check.
+
+   **Correction (Phase 2).** The second half of that sentence — that putting MCP in its own distribution keeps whatever the SDK drags in "out of the base install path by construction" — is not true as written, and it matters because it reads like a guarantee. The gate computes the base install path from the runtime dependencies of *every* workspace member, so `rp-mcp` being a separate distribution isolates `rp-pdf`'s dependency graph (`uv pip install rp-pdf` still pulls nothing MCP-related) without isolating the gate's input at all. What keeps §7.1 satisfied is the version floor: `mcp` 1.x depends on `httpx` → `certifi` (MPL-2.0), which the gate rejects in the base path and which would also invalidate both `extra:ai` tags; `mcp` 2.x uses `httpx2` + `truststore` and pulls no weak copyleft. `rp-mcp` pins `mcp>=2.0.0,<3` for that reason as much as for the `FastMCP` → `MCPServer` rename.
 3. **Archiving `w528-pdf-extraction-toolkit`** — unblocked; do it once Phase 0.5 is green.

@@ -44,7 +44,7 @@ packages/rp-pptx/
 │   │   ├── slides.py       # delete/reorder — p:sldIdLst surgery, §7
 │   │   └── template.py     # {{ placeholder }} substitution
 │   ├── cli.py              # typer — formatting and printing only
-│   └── mcp_server.py       # stub, or the rp-mcp server if Phase 2 has landed (§12 step 9)
+│   └──                     # (no mcp_server.py: Phase 2 put the server in rp-mcp, §12 step 9)
 └── tests/
     ├── conftest.py         # generates all fixture decks and templates
     ├── fixtures/           # *.manifest.json only — no binaries, per §11
@@ -586,7 +586,7 @@ Prerequisite: none — Phase 1 is merged, and this phase does not depend on Phas
 
 **Step 8.** Implement `pptx/slides.py` (§7), then `pptx/write.py` and `pptx/template.py` on top of `runs.py` and the resolved `LayoutMap`.
 
-**Step 9.** Implement `cli.py` per §10 using `rp_core.clikit`. If `rp-mcp` exists by now, add the pptx server there (parent §9 puts MCP servers in their own distribution — never in this leaf); otherwise leave `mcp_server.py` a documented stub for Phase 2 to claim.
+**Step 9.** Implement `cli.py` per §10 using `rp_core.clikit`. If `rp-mcp` exists by now, add the pptx server there (parent §9 puts MCP servers in their own distribution — never in this leaf); otherwise leave `mcp_server.py` a documented stub for Phase 2 to claim. **Resolved:** Phase 2.5 landed first and left the stub; Phase 2 then implemented `rp_mcp.pptx` and deleted it. This package has no `mcp_server.py`, and must not grow one — see `rp-mcp-spec.md`.
 
 **Step 10.** Full suite; CLI sweep against a generated deck; verify `rp pptx index FILE` and `rp-pptx index FILE` byte-identical; `docs/usage-pptx.md`; CI matrix and smoke steps extended (the umbrella-identity, exit-code-taxonomy, and no-LibreOffice-round-trip smokes that cover rp-docx get pptx equivalents); license-gate entry for `XlsxWriter`.
 

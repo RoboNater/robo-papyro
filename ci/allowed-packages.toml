@@ -6,8 +6,8 @@
 # see docs/specs/robo-papyro-spec.md §7. Copyleft in the dependency graph is a
 # blocker in this environment, not a preference.
 #
-# Workspace members (rp-core, rp-pdf, rp-docx, robo-papyro) are allowed
-# automatically and do not need listing.
+# Workspace members (rp-core, rp-pdf, rp-docx, rp-pptx, rp-mcp, robo-papyro)
+# are allowed automatically and do not need listing.
 #
 # An entry is either a bare license string or a table. The table form adds a
 # `tag`, which is a *checked claim*: `extra:ai` asserts the package is
@@ -33,6 +33,14 @@ openpyxl = "MIT"
 python-pptx = "MIT"
 xlsxwriter = "BSD-2-Clause"
 
+# Phase 2 (rp-mcp). The official MCP SDK, and the only direct dependency the
+# rp-mcp block at the end of [transitive] hangs off. Floored at 2.0 in rp-mcp's pyproject
+# partly for the API rename, partly for this file: 1.x reaches certifi
+# (MPL-2.0) through httpx, and rp-mcp is a published distribution, so on 1.x
+# that MPL package lands in the base install path and §7.1 fails. 2.x uses
+# httpx2 + truststore and pulls no weak copyleft at all.
+mcp = "MIT"
+
 [dev]
 coverage = "Apache-2.0"
 iniconfig = "MIT"
@@ -48,11 +56,11 @@ tomli = "MIT"
 # The `ai` extra: the VLM review pass.
 #
 # This extra is also the only route by which any weak-copyleft package enters
-# the graph — see the note above [transitive]. The base install path is 31
-# distributions (4 workspace members and 27 third-party, counting Windows-only
-# colorama), all fully permissive — computed by the gate from uv.lock rather
-# than recorded here by hand. Phase 1 added five: lxml, mammoth, cobble, and
-# python-docx for rp-docx, plus rp-docx itself.
+# the graph — see the note above [transitive]. Everything in the base install
+# path is fully permissive; the gate computes and prints its size from uv.lock
+# rather than trusting a count recorded here by hand, which is what kept this
+# comment from going stale when Phase 1 (rp-docx), Phase 2.5 (rp-pptx), and
+# Phase 2 (rp-mcp) each widened it.
 openai = "Apache-2.0"
 
 # Two entries below are MPL-2.0 — weak, file-level copyleft rather than fully
@@ -64,7 +72,8 @@ openai = "Apache-2.0"
 # MPL-2.0 is the license §7 already accepts for LibreOffice.
 #
 # The gate enforces that in both directions: weak copyleft may not appear in
-# the base path, and these two tags must stay true.
+# the base path, and these two tags must stay true. Both tags survived Phase 2
+# only because the MCP SDK was taken at 2.x — see the `mcp` entry above.
 [transitive]
 annotated-doc = "MIT"
 annotated-types = "MIT"
@@ -97,3 +106,32 @@ sniffio = "MIT OR Apache-2.0"
 tqdm = { license = "MPL-2.0 AND MIT", tag = "extra:ai", note = "AND, not OR — MPL genuinely applies to part of it" }
 typing-extensions = "PSF-2.0"
 typing-inspection = "MIT"
+
+# --- the rp-mcp tree (Phase 2) ---------------------------------------------
+#
+# Everything below arrives through `mcp` 2.x and nothing else. Licenses were
+# read from each project's PyPI metadata (`license_expression` where the
+# project publishes one, the classifier otherwise), not inferred from a sibling.
+# None is weak copyleft, which is why rp-mcp can be a published distribution
+# rather than an extra.
+attrs = "MIT"
+click = "BSD-3-Clause"
+httpcore2 = "BSD-3-Clause"
+httpx2 = "BSD-3-Clause"
+jsonschema = "MIT"
+jsonschema-specifications = "MIT"
+mcp-types = "MIT"
+opentelemetry-api = "Apache-2.0"
+pyjwt = "MIT"
+python-multipart = "Apache-2.0"
+# Windows-only (`sys_platform == 'win32'`), for named-pipe transport. PSF-2.0 —
+# the same license typing-extensions ships under, and permissive.
+pywin32 = "PSF-2.0"
+referencing = "MIT"
+rpds-py = "MIT"
+sse-starlette = "BSD-3-Clause"
+starlette = "BSD-3-Clause"
+# httpx2's CA source, replacing certifi. That substitution is the reason the
+# base install path stays free of MPL-2.0 with rp-mcp in it.
+truststore = "MIT"
+uvicorn = "BSD-3-Clause"

@@ -54,11 +54,13 @@ identical across the suite.
   | `0` | success |
   | `1` | user or input error — bad page spec, bad option, missing file |
   | `2` | a required external binary is absent (run `rp-pdf doctor`) |
-  | `3` | the file is corrupt, encrypted-unreadable, or not a PDF |
+  | `3` | the file is corrupt, or not a PDF at all |
 
   These codes are shared across the whole robo-papyro suite.
-- **Encrypted PDFs**: pass `--password PW` (library: `password="PW"`). Missing or
-  wrong passwords produce a clear error.
+- **Encrypted PDFs**: pass `--password PW` (library: `password="PW"`). A missing
+  or wrong password is a `PasswordError` and **exit 1** — an argument you can
+  fix, not a broken document. Exit 3 is for a file that cannot be parsed as a
+  PDF at all, whether or not it is encrypted.
 - **Long runs describe themselves and report progress** — on stderr, and only
   when a person is watching. See [Watching a long run](#watching-a-long-run).
 

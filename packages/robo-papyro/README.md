@@ -1,7 +1,11 @@
 # robo-papyro
 
-The meta-distribution: installs the suite's packages and provides the umbrella
-`rp` command.
+The meta-distribution: installs the document leaves — `rp-core`, `rp-pdf`,
+`rp-docx`, `rp-pptx` — and provides the umbrella `rp` command.
+
+**The MCP servers are opt-in.** `pip install robo-papyro` carries none of the
+MCP SDK; `pip install robo-papyro[mcp]` adds [`rp-mcp`](../rp-mcp), and `rp mcp`
+appears once it is installed — by that extra or on its own.
 
 ```bash
 rp --help              # lists whichever subcommands are installed
