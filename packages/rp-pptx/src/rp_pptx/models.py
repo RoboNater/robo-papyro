@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from rp_core.models import CoreProperties  # noqa: F401 -- re-exported; see class docstring there
+
 
 class Run(BaseModel):
     text: str
@@ -89,17 +91,6 @@ class ChartRef(BaseModel):
     categories: list[str] = []
     series: list[ChartSeries] = []
     data_available: bool = True
-
-
-class CoreProperties(BaseModel):
-    title: str | None = None
-    author: str | None = None
-    last_modified_by: str | None = None
-    created: datetime | None = None
-    modified: datetime | None = None
-    revision: int | None = None
-    category: str | None = None
-    keywords: str | None = None
 
 
 class PresentationIndex(BaseModel):
