@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.5
+**Version:** 1.6
 **Status:** Phases 0, 0.5, 1, 2, and 2.5 complete · Phase 3 (`rp-xlsx`) future work
 **Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`)
+
+**Changes from v1.5:** §1 and §6 reverse the packaging decision v1.5 recorded — `rp-mcp` is a **runtime dependency** of `robo-papyro`, not the `mcp` extra, so a published install has `rp mcp`. The extra kept an ASGI stack away from CLI-only users; it also kept the agent integration behind a step nobody takes, which is the wrong trade for a suite built for agentic document work. §6 states the measured cost and the pin that now rides on it. §7.1's reasoning is untouched: the license gate seeds the base install path from every workspace member, so this changes nothing the gate sees.
 
 **Changes from v1.4:** §1, §3, and §9 record Phase 2 (`rp-mcp`) as complete and add the distribution, its package tree, and its spec · §9's Phase 2 row names `rp-mcp-spec.md` where it said `TBD` · §11.2 corrects what a separate distribution actually buys: the license gate computes the base install path from *every* workspace member, so `rp-mcp` puts the MCP SDK tree into it, and §7.1 holds because the SDK is floored at 2.x (1.x reaches `certifi`/MPL-2.0 through `httpx`) rather than because the distribution boundary excludes it · §7 adds the `mcp` 2.x tree to the approved set · §1 and §6 correct "installs the others": `robo-papyro` installs the document leaves, and `rp-mcp` is opt-in via the `mcp` extra, which is what the published wheel actually declares.
 
@@ -27,7 +29,7 @@
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
 | `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the three leaves to agents (Phase 2) |
-| `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the document leaves, provides the umbrella `rp` dispatcher. `rp-mcp` is opt-in via `robo-papyro[mcp]` |
+| `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the whole suite, `rp-mcp` included, and provides the umbrella `rp` dispatcher |
 
 `rp-mcp` is the one distribution that imports the leaves. It is a consumer sitting above them, not a peer: nothing in `rp-pdf`, `rp-docx`, or `rp-pptx` imports `rp_mcp`, so the dependency direction stays one-way. Its own spec is `rp-mcp-spec.md`.
 
@@ -288,9 +290,16 @@ For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and
 
 ## 6. The `rp` Umbrella CLI
 
-`robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, `rp-docx`, and `rp-pptx`, providing a single `rp` command that dispatches to each.
+`robo-papyro` is a meta-distribution depending on `rp-core`, `rp-pdf`, `rp-docx`, `rp-pptx`, and `rp-mcp`, providing a single `rp` command that dispatches to each.
 
-**`rp-mcp` is an extra, not a runtime dependency.** `pip install robo-papyro` installs the document toolkit and none of the MCP SDK; `pip install robo-papyro[mcp]` adds the servers, and `rp mcp` then appears through the same entry-point discovery as every other subcommand. That is the packaging expression of §9's "deliberate second install", and it is asserted against the manifest by `TestPackagingContract` in `packages/robo-papyro/tests/test_umbrella_cli.py` — a workspace `uv sync` installs every member regardless of what any member declares, so nothing else in the suite would notice this drifting.
+**`rp-mcp` is a runtime dependency, not an extra.** `pip install robo-papyro` installs the whole suite, and `rp mcp` appears through the same entry-point discovery as every other subcommand. Phase 2 shipped it as the `mcp` extra and this reverses that: an extra keeps the MCP SDK away from users who only run CLIs, but it puts the agent integration behind a step most people never discover, and the agent integration is what this suite is for. `rp-mcp`'s own "deliberate second install" framing therefore describes the *leaves* — `uv pip install rp-pdf` still pulls nothing MCP-related — and no longer describes the umbrella.
+
+The cost is real and stated rather than hidden: a published install goes from 34 packages to 56, and the additions include an ASGI stack (`starlette`, `uvicorn`, `sse-starlette`) that a CLI-only user never executes. All are pure Python, none are weak copyleft, and installing a server is not running one — `rp-mcp` offers stdio only and starts nothing implicitly.
+
+Two things now ride on this that did not before, and both are asserted rather than described:
+
+- **The packaging shape.** `TestPackagingContract` in `packages/robo-papyro/tests/test_umbrella_cli.py` reads the manifest and requires `rp-mcp` among the runtime dependencies *and* no `mcp` extra — a workspace `uv sync` installs every member regardless of what any member declares, so nothing else in the suite would notice this drifting.
+- **The `mcp` pin.** `rp-mcp`'s `mcp>=2.0.0,<3` now constrains every `robo-papyro` install rather than only people who opted in. `packages/rp-mcp/tests/test_packaging.py` asserts both ends of it, and `.github/dependabot.yml` exists so a new major arrives as a pull request instead of going unnoticed — an upper bound is a bet that somebody will look, and nothing here was making that bet good.
 
 **Discovery, not imports.** `robo_papyro/cli.py` enumerates the `robo_papyro.commands` entry-point group via `importlib.metadata` and registers each discovered typer app as a subcommand. It must not import `rp_pdf`, `rp_docx`, or `rp_pptx` directly — enforced by a test that walks the module's AST.
 

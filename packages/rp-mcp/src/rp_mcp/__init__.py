@@ -10,7 +10,9 @@ server.run(transport="stdio")
 **Why this is a separate distribution.** Parent spec section 9 puts the MCP
 servers here rather than in each leaf, so whatever the MCP SDK drags in stays
 out of a leaf's dependency graph. `uv pip install rp-pdf` gets you a PDF
-toolkit and nothing else; the agent integration is a deliberate second install.
+toolkit and nothing else. The boundary is about the leaves: the `robo-papyro`
+umbrella depends on this package unconditionally, so a suite install has the
+servers.
 
 **Why the tools are three lines each.** Every function in `rp_pdf`, `rp_docx`,
 and `rp_pptx` already returns a pydantic model, so a tool is a name, a

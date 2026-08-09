@@ -12,8 +12,12 @@ error into a tool error with its [error envelope](../../docs/usage.md) intact.
 
 Parent spec §9 puts the MCP servers here rather than in each leaf, so whatever
 the MCP SDK drags in stays out of a leaf's dependency graph. `uv pip install
-rp-pdf` gets you a PDF toolkit and nothing else; the agent integration is a
-deliberate second install.
+rp-pdf` gets you a PDF toolkit and nothing else.
+
+That boundary is about the leaves, not about the umbrella: `robo-papyro`
+depends on `rp-mcp` unconditionally, so a suite install has the servers. What
+the separate distribution buys is the choice — take a leaf and get no MCP SDK,
+take the suite and get everything.
 
 ## Install and run
 

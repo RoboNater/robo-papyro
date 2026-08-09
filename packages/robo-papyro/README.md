@@ -1,11 +1,13 @@
 # robo-papyro
 
-The meta-distribution: installs the document leaves — `rp-core`, `rp-pdf`,
-`rp-docx`, `rp-pptx` — and provides the umbrella `rp` command.
+The meta-distribution: installs the suite — `rp-core`, `rp-pdf`, `rp-docx`,
+`rp-pptx`, and [`rp-mcp`](../rp-mcp) — and provides the umbrella `rp` command.
 
-**The MCP servers are opt-in.** `pip install robo-papyro` carries none of the
-MCP SDK; `pip install robo-papyro[mcp]` adds [`rp-mcp`](../rp-mcp), and `rp mcp`
-appears once it is installed — by that extra or on its own.
+**The MCP servers are included, not optional.** `pip install robo-papyro` gets
+`rp mcp` and the MCP SDK with it. The alternative was an extra, which keeps an
+ASGI stack away from CLI-only users at the price of an agent integration nobody
+discovers; for a suite built for agentic document work that is the wrong trade.
+Install a leaf directly if you want only the document toolkit.
 
 ```bash
 rp --help              # lists whichever subcommands are installed
