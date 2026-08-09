@@ -50,6 +50,7 @@ class TestPackagingContract:
             "rp-mcp",
             "rp-pdf",
             "rp-pptx",
+            "rp-xlsx",
             "typer",
         }
 
