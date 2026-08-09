@@ -1296,26 +1296,21 @@ source = { editable = "packages/robo-papyro" }
 dependencies = [
     { name = "rp-core" },
     { name = "rp-docx" },
+    { name = "rp-mcp" },
     { name = "rp-pdf" },
     { name = "rp-pptx" },
     { name = "typer" },
-]
-
-[package.optional-dependencies]
-mcp = [
-    { name = "rp-mcp" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "rp-core", editable = "packages/rp-core" },
     { name = "rp-docx", editable = "packages/rp-docx" },
-    { name = "rp-mcp", marker = "extra == 'mcp'", editable = "packages/rp-mcp" },
+    { name = "rp-mcp", editable = "packages/rp-mcp" },
     { name = "rp-pdf", editable = "packages/rp-pdf" },
     { name = "rp-pptx", editable = "packages/rp-pptx" },
     { name = "typer", specifier = ">=0.26.8" },
 ]
-provides-extras = ["mcp"]
 
 [[package]]
 name = "rp-core"

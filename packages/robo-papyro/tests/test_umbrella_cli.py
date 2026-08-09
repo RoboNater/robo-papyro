@@ -42,34 +42,42 @@ class TestPackagingContract:
         """Distribution names, dropping any version specifier."""
         return {re.split(r"[<>=!~\[ ]", item, maxsplit=1)[0] for item in requirements}
 
-    def test_runtime_dependencies_are_the_three_leaves(self):
-        """The documented contract: the umbrella installs the document toolkit."""
+    def test_runtime_dependencies_are_the_leaves_and_rp_mcp(self):
+        """The documented contract: the umbrella installs the whole suite."""
         assert self._names(self._manifest()["project"]["dependencies"]) == {
             "rp-core",
             "rp-docx",
+            "rp-mcp",
             "rp-pdf",
             "rp-pptx",
             "typer",
         }
 
-    def test_rp_mcp_is_an_extra_and_not_a_runtime_dependency(self):
-        """`pip install robo-papyro` must not drag in the MCP SDK.
+    def test_rp_mcp_is_a_runtime_dependency_and_not_an_extra(self):
+        """`pip install robo-papyro` must get `rp mcp`.
 
-        The servers are a deliberate second install (docs/usage-mcp.md); if this
-        ever becomes a runtime dependency, every `rp` user starts installing
-        starlette, uvicorn and the rest of the tree without asking for it.
+        This is the reverse of what Phase 2 shipped. The extra kept starlette
+        and uvicorn away from CLI-only users, at the price of an agent
+        integration nobody discovers; the suite exists for agentic document
+        work, so the servers are baseline and the dependency tree is the
+        accepted cost.
+
+        Asserting the *absence* of the extra matters as much as the presence of
+        the dependency: re-adding `[project.optional-dependencies] mcp` would
+        make `pip install robo-papyro[mcp]` meaningful again and leave the docs
+        describing two install paths where there is one.
         """
         manifest = self._manifest()
-        assert "rp-mcp" not in self._names(manifest["project"]["dependencies"])
-        assert self._names(manifest["project"]["optional-dependencies"]["mcp"]) == {"rp-mcp"}
+        assert "rp-mcp" in self._names(manifest["project"]["dependencies"])
+        assert "mcp" not in manifest["project"].get("optional-dependencies", {})
 
     def test_every_workspace_dependency_is_sourced(self):
         """A `rp-*` requirement with no `[tool.uv.sources]` entry resolves from
         an index that has never published it, which fails only at install time."""
         manifest = self._manifest()
-        required = self._names(manifest["project"]["dependencies"]) | self._names(
-            manifest["project"]["optional-dependencies"]["mcp"]
-        )
+        required = self._names(manifest["project"]["dependencies"])
+        for extra in manifest["project"].get("optional-dependencies", {}).values():
+            required |= self._names(extra)
         sources = set(manifest["tool"]["uv"]["sources"])
         assert {name for name in required if name.startswith("rp-")} <= sources
 

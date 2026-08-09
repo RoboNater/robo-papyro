@@ -6,25 +6,33 @@ readme = "README.md"
 requires-python = ">=3.11"
 # The meta-distribution installs the leaves; the CLI discovers them through the
 # robo_papyro.commands entry-point group rather than importing them.
+#
+# `rp-mcp` is a runtime dependency, not an extra: the suite is built for agentic
+# document work, and an agent integration you have to know to ask for is one
+# most users never find. `rp mcp` is therefore always present in a published
+# install. It shipped as an extra in Phase 2 and was made unconditional
+# afterwards — see docs/specs/robo-papyro-spec.md §6.
+#
+# The cost is measured and accepted: this takes a published install from 34
+# packages to 56, including an ASGI stack (starlette, uvicorn, sse-starlette)
+# that someone running only `rp pdf index` will never execute. All pure Python,
+# and installing a server is not running one — stdio is the only transport
+# rp-mcp offers, and nothing starts it implicitly.
+#
+# This is a packaging choice, not a licensing one: ci/license_gate.py computes
+# the base install path from every workspace member, so the MCP tree is in it
+# either way (docs/specs/rp-mcp-spec.md §2). What keeps §7.1 satisfied is
+# rp-mcp's `mcp>=2.0.0,<3` pin, which this dependency now puts in front of every
+# `robo-papyro` user; .github/dependabot.yml exists so the cap cannot go stale
+# unnoticed.
 dependencies = [
     "rp-core",
     "rp-docx",
+    "rp-mcp",
     "rp-pdf",
     "rp-pptx",
     "typer>=0.26.8",
 ]
-
-# `rp-mcp` is an extra, not a runtime dependency, so a plain `pip install
-# robo-papyro` still gets a document toolkit and none of the MCP SDK. `rp mcp`
-# then appears exactly when rp-mcp is installed — by this extra or on its own —
-# because the umbrella discovers subcommands through entry points and degrades
-# when one is absent.
-#
-# This is a packaging choice, not a licensing one: ci/license_gate.py computes
-# the base install path from every workspace member, so the MCP tree is in it
-# either way (docs/specs/rp-mcp-spec.md §2).
-[project.optional-dependencies]
-mcp = ["rp-mcp"]
 
 [project.scripts]
 rp = "robo_papyro.cli:main"
