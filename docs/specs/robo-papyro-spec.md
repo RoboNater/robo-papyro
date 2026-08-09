@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.6
-**Status:** Phases 0, 0.5, 1, 2, and 2.5 complete · Phase 3 (`rp-xlsx`) future work
-**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`)
+**Version:** 1.7
+**Status:** Phases 0, 0.5, 1, 2, and 2.5 complete · Phase 3 (`rp-xlsx`) specified, not started
+**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`) · `rp-xlsx-spec.md` v1.0 (specified; §12 is the Phase 3 plan)
+
+**Changes from v1.6:** §9's Phase 3 row names `rp-xlsx-spec.md` where it said `TBD`, and §1 and §3 add the distribution and its spec · §7 adds `et-xmlfile` (MIT), openpyxl's only runtime dependency, which `openpyxl` was approved without · §4.2 records that `CoreProperties` is promoted into `rp_core.models` by Phase 3 step 2, on the rule `rp-pptx-spec.md` §3 wrote for its own duplication ("if a third leaf needs it, promote it then") · §11 adds a fourth open decision: a part-preserving writer, which `rp-xlsx-spec.md` §6.3 rules out of Phase 3 and which is the only route to a lossless workbook edit.
 
 **Changes from v1.5:** §1 and §6 reverse the packaging decision v1.5 recorded — `rp-mcp` is a **runtime dependency** of `robo-papyro`, not the `mcp` extra, so a published install has `rp mcp`. The extra kept an ASGI stack away from CLI-only users; it also kept the agent integration behind a step nobody takes, which is the wrong trade for a suite built for agentic document work. §6 states the measured cost and the pin that now rides on it. §7.1's reasoning is untouched: the license gate seeds the base install path from every workspace member, so this changes nothing the gate sees.
 
@@ -28,7 +30,8 @@
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
-| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the three leaves to agents (Phase 2) |
+| `rp-xlsx` | `rp_xlsx` | `rp-xlsx` | Excel workbook read/write/edit (Phase 3 — specified, not started) |
+| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the leaves to agents (Phase 2) |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the whole suite, `rp-mcp` included, and provides the umbrella `rp` dispatcher |
 
 `rp-mcp` is the one distribution that imports the leaves. It is a consumer sitting above them, not a peer: nothing in `rp-pdf`, `rp-docx`, or `rp-pptx` imports `rp_mcp`, so the dependency direction stays one-way. Its own spec is `rp-mcp-spec.md`.
@@ -83,7 +86,9 @@ robo-papyro/
 │   │   ├── robo-papyro-spec.md     # this document
 │   │   ├── rp-docx-spec.md
 │   │   ├── rp-pdf-spec.md
-│   │   └── rp-pptx-spec.md
+│   │   ├── rp-pptx-spec.md
+│   │   ├── rp-mcp-spec.md
+│   │   └── rp-xlsx-spec.md        # Phase 3 — specified, not started
 │   └── usage.md
 ├── packages/
 │   ├── rp-core/
@@ -106,6 +111,10 @@ robo-papyro/
 │   │   └── tests/
 │   ├── rp-docx/                    # Phase 1 — complete
 │   ├── rp-pptx/                    # Phase 2.5 — complete
+│   ├── rp-xlsx/                    # Phase 3 — not started
+│   │   ├── pyproject.toml
+│   │   ├── src/rp_xlsx/            # refs, ooxml, fidelity, templates, xlsx/*, cli
+│   │   └── tests/
 │   ├── rp-mcp/                     # Phase 2 — complete
 │   │   ├── pyproject.toml
 │   │   ├── src/rp_mcp/             # sandbox, tools, {pdf,docx,pptx}.py, server, cli
@@ -204,6 +213,15 @@ class Capability(BaseModel):
 ```
 
 Plus `ErrorDetail` and `ErrorEnvelope` from §4.1.
+
+**`CoreProperties` joins them in Phase 3.** `rp-docx` and `rp-pptx` each define
+the OPC core-properties shape locally, and `rp-pptx-spec.md` §3 wrote the rule
+for what happens next: the duplication is deliberate for two leaves, and a third
+promotes it. `rp-xlsx` is the third (`rp-xlsx-spec.md` §12 step 2). It survives
+§10's "no format-specific identifier in `rp_core`" invariant because the core
+properties part is format-independent — the same part, with the same fields, in
+every OPC package. It is a data shape, not logic; nothing else moves with it,
+and both existing leaves re-export it so no import in either changes.
 
 ### 4.3 `ranges.py` — generic only
 
@@ -319,7 +337,9 @@ Consequences, all desirable:
 
 ## 7. Licensing (repo-wide)
 
-**Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter (BSD-2, enters as python-pptx's dependency), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
+**Approved (fully permissive):** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3), pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT) and `et-xmlfile` (MIT, its only runtime dependency — approved here because v1.2 approved openpyxl without naming what it brings), python-pptx (MIT), XlsxWriter (BSD-2, enters as python-pptx's dependency), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT).
+
+**Rejected for `rp-xlsx` (Phase 3):** `pandas` — BSD-3 and so not a licensing block, but it puts `numpy` and the timezone data in the base install path for shaping this suite does over data it has already parsed, and every `rp-pdf` user would inherit it. `formulas` is EUPL-1.2 and barred outright; formula evaluation is a non-goal for other reasons too (`rp-xlsx-spec.md` §1).
 
 **Approved for `rp-mcp` (Phase 2):** `mcp` 2.x (MIT) and its tree — `mcp-types` (MIT), `httpx2`/`httpcore2` (BSD-3), `truststore` (MIT), `starlette`/`sse-starlette`/`uvicorn`/`click` (BSD-3), `jsonschema`/`referencing`/`rpds-py`/`jsonschema-specifications`/`attrs`/`PyJWT` (MIT), `opentelemetry-api`/`python-multipart` (Apache-2.0), `pywin32` (PSF-2.0, Windows only). Each license was read from the project's published metadata, not inferred from a sibling. **The 2.x floor is a §7.1 constraint**: `mcp` 1.x reaches `certifi` (MPL-2.0) through `httpx`, which the base-path check below rejects.
 
@@ -399,7 +419,7 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | `rp-pptx-spec.md` §12 | Complete — landed before Phase 2, per `dev-notes/status-robo-papyro-phase-2.5.md`; no house deck was needed |
 | **2** | `rp-mcp`: a fourth distribution holding the MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | `rp-mcp-spec.md` | Complete — see `dev-notes/status-robo-papyro-phase-2.md`. "FastMCP" is `MCPServer` in the SDK's 2.x line |
-| **3** | `rp-xlsx` (openpyxl) | TBD | Future work |
+| **3** | `rp-xlsx`: workbook read/write/edit over openpyxl, plus its MCP server and skill | `rp-xlsx-spec.md` §12 | Specified, not started. Its §6 is the phase: openpyxl does not round-trip a workbook, so a fidelity guard, not a format swap |
 
 ---
 
@@ -432,3 +452,4 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 
    **Correction (Phase 2).** The second half of that sentence — that putting MCP in its own distribution keeps whatever the SDK drags in "out of the base install path by construction" — is not true as written, and it matters because it reads like a guarantee. The gate computes the base install path from the runtime dependencies of *every* workspace member, so `rp-mcp` being a separate distribution isolates `rp-pdf`'s dependency graph (`uv pip install rp-pdf` still pulls nothing MCP-related) without isolating the gate's input at all. What keeps §7.1 satisfied is the version floor: `mcp` 1.x depends on `httpx` → `certifi` (MPL-2.0), which the gate rejects in the base path and which would also invalidate both `extra:ai` tags; `mcp` 2.x uses `httpx2` + `truststore` and pulls no weak copyleft. `rp-mcp` pins `mcp>=2.0.0,<3` for that reason as much as for the `FastMCP` → `MCPServer` rename.
 3. **Archiving `w528-pdf-extraction-toolkit`** — unblocked; do it once Phase 0.5 is green.
+4. **A part-preserving workbook writer** — new with Phase 3, and the only route to a lossless edit of an Excel file. openpyxl rewrites the parts it models and drops the rest (`rp-xlsx-spec.md` §6), so editing a workbook carrying a pivot cache, a slicer, or threaded comments either loses them or, under §6's guard, is refused. Merging openpyxl's output back over the original zip would fix it, and §6.3 rules that out of Phase 3 on the grounds that relationship IDs, content-type overrides, and `calcChain.xml` must all stay consistent with sheet XML openpyxl rewrote wholesale — a half-correct merge produces a file Excel repairs on open, which is a corrupted workbook with a green test suite. Decide it when a real workbook demands it, with the §6 guard's `at_risk` reports from real files as the evidence.
