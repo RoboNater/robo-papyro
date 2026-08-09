@@ -80,6 +80,15 @@ directories, writes need an explicit `--write-root`, and the file-creating
 tools are not registered at all without one. `skills/` holds one skill per
 format for agents that have a shell and need no server at all.
 
+`rp-mcp` shipped as the `robo-papyro[mcp]` extra and was made a **runtime
+dependency** of the umbrella straight afterwards: an extra keeps an ASGI stack
+away from CLI-only users, and keeps the agent integration behind a step most
+people never take. A published install is 54 packages rather than 33 on Linux
+and macOS (56 rather than 34 on Windows), one of them — `rpds-py` — a compiled
+Rust extension rather than pure Python, and
+`.github/dependabot.yml` now backs the `mcp>=2.0.0,<3` cap that every one of
+those installs inherits.
+
 Two things the parent spec had wrong in practice. **"FastMCP" is `MCPServer`**
 in the SDK's 2.x line — the same class, renamed across a major. And the claim
 that a separate distribution keeps the SDK "out of the base install path by

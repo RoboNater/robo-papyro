@@ -85,10 +85,15 @@ uv run rp pdf index FILE         # identical to `rp-pdf index FILE`
 ```
 
 Installing a new package (say `rp-xlsx`) makes it appear under `rp`
-automatically; nothing in `robo-papyro` changes. That is also how `rp mcp`
-works: `robo-papyro` installs the three document leaves, and the MCP servers
-are a deliberate opt-in — `pip install robo-papyro[mcp]`, or install `rp-mcp`
-on its own — so a plain install carries none of the MCP SDK.
+automatically; nothing in `robo-papyro` changes.
+
+`robo-papyro` installs the whole suite, `rp-mcp` included, so `rp mcp` is there
+in a plain `pip install robo-papyro`. That does bring the MCP SDK and an ASGI
+stack along with the document toolkit — the servers are what the suite is for
+when the caller is an agent, and an integration you have to know to ask for is
+one most people never find. Installing a server is not running one: stdio is
+the only transport, and nothing starts it implicitly. A leaf on its own stays
+lean — `uv pip install rp-pdf` still pulls nothing MCP-related.
 
 ## rp-pdf
 

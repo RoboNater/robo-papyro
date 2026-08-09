@@ -1,0 +1,54 @@
+# Why this file exists: `rp-mcp` pins `mcp>=2.0.0,<3`, and since the umbrella
+# depends on `rp-mcp` unconditionally, that cap now constrains every
+# `pip install robo-papyro` user rather than only people who opted into an
+# extra.
+#
+# An upper bound is a bet that somebody will notice when it goes stale. Nothing
+# in this repo was making that bet good — a hypothetical `mcp` 3.0 would simply
+# never have come up. This is the mechanism that raises it, as a pull request
+# with the lockfile already resolved.
+#
+# CI runs with UV_FROZEN=1, so a proposal that updates a manifest without
+# updating `uv.lock` fails rather than resolving something unpinned. That is the
+# intended interaction: an update either arrives complete or arrives red.
+version: 2
+
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    # Explicit, because the whole mechanism above depends on it. A capped
+    # requirement excludes the very release we want to hear about, so an update
+    # to `mcp` 3.0 has to arrive as a *widened* manifest constraint; if the
+    # strategy instead left `<3` in place there would be nothing to propose and
+    # the cap would go stale in exactly the silence this file exists to break.
+    #
+    # `auto` decides by classifying the project as an application or a library,
+    # and this repo is a poor thing to classify: the configured directory is a
+    # virtual uv workspace root with no `[project]` table at all. Naming the
+    # strategy removes the guess.
+    versioning-strategy: widen
+    groups:
+      # Routine bumps arrive as one PR; a major arrives on its own, because a
+      # major is a question ("does the code still work against this?") and not
+      # a chore. `mcp` 3.0 is the case this whole file is here for.
+      routine:
+        patterns:
+          - "*"
+        exclude-patterns:
+          # AGENTS.md: ruff is pinned exactly, and a pin bump goes in its own
+          # commit with the fixes it produces. Grouping it would defeat that.
+          - ruff
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Workspace members resolve through `[tool.uv.sources]`, not an index.
+      - dependency-name: rp-*
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

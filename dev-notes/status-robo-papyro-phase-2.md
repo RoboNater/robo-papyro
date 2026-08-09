@@ -259,13 +259,36 @@ robo-papyro`, because the umbrella declared only the three leaves and a
 workspace sync installs every member regardless. Nothing in the suite read the
 declared metadata, so the docs and the packaging could drift indefinitely.
 
-`rp-mcp` is now an **extra** (`robo-papyro[mcp]`) rather than a runtime
+`rp-mcp` became an **extra** (`robo-papyro[mcp]`) rather than a runtime
 dependency: the servers are already documented as a deliberate second install,
 the umbrella degrades gracefully when a subcommand is absent, and a hard
 dependency would put starlette and uvicorn in front of every `rp` user.
 `TestPackagingContract` reads `pyproject.toml` and asserts the declared shape,
 which is the only thing that fails when this drifts. No license-gate effect:
 `base_install_path` seeds from every workspace member either way.
+
+> **Reversed after the phase merged.** The repo owner made `rp-mcp` a runtime
+> dependency: the suite is built for agentic document work, and an extra puts
+> that integration behind a step most users never take. The measured cost is a
+> published install going from 33 packages to 54 on Linux and macOS (34 to 56
+> on Windows), one of the additions being `rpds-py`, a compiled Rust extension.
+> Both halves of that sentence were wrong in the first draft — the count was the
+> license gate's platform-union figure quoted as if it were an install, and the
+> additions were called "all pure Python". `TestPackagingContract` is
+> inverted and now also asserts the *absence* of the extra, so re-adding it
+> fails rather than quietly restoring two install paths.
+>
+> The half of this finding that survives unchanged is the one that mattered:
+> nothing in the suite read its own declared metadata, so the docs and the
+> packaging could drift in either direction. The test is what makes the
+> decision — either decision — checkable.
+>
+> One consequence took a second look. `mcp>=2.0.0,<3` was a pin on a package
+> people opted into; it now constrains every `robo-papyro` environment, and
+> upper bounds are viral — only a new release can lift one. It stays, because
+> the SDK renamed its central class across 1.x → 2.x and that is exactly the
+> evidence a cap wants, but it stays with `.github/dependabot.yml` behind it,
+> since a cap nobody revisits is a cap that eventually strands its users.
 
 ### 12. The one skill command that was never run
 

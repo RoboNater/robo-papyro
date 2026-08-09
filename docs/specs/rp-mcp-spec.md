@@ -14,8 +14,9 @@ agreeing.
 ## 1. Purpose
 
 `rp-mcp` exposes `rp-pdf`, `rp-docx`, and `rp-pptx` to agents over the Model
-Context Protocol. It is a fourth published distribution, not a module in a leaf
-and not an extra.
+Context Protocol. It is a fourth published distribution rather than a module in
+a leaf, and it is a runtime dependency of the `robo-papyro` umbrella rather than
+an optional extra of it (parent spec §6).
 
 **It implements no document behaviour.** Every tool is a name, a docstring, and
 a call into a leaf. If a tool needs logic, that logic belongs in the leaf, where
@@ -49,7 +50,17 @@ path and the gate fails it outright. `mcp` 2.x replaced `httpx` with `httpx2` +
 
 The cap is separate: the server class is `FastMCP` in 1.x and `MCPServer` in
 2.x. The parent spec and `ROADMAP.md` both say "FastMCP", written before 2.0
-existed; the class is the same thing under a new name.
+existed; the class is the same thing under a new name. That rename across a
+major is the evidence the cap rests on — this SDK does break its public surface
+between majors — and since the umbrella depends on `rp-mcp` unconditionally, the
+cap constrains every `robo-papyro` environment. Upper bounds are viral, so this
+one carries a mechanism: `packages/rp-mcp/tests/test_packaging.py` pins both
+ends, and `.github/dependabot.yml` surfaces a new major as a pull request.
+
+**The distribution boundary is about the leaves.** Keeping the servers out of
+`rp-pdf` means `uv pip install rp-pdf` pulls nothing MCP-related; it never meant
+the umbrella would omit them, and since Phase 2 it does not — see parent spec §6
+for that decision and its measured cost.
 
 ## 3. Layout
 
