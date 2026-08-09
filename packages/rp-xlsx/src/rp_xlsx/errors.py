@@ -41,6 +41,14 @@ class InvalidXlsxError(RpXlsxError, CorruptFileError):
     """
 
 
+class RefSpecError(RpXlsxError, InputError, ValueError):
+    """A malformed A1 reference, column letters, or sheet selection. Exit 1.
+
+    Also a ``ValueError``, matching ``rp_core.ranges.RangeSpecError`` — library
+    callers that predate the suite-wide hierarchy keep catching it.
+    """
+
+
 class LossyEditError(RpXlsxError, CorruptFileError):
     """A write would silently drop a part openpyxl does not model. Exit 3.
 
@@ -59,5 +67,6 @@ __all__ = [
     "InvalidXlsxError",
     "LossyEditError",
     "MissingFileError",
+    "RefSpecError",
     "RpXlsxError",
 ]
