@@ -19,6 +19,17 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Explicit, because the whole mechanism above depends on it. A capped
+    # requirement excludes the very release we want to hear about, so an update
+    # to `mcp` 3.0 has to arrive as a *widened* manifest constraint; if the
+    # strategy instead left `<3` in place there would be nothing to propose and
+    # the cap would go stale in exactly the silence this file exists to break.
+    #
+    # `auto` decides by classifying the project as an application or a library,
+    # and this repo is a poor thing to classify: the configured directory is a
+    # virtual uv workspace root with no `[project]` table at all. Naming the
+    # strategy removes the guess.
+    versioning-strategy: widen
     groups:
       # Routine bumps arrive as one PR; a major arrives on its own, because a
       # major is a question ("does the code still work against this?") and not

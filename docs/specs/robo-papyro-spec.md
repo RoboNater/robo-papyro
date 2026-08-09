@@ -294,7 +294,11 @@ For reference; Phase 0 is complete. `rp-pdf` shed five concerns to `rp-core` and
 
 **`rp-mcp` is a runtime dependency, not an extra.** `pip install robo-papyro` installs the whole suite, and `rp mcp` appears through the same entry-point discovery as every other subcommand. Phase 2 shipped it as the `mcp` extra and this reverses that: an extra keeps the MCP SDK away from users who only run CLIs, but it puts the agent integration behind a step most people never discover, and the agent integration is what this suite is for. `rp-mcp`'s own "deliberate second install" framing therefore describes the *leaves* — `uv pip install rp-pdf` still pulls nothing MCP-related — and no longer describes the umbrella.
 
-The cost is real and stated rather than hidden: a published install goes from 34 packages to 56, and the additions include an ASGI stack (`starlette`, `uvicorn`, `sse-starlette`) that a CLI-only user never executes. All are pure Python, none are weak copyleft, and installing a server is not running one — `rp-mcp` offers stdio only and starts nothing implicitly.
+The cost is real and stated rather than hidden. A published install goes from **33 packages to 54 on Linux and macOS**, and from 34 to 56 on Windows, which additionally resolves `pywin32` and `colorama`. (56 is also the number `ci/license_gate.py` prints, but that figure is the platform *union* — the graph with every marker taken as true — and is not what any one machine installs. The two agreeing is a coincidence of this particular tree, not the same measurement.) The additions include an ASGI stack — `starlette`, `uvicorn`, `sse-starlette` — that a CLI-only user never executes.
+
+**One addition is compiled, not pure Python.** `rpds-py`, reached through `jsonschema`, is a Rust extension and needs a toolchain on any platform it publishes no wheel for. This matters here because making `rp-mcp` unconditional changes install *risk* and not only package count. It is not a new kind of exposure — `lxml`, `pillow`, `cryptography`, `pypdfium2` and `pydantic-core` are all compiled and all predate this change — but it is one more, and the earlier draft of this section claiming the additions were "all pure Python" was simply wrong.
+
+None of the additions are weak copyleft, and installing a server is not running one — `rp-mcp` offers stdio only and starts nothing implicitly.
 
 Two things now ride on this that did not before, and both are asserted rather than described:
 

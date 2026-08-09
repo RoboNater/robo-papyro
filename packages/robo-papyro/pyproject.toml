@@ -13,11 +13,18 @@ requires-python = ">=3.11"
 # install. It shipped as an extra in Phase 2 and was made unconditional
 # afterwards — see docs/specs/robo-papyro-spec.md §6.
 #
-# The cost is measured and accepted: this takes a published install from 34
-# packages to 56, including an ASGI stack (starlette, uvicorn, sse-starlette)
-# that someone running only `rp pdf index` will never execute. All pure Python,
-# and installing a server is not running one — stdio is the only transport
-# rp-mcp offers, and nothing starts it implicitly.
+# The cost is measured and accepted: this takes a published install from 33
+# packages to 54 on Linux and macOS (34 to 56 on Windows, which additionally
+# resolves pywin32 and colorama), including an ASGI stack (starlette, uvicorn,
+# sse-starlette) that someone running only `rp pdf index` will never execute.
+# One addition is a native extension — rpds-py, via jsonschema, is Rust and
+# needs a toolchain on any platform it publishes no wheel for. That is a real
+# addition to the install surface rather than a wash, though it is not a new
+# kind of risk: lxml, pillow, cryptography, pypdfium2 and pydantic-core are all
+# compiled and were all here already.
+#
+# Installing a server is not running one — stdio is the only transport rp-mcp
+# offers, and nothing starts it implicitly.
 #
 # This is a packaging choice, not a licensing one: ci/license_gate.py computes
 # the base install path from every workspace member, so the MCP tree is in it

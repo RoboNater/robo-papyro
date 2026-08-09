@@ -270,7 +270,11 @@ which is the only thing that fails when this drifts. No license-gate effect:
 > **Reversed after the phase merged.** The repo owner made `rp-mcp` a runtime
 > dependency: the suite is built for agentic document work, and an extra puts
 > that integration behind a step most users never take. The measured cost is a
-> published install going from 34 packages to 56. `TestPackagingContract` is
+> published install going from 33 packages to 54 on Linux and macOS (34 to 56
+> on Windows), one of the additions being `rpds-py`, a compiled Rust extension.
+> Both halves of that sentence were wrong in the first draft — the count was the
+> license gate's platform-union figure quoted as if it were an install, and the
+> additions were called "all pure Python". `TestPackagingContract` is
 > inverted and now also asserts the *absence* of the extra, so re-adding it
 > fails rather than quietly restoring two install paths.
 >

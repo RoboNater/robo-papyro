@@ -83,7 +83,9 @@ format for agents that have a shell and need no server at all.
 `rp-mcp` shipped as the `robo-papyro[mcp]` extra and was made a **runtime
 dependency** of the umbrella straight afterwards: an extra keeps an ASGI stack
 away from CLI-only users, and keeps the agent integration behind a step most
-people never take. A published install is 56 packages rather than 34, and
+people never take. A published install is 54 packages rather than 33 on Linux
+and macOS (56 rather than 34 on Windows), one of them — `rpds-py` — a compiled
+Rust extension rather than pure Python, and
 `.github/dependabot.yml` now backs the `mcp>=2.0.0,<3` cap that every one of
 those installs inherits.
 
