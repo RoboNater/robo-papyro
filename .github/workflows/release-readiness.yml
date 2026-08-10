@@ -1,0 +1,56 @@
+name: Release readiness
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  clean-install:
+    name: clean install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      # This job intentionally starts from a fresh hosted runner. Its purpose is
+      # to catch packaging/install assumptions that an editable developer
+      # environment can hide, not to duplicate the full test matrix in ci.yml.
+      - name: Sync locked workspace from scratch
+        run: uv sync
+
+      - name: Umbrella and leaf CLIs start
+        run: |
+          uv run rp --help
+          uv run rp doctor
+          uv run rp-pdf --help
+          uv run rp-docx --help
+          uv run rp-pptx --help
+          uv run rp-xlsx --help
+          uv run rp-mcp --help
+
+      - name: Exercise in-process document paths
+        run: |
+          uv run python -c "from pathlib import Path; Path('notes.md').write_text('# Title\n\nBeta smoke test.\n', encoding='utf-8')"
+          uv run rp-docx create -o sample.docx --from-markdown notes.md
+          uv run rp-docx index sample.docx
+          uv run rp-pptx create -o sample.pptx --from-markdown notes.md
+          uv run rp-pptx index sample.pptx
+          uv run python -c "from pathlib import Path; Path('table.csv').write_text('A,B\n1,2\n', encoding='utf-8')"
+          uv run rp-xlsx create -o sample.xlsx --from-csv table.csv
+          uv run rp-xlsx index sample.xlsx
+          uv run python -c "from pypdf import PdfWriter; w=PdfWriter(); w.add_blank_page(width=72, height=72); w.write('sample.pdf')"
+          uv run rp-pdf index sample.pdf
+          uv run rp-mcp tools --server pdf --root .
