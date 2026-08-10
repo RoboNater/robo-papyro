@@ -365,13 +365,12 @@ def register(server: MCPServer, sandbox: Sandbox) -> None:
 
         Only the fields given are changed; the rest keep their current values.
         """
-        target = write.set_properties(
+        return write.set_properties(
             sandbox.resolve_input(path),
             properties,
             output=sandbox.resolve_output(output),
             allow_lossy=allow_lossy,
         )
-        return WriteResult(output=target, cells_written=0, recalculation_required=False, dropped=[])
 
     @server.tool(name="xlsx_fill_template")
     @guarded

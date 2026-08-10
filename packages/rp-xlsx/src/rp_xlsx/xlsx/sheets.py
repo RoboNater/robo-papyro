@@ -14,11 +14,17 @@ from typing import Any
 
 from rp_core.errors import InputError
 from rp_xlsx import fidelity, ooxml, refs
-from rp_xlsx.models import SheetOpResult
+from rp_xlsx.models import AtRiskPart, SheetOpResult
 
 
-def _result(target: Path, wb: Any) -> SheetOpResult:
-    return SheetOpResult(output=target, sheet_count=len(wb.sheetnames), sheets=list(wb.sheetnames))
+def _result(target: Path, wb: Any, dropped: list[AtRiskPart]) -> SheetOpResult:
+    return SheetOpResult(
+        output=target,
+        sheet_count=len(wb.sheetnames),
+        sheets=list(wb.sheetnames),
+        recalculation_required=ooxml.has_any_formula(wb),
+        dropped=dropped,
+    )
 
 
 def _require_a_visible_sheet_remains(wb: Any, doomed: set[str]) -> None:
@@ -39,7 +45,7 @@ def add_sheet(
     output: Path | None = None,
     allow_lossy: bool = False,
 ) -> SheetOpResult:
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
         refs.validate_sheet_name(name, wb.sheetnames)
@@ -54,7 +60,7 @@ def add_sheet(
                 )
             wb.create_sheet(name, index - 1)
         ooxml.save(wb, target)
-        return _result(target, wb)
+        return _result(target, wb, report.at_risk)
 
 
 def delete_sheets(
@@ -67,7 +73,7 @@ def delete_sheets(
 ) -> SheetOpResult:
     if not sheets and not names:
         raise InputError("delete_sheets requires sheets (a position spec) or names.")
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
         sheet_names = wb.sheetnames
@@ -77,7 +83,7 @@ def delete_sheets(
         for name in doomed:
             del wb[name]
         ooxml.save(wb, target)
-        return _result(target, wb)
+        return _result(target, wb, report.at_risk)
 
 
 def rename_sheet(
@@ -88,7 +94,7 @@ def rename_sheet(
     output: Path | None = None,
     allow_lossy: bool = False,
 ) -> SheetOpResult:
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
         if old not in wb.sheetnames:
@@ -98,7 +104,7 @@ def rename_sheet(
         refs.validate_sheet_name(new, others)
         wb[old].title = new
         ooxml.save(wb, target)
-        return _result(target, wb)
+        return _result(target, wb, report.at_risk)
 
 
 def reorder_sheets(
@@ -114,13 +120,13 @@ def reorder_sheets(
     missing, duplicated, or out-of-range indices — ``rp-pptx`` section 4's
     rule for ``reorder_slides``, unchanged here.
     """
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
         _validate_permutation(order, len(wb.sheetnames))
         wb._sheets = [wb.worksheets[position - 1] for position in order]
         ooxml.save(wb, target)
-        return _result(target, wb)
+        return _result(target, wb, report.at_risk)
 
 
 def _validate_permutation(order: list[int], count: int) -> None:

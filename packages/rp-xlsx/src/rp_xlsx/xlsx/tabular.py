@@ -38,6 +38,56 @@ from rp_xlsx.xlsx.read import get_data
 #: enforce that, so the shape is checked before int()/float() ever run.
 _NUMBER_RE = re.compile(r"^-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?$")
 
+#: Windows' forbidden filename characters. A strict *superset* of what Excel
+#: forbids in a sheet title (": \\ / ? * [ ]") — "<", ">", '"', and "|" are
+#: all valid in a sheet name but illegal in a Windows filename, so a sheet
+#: named e.g. ``Q1<Draft>`` or ``A|B`` is a real, resolvable workbook that a
+#: naive "the sheet name is already a safe filename" assumption would fail
+#: to export on Windows.
+_WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
+
+#: Windows' reserved device names, matched case-insensitively against the
+#: filename *stem* regardless of extension (`CON.csv` is just as reserved as
+#: `CON`) — verified against Windows' own documented list, not a filesystem
+#: probe, since this package develops and tests on Linux/macOS.
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def safe_artifact_stems(names: list[str]) -> dict[str, str]:
+    """``names`` (sheet names, in order) mapped to safe, unique filename stems.
+
+    Every character Windows forbids in a filename is replaced with ``_``, a
+    trailing dot or space (also forbidden) is stripped, and a Windows-reserved
+    device name gets a trailing ``_``. Two sheet names that sanitize to the
+    same stem — ``"Q1|A"`` and ``"Q1_A"``, say — would otherwise silently
+    overwrite one another; the second and later collisions instead get a
+    ``-2``, ``-3``, ... suffix, keeping every sheet's artifact distinct.
+    Order matters only for which colliding name keeps the bare stem — the
+    first occurrence wins, matching the order ``names`` was given in.
+    """
+    taken: set[str] = set()
+    result: dict[str, str] = {}
+    for name in names:
+        cleaned = "".join(
+            "_" if ch in _WINDOWS_FORBIDDEN_FILENAME_CHARS else ch for ch in name
+        ).rstrip(" .")
+        if not cleaned:
+            cleaned = "sheet"
+        if cleaned.upper() in _WINDOWS_RESERVED_STEMS:
+            cleaned += "_"
+        stem = cleaned
+        suffix = 2
+        while stem in taken:
+            stem = f"{cleaned}-{suffix}"
+            suffix += 1
+        taken.add(stem)
+        result[name] = stem
+    return result
+
 
 def _read_text_source(source: Path | str) -> str:
     """A path to a file, or the content itself.
@@ -90,17 +140,24 @@ def to_csv(
 ) -> list[Path]:
     """One CSV (or TSV) file per selected sheet, named after the sheet.
 
-    Sheet names are safe filenames by construction: Excel forbids
+    **A sheet name is not automatically a safe filename.** Excel forbids
     ``: \\ / ? * [ ]`` in a sheet title (section 4's ``validate_sheet_name``
-    enforces the same rule on the write side), so nothing read back from a
-    real workbook needs sanitizing here.
+    enforces the same rule on the write side), but that is a strict *subset*
+    of what Windows forbids in a filename — ``<``, ``>``, ``"``, and ``|`` are
+    all valid sheet-title characters and all illegal on Windows, and a sheet
+    named ``CON`` or ``NUL`` is a perfectly ordinary sheet colliding with a
+    reserved device name. :func:`safe_artifact_stems` sanitizes and
+    deduplicates, so two sheets whose names sanitize to the same stem still
+    get distinct files rather than one silently overwriting the other.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     extension = ".tsv" if delimiter == "\t" else ".csv"
+    sheet_data = get_data(path, sheets=sheets, names=names, header=True)
+    stems = safe_artifact_stems([sheet.sheet for sheet in sheet_data])
     written: list[Path] = []
-    for sheet in get_data(path, sheets=sheets, names=names, header=True):
-        target = output_dir / f"{sheet.sheet}{extension}"
+    for sheet in sheet_data:
+        target = output_dir / f"{stems[sheet.sheet]}{extension}"
         with target.open("w", newline="", encoding=encoding) as handle:
             writer = csv.writer(handle, delimiter=delimiter)
             if sheet.header:
@@ -197,4 +254,4 @@ def from_markdown(source: Path | str) -> list[SheetSpec]:
     return specs
 
 
-__all__ = ["from_csv", "from_json", "from_markdown", "to_csv"]
+__all__ = ["from_csv", "from_json", "from_markdown", "safe_artifact_stems", "to_csv"]

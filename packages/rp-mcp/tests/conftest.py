@@ -230,6 +230,24 @@ def sample_xlsx(docs: Path) -> Path:
 
 
 @pytest.fixture
+def xlsx_at_risk(sample_xlsx: Path, docs: Path) -> Path:
+    """``sample_xlsx`` with an injected threaded-comments part, so an edit
+    against it must go through section 6's guard.
+
+    Presence-only, exactly like rp-xlsx's own ``at_risk_workbook`` fixture:
+    the guard keys on the part existing, not on anything inside it.
+    """
+    import zipfile
+
+    path = docs / "at-risk.xlsx"
+    with zipfile.ZipFile(sample_xlsx) as source, zipfile.ZipFile(path, "w") as target:
+        for item in source.infolist():
+            target.writestr(item, source.read(item.filename))
+        target.writestr("xl/threadedComments/threadedComment1.xml", "<threadedComments/>")
+    return path
+
+
+@pytest.fixture
 def xlsx_with_images(docs: Path, tmp_path: Path) -> Path:
     """A four-sheet workbook with one picture per sheet.
 

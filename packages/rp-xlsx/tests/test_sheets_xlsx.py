@@ -47,6 +47,12 @@ class TestAddSheet:
         with pytest.raises(InputError):
             sheets.add_sheet(three_sheet_workbook, "One", output=tmp_path / "out.xlsx")
 
+    def test_case_only_duplicate_is_also_an_input_error(self, three_sheet_workbook, tmp_path):
+        """Excel/openpyxl treat sheet names case-insensitively -- "one" next
+        to "One" is a collision, not a distinct name."""
+        with pytest.raises(InputError):
+            sheets.add_sheet(three_sheet_workbook, "one", output=tmp_path / "out.xlsx")
+
     def test_forbidden_character_is_an_input_error(self, three_sheet_workbook, tmp_path):
         with pytest.raises(InputError):
             sheets.add_sheet(three_sheet_workbook, "Bad[Name]", output=tmp_path / "out.xlsx")
@@ -109,6 +115,12 @@ class TestRenameSheet:
         with pytest.raises(InputError):
             sheets.rename_sheet(three_sheet_workbook, "Two", "Three", output=tmp_path / "out.xlsx")
 
+    def test_renaming_to_a_case_only_duplicate_is_also_an_input_error(
+        self, three_sheet_workbook, tmp_path
+    ):
+        with pytest.raises(InputError):
+            sheets.rename_sheet(three_sheet_workbook, "Two", "three", output=tmp_path / "out.xlsx")
+
     def test_renaming_to_a_forbidden_character_is_an_input_error(
         self, three_sheet_workbook, tmp_path
     ):
@@ -153,3 +165,21 @@ class TestFidelityGuardIntegration:
             at_risk_workbook, "New", output=tmp_path / "out.xlsx", allow_lossy=True
         )
         assert "New" in result.sheets
+
+    def test_allow_lossy_reports_what_was_dropped(self, at_risk_workbook, tmp_path):
+        """Every sheet operation accepts allow_lossy, so every one owes the
+        same report -- a SheetOpResult that stays silent about what an
+        allow_lossy=True caller just agreed to lose would defeat the whole
+        point of the flag never making the loss silent (spec section 6.2)."""
+        result = sheets.add_sheet(
+            at_risk_workbook, "New", output=tmp_path / "out.xlsx", allow_lossy=True
+        )
+        assert result.dropped
+
+    def test_recalculation_required_reflects_the_source(self, cached_value_workbook, tmp_path):
+        result = sheets.add_sheet(cached_value_workbook, "New", output=tmp_path / "out.xlsx")
+        assert result.recalculation_required is True
+
+    def test_recalculation_not_required_with_no_formulas(self, three_sheet_workbook, tmp_path):
+        result = sheets.add_sheet(three_sheet_workbook, "New", output=tmp_path / "out.xlsx")
+        assert result.recalculation_required is False

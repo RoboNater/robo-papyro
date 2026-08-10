@@ -106,6 +106,16 @@ class TestFindPlaceholders:
         assert "client" in keys
         assert "client.name" in keys
 
+    def test_stays_fast_at_excels_actual_row_and_column_limits(
+        self, adversarial_phantom_dimension_workbook
+    ):
+        import time
+
+        start = time.monotonic()
+        find_placeholders(adversarial_phantom_dimension_workbook)
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, f"find_placeholders took {elapsed:.1f}s"
+
 
 class TestListTemplates:
     def test_lists_every_resolvable_template(self, monkeypatch, tmp_path):

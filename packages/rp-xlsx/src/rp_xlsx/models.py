@@ -168,12 +168,15 @@ class ReplaceResult(BaseModel):
     replacements: dict[str, int]  # key -> count; unmatched keys report 0
     locations: list[str]  # "Sheet1!B4", "header:Sheet1"
     recalculation_required: bool
+    dropped: list[AtRiskPart]  # non-empty only when allow_lossy let a write through
 
 
 class SheetOpResult(BaseModel):
     output: Path
     sheet_count: int  # after the operation
     sheets: list[str]  # names, in order, after the operation
+    recalculation_required: bool  # the source had formulas whose cached values are now gone
+    dropped: list[AtRiskPart]  # non-empty only when allow_lossy let a write through
 
 
 class FillResult(BaseModel):
@@ -190,6 +193,12 @@ class FileWritten(BaseModel):
     section 10; the same shape as the other two leaves' equivalent)."""
 
     output: Path
+    #: The sheet this file was written from, when ``output``'s filename is
+    #: a sanitized/deduplicated stem rather than the sheet's literal name
+    #: (``data --format csv|md -o DIR``) — ``None`` for every other write
+    #: this model reports, which write exactly one file with no such mapping
+    #: to keep explicit.
+    sheet: str | None = None
 
 
 class ConversionResult(BaseModel):

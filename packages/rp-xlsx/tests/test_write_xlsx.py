@@ -69,9 +69,31 @@ class TestCreate:
                 sheets=[SheetSpec(name="A", rows=[["x"]]), SheetSpec(name="A", rows=[["y"]])],
             )
 
+    def test_case_only_duplicate_sheet_names_are_also_rejected(self, tmp_path):
+        """openpyxl treats sheet names case-insensitively -- "a" next to "A"
+        in the same create() call is a collision, not two distinct sheets."""
+        with pytest.raises(InputError):
+            write.create(
+                tmp_path / "dup.xlsx",
+                sheets=[SheetSpec(name="A", rows=[["x"]]), SheetSpec(name="a", rows=[["y"]])],
+            )
+
     def test_macro_extension_without_a_template_is_an_input_error(self, tmp_path):
         with pytest.raises(InputError):
             write.create(tmp_path / "out.xlsm", sheets=[SheetSpec(name="Data", rows=[["x"]])])
+
+    def test_macro_extension_against_a_non_macro_template_is_also_an_input_error(
+        self, tmp_path, template_workbook_path
+    ):
+        """The no-template branch's check above does not cover this path --
+        a template-backed create needs the same refusal, which is why the
+        check now lives in ooxml.save() rather than only here."""
+        with pytest.raises(InputError):
+            write.create(
+                tmp_path / "out.xlsm",
+                sheets=[SheetSpec(name="Data", rows=[["x"]])],
+                template=template_workbook_path,
+            )
 
     def test_template_sheets_are_preserved(self, tmp_path, template_workbook_path):
         out = write.create(
@@ -174,6 +196,26 @@ class TestAppendRows:
         # at row 1001 instead of row 2.
         assert data[0].rows[1][0] == "appended"
 
+    def test_stays_fast_at_excels_actual_row_and_column_limits(
+        self, tmp_path, adversarial_phantom_dimension_workbook
+    ):
+        """_next_empty_row must scan populated cells, not the declared
+        rectangle -- see the equivalent get_index test for why 5s is a
+        generous bound at Excel's real row/column limits."""
+        import time
+
+        start = time.monotonic()
+        write.append_rows(
+            adversarial_phantom_dimension_workbook,
+            "Sheet",
+            [["appended"]],
+            output=tmp_path / "out.xlsx",
+        )
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, f"append_rows took {elapsed:.1f}s"
+        data = read.get_data(tmp_path / "out.xlsx", header=False)
+        assert data[0].rows[1][0] == "appended"
+
     def test_unknown_sheet_is_an_input_error(self, tmp_path):
         out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])])
         with pytest.raises(InputError):
@@ -251,10 +293,10 @@ class TestReplaceText:
 class TestSetProperties:
     def test_sets_and_reads_back(self, tmp_path):
         out = write.create(tmp_path / "base.xlsx")
-        target = write.set_properties(
+        result = write.set_properties(
             out, CoreProperties(title="Q1 Report", author="Ada"), output=tmp_path / "out.xlsx"
         )
-        props = read.get_properties(target)
+        props = read.get_properties(result.output)
         assert props.title == "Q1 Report"
         assert props.author == "Ada"
 
@@ -264,13 +306,27 @@ class TestSetProperties:
         clear the pre-existing author either."""
         out = write.create(tmp_path / "base.xlsx")
         write.set_properties(out, CoreProperties(author="Ada"), output=tmp_path / "step1.xlsx")
-        target = write.set_properties(
+        result = write.set_properties(
             tmp_path / "step1.xlsx", CoreProperties(title="Later"), output=tmp_path / "step2.xlsx"
         )
-        props = read.get_properties(target)
+        props = read.get_properties(result.output)
         assert props.title == "Later"
         assert props.author == "Ada"
         assert props.created is not None
+
+    def test_returns_a_write_result_reporting_loss(self, at_risk_workbook, tmp_path):
+        """set_properties opens and re-saves an existing workbook, exactly
+        like set_cells, so it owes the same loss report -- not a bare Path
+        a caller (the MCP tool, in particular) would otherwise have to
+        fabricate recalculation_required/dropped for."""
+        result = write.set_properties(
+            at_risk_workbook,
+            CoreProperties(title="Q1"),
+            output=tmp_path / "out.xlsx",
+            allow_lossy=True,
+        )
+        assert result.dropped
+        assert result.cells_written == 0
 
 
 class TestFidelityGuardIntegration:
@@ -307,3 +363,27 @@ class TestFidelityGuardIntegration:
         write.set_cells(macro_workbook, {"Sheet1": {"A2": 1}}, output=tmp_path / "out.xlsm")
         with zipfile.ZipFile(tmp_path / "out.xlsm") as zf:
             assert "xl/vbaProject.bin" in zf.namelist()
+
+    def test_replace_text_also_refuses_and_reports_dropped(self, at_risk_workbook, tmp_path):
+        """§6's contract binds every write path that opens an existing
+        workbook, not only set_cells/append_rows -- replace_text is the one
+        write function whose result once had nowhere to put this."""
+        with pytest.raises(LossyEditError):
+            write.replace_text(at_risk_workbook, {"a": "b"}, output=tmp_path / "out.xlsx")
+        result = write.replace_text(
+            at_risk_workbook, {"a": "b"}, output=tmp_path / "out.xlsx", allow_lossy=True
+        )
+        assert result.dropped
+
+    def test_set_properties_also_refuses_and_reports_dropped(self, at_risk_workbook, tmp_path):
+        with pytest.raises(LossyEditError):
+            write.set_properties(
+                at_risk_workbook, CoreProperties(title="Q1"), output=tmp_path / "out.xlsx"
+            )
+        result = write.set_properties(
+            at_risk_workbook,
+            CoreProperties(title="Q1"),
+            output=tmp_path / "out.xlsx",
+            allow_lossy=True,
+        )
+        assert result.dropped

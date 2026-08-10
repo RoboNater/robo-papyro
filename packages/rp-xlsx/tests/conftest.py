@@ -220,6 +220,23 @@ def phantom_dimension_workbook(tmp_path) -> Path:
 
 
 @pytest.fixture
+def adversarial_phantom_dimension_workbook(tmp_path) -> Path:
+    """Like ``phantom_dimension_workbook``, but at Excel's actual row/column
+    limits (1,048,576 x 16,384) rather than merely row 1000 -- far enough out
+    that any code scanning the *declared* rectangle instead of the sheet's
+    populated cells would take minutes, not milliseconds, per call."""
+    path = tmp_path / "adversarial-phantom.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws["A1"] = "only real value"
+    ws.cell(row=1_048_576, column=16_384).fill = openpyxl.styles.PatternFill(
+        start_color="FFFF00", end_color="FFFF00", fill_type="solid"
+    )
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
 def empty_workbook(tmp_path) -> Path:
     """A workbook with a single, genuinely empty sheet."""
     path = tmp_path / "empty.xlsx"

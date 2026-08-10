@@ -266,11 +266,12 @@ def data(
             return
         out.mkdir(parents=True, exist_ok=True)
         extension = "csv" if fmt is DataFormat.csv else "md"
+        stems = tabular_module.safe_artifact_stems(list(rendered))
         written = []
         for sheet_name, body in rendered.items():
-            destination = out / f"{sheet_name}.{extension}"
+            destination = out / f"{stems[sheet_name]}.{extension}"
             destination.write_text(body, encoding="utf-8")
-            written.append(FileWritten(output=destination))
+            written.append(FileWritten(output=destination, sheet=sheet_name))
         clikit.emit(written, plain)
 
 

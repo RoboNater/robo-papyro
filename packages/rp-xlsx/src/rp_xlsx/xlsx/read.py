@@ -75,18 +75,21 @@ def _used_bounds(ws: Any) -> tuple[int, int, int, int] | None:
     Deliberately does not stop at the first populated cell it can see:
     ``ws.dimensions``/``max_row`` already do that cheaply and lie (a
     format-only cell at row 5000 makes them report row 5000), which is the
-    exact failure this function exists to avoid.
+    exact failure this function exists to avoid. Scans
+    ``ooxml.populated_cells`` rather than ``ws.iter_rows()`` for the same
+    reason in the other direction: the declared rectangle is exactly what a
+    phantom dimension inflates, so walking it here would trade a wrong
+    answer for a slow one instead of fixing it.
     """
     min_row = min_col = max_row = max_col = None
-    for row in ws.iter_rows():
-        for cell in row:
-            if cell.value is None:
-                continue
-            r, c = cell.row, cell.column
-            min_row = r if min_row is None else min(min_row, r)
-            max_row = r if max_row is None else max(max_row, r)
-            min_col = c if min_col is None else min(min_col, c)
-            max_col = c if max_col is None else max(max_col, c)
+    for cell in ooxml.populated_cells(ws):
+        if cell.value is None:
+            continue
+        r, c = cell.row, cell.column
+        min_row = r if min_row is None else min(min_row, r)
+        max_row = r if max_row is None else max(max_row, r)
+        min_col = c if min_col is None else min(min_col, c)
+        max_col = c if max_col is None else max(max_col, c)
     return None if min_row is None else (min_row, min_col, max_row, max_col)
 
 
@@ -207,12 +210,11 @@ def _anchor_ref(anchor: Any) -> str | None:
 def _sheet_info(ws: Any, index: int) -> SheetInfo:
     formula_count = 0
     comment_count = 0
-    for row in ws.iter_rows():
-        for cell in row:
-            if cell.data_type == "f":
-                formula_count += 1
-            if cell.comment is not None:
-                comment_count += 1
+    for cell in ooxml.populated_cells(ws):
+        if cell.data_type == "f":
+            formula_count += 1
+        if cell.comment is not None:
+            comment_count += 1
     bounds = _used_bounds(ws)
     used_range = None
     rows = columns = 0
@@ -463,19 +465,18 @@ def get_comments(path: Path, *, sheets: str = "all") -> list[CellComment]:
         positions = refs.resolve_sheet_selection(wb.sheetnames, sheets=sheets)
         for position in positions:
             ws = wb.worksheets[position - 1]
-            for row in ws.iter_rows():
-                for cell in row:
-                    comment = cell.comment
-                    if comment is None:
-                        continue
-                    result.append(
-                        CellComment(
-                            sheet=ws.title,
-                            ref=f"{refs.column_letters(cell.column)}{cell.row}",
-                            author=(comment.author or None),
-                            text=comment.text or "",
-                        )
+            for cell in ooxml.populated_cells(ws):
+                comment = cell.comment
+                if comment is None:
+                    continue
+                result.append(
+                    CellComment(
+                        sheet=ws.title,
+                        ref=f"{refs.column_letters(cell.column)}{cell.row}",
+                        author=(comment.author or None),
+                        text=comment.text or "",
                     )
+                )
     return result
 
 

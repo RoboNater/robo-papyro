@@ -256,6 +256,54 @@ class TestWrites:
             assert after[name] == blob
         assert [image["index"] for image in second] == [3, 4]
 
+    def test_a_lossy_edit_is_refused_without_the_flag(
+        self, writable, xlsx_at_risk: Path, outbox: Path, mcp
+    ):
+        result = mcp.call(
+            writable,
+            "xlsx_set_properties",
+            {"path": xlsx_at_risk.name, "properties": {"title": "Q1"}, "output": "edited.xlsx"},
+        )
+        assert mcp.error_type(result) == "LossyEditError"
+
+    def test_allow_lossy_on_set_properties_reports_what_was_dropped(
+        self, writable, xlsx_at_risk: Path, outbox: Path, mcp
+    ):
+        """Section 6's contract, exercised on a non-cell write: `dropped` and
+        `recalculation_required` must come from the source workbook, not be
+        hard-coded, once `allow_lossy` lets the edit through."""
+        result = mcp.structured(
+            mcp.call(
+                writable,
+                "xlsx_set_properties",
+                {
+                    "path": xlsx_at_risk.name,
+                    "properties": {"title": "Q1"},
+                    "output": "edited.xlsx",
+                    "allow_lossy": True,
+                },
+            )
+        )
+        assert result["dropped"]
+
+    def test_allow_lossy_on_rename_sheet_reports_what_was_dropped(
+        self, writable, xlsx_at_risk: Path, outbox: Path, mcp
+    ):
+        result = mcp.structured(
+            mcp.call(
+                writable,
+                "xlsx_rename_sheet",
+                {
+                    "path": xlsx_at_risk.name,
+                    "old": "Data",
+                    "new": "Renamed",
+                    "output": "renamed.xlsx",
+                    "allow_lossy": True,
+                },
+            )
+        )
+        assert result["dropped"]
+
     def test_fill_template_cannot_reach_outside_the_roots(self, writable, tmp_path: Path, mcp):
         stray = tmp_path / "stray" / "book.xlsx"
         stray.parent.mkdir()

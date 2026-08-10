@@ -214,6 +214,14 @@ def validate_sheet_name(name: str, existing: list[str] = ()) -> None:
     Checks forbidden characters, the 31-character limit, non-emptiness, and
     uniqueness against ``existing`` — none of which openpyxl itself raises
     reliably on the write side (section 9).
+
+    **Uniqueness is checked case-insensitively** (verified against openpyxl
+    3.1.5): Excel treats sheet names as case-insensitive, and
+    ``wb.create_sheet("data")`` next to an existing ``"Data"`` does not raise
+    — it silently renames the new sheet to ``"data1"``. A caller who asked
+    for ``"data"`` and got a workbook containing ``"data1"`` with no error is
+    exactly the silent-wrong-output failure this function exists to prevent,
+    so the comparison is normalized with ``.casefold()`` rather than ``==``.
     """
     if not name:
         raise InputError("Sheet name must not be empty.")
@@ -226,8 +234,13 @@ def validate_sheet_name(name: str, existing: list[str] = ()) -> None:
     if found:
         offending = "".join(sorted(found))
         raise InputError(f"Sheet name {name!r} contains forbidden character(s): {offending}")
-    if name in existing:
-        raise InputError(f"A sheet named {name!r} already exists.")
+    folded = name.casefold()
+    collision = next((other for other in existing if other.casefold() == folded), None)
+    if collision is not None:
+        raise InputError(
+            f"A sheet named {collision!r} already exists; Excel treats sheet names as "
+            f"case-insensitive, so {name!r} collides with it."
+        )
 
 
 __all__ = [

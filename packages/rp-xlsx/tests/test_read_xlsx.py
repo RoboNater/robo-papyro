@@ -99,6 +99,26 @@ class TestPhantomDimensions:
         data = read.get_data(phantom_dimension_workbook, sheets="1", header=False)
         assert len(data[0].rows) == 1
 
+    def test_index_stays_fast_at_excels_actual_row_and_column_limits(
+        self, adversarial_phantom_dimension_workbook
+    ):
+        """A used-range scan that walks the *declared* rectangle instead of
+        the sheet's populated cells costs max_row * max_col cell
+        constructions -- billions, at Excel's real limits. This must stay a
+        function of how much data the sheet actually has, not of how large
+        its phantom dimension claims to be. 5s is generous for "must not
+        walk 17 billion phantom cells"; a correct scan of two real cells
+        finishes in milliseconds."""
+        import time
+
+        start = time.monotonic()
+        idx = read.get_index(adversarial_phantom_dimension_workbook)
+        elapsed = time.monotonic() - start
+        assert elapsed < 5, f"get_index took {elapsed:.1f}s -- must not scan the declared rectangle"
+        sheet = idx.sheets[0]
+        assert sheet.used_range == "A1:A1"
+        assert sheet.declared_range == "A1:XFD1048576"
+
 
 class TestSelectors:
     def test_sheets_spec_and_sheet_name_select_differently(self, rich_workbook_path):

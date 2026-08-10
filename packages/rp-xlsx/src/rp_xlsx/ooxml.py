@@ -191,13 +191,27 @@ def save(workbook: Workbook, output: Path) -> Path:
     """Save, retyping to a template when ``output`` names one, and setting
     ``fullCalcOnLoad`` unconditionally.
 
-    Two things every write path needs, done in the one place every write path
-    already funnels through:
+    Three things every write path needs, done in the one place every write
+    path already funnels through:
 
+    - **The output suffix must be one this package supports.** openpyxl's own
+      ``save`` will happily write any filename; catching an unsupported one
+      here means every write path refuses the same way, rather than each
+      caller having to remember to check.
     - **Template retyping, from the output extension.** ``wb.template`` is
       sticky (verified, probe note section 6) — a workbook loaded from
       ``.xltx`` stays typed as a template even when saved under a ``.xlsx``
       name unless something resets the flag. This is that something.
+    - **The macro/non-macro family must match the output extension.**
+      ``Workbook.mime_type`` derives the content type from ``template`` *and*
+      ``vba_archive`` together, and openpyxl's own docstring says it plainly:
+      "Excel requires the file extension to match but openpyxl does not
+      enforce this." Left unchecked, a macro-enabled workbook saved as
+      ``.xlsx`` keeps its macros — and its macro-enabled content type —
+      under a non-macro name, and a plain workbook saved as ``.xlsm`` gets a
+      macro-enabled name over macro-free content. Neither is a case this
+      package has a conversion story for, so both are refused rather than
+      silently mislabeled.
     - **``fullCalcOnLoad = True``, on every save, unconditionally** (spec
       section 6.1). openpyxl's writer drops every formula's cached value; this
       is what makes Excel and LibreOffice recompute on open instead of a human
@@ -205,11 +219,78 @@ def save(workbook: Workbook, output: Path) -> Path:
       "save this workbook" that wants the alternative.
     """
     output = Path(output)
+    suffix = output.suffix.lower()
+    if suffix not in SUPPORTED_SUFFIXES:
+        raise InputError(
+            f"{output.name} has a {suffix or '(no)'} extension; rp-xlsx writes "
+            f"{', '.join(SUPPORTED_SUFFIXES)} workbooks."
+        )
+    has_macros = workbook.vba_archive is not None
+    wants_macros = suffix in MACRO_SUFFIXES
+    if has_macros and not wants_macros:
+        raise InputError(
+            f"{output.name} would drop this workbook's macros: openpyxl does not enforce "
+            "that a file's extension matches its content, so saving a macro-enabled "
+            f"workbook under a {suffix} name would silently keep the macro-enabled content "
+            "type under a non-macro name. rp-xlsx refuses rather than mislabel it; strip "
+            "the macros deliberately first if that is what you want."
+        )
+    if wants_macros and not has_macros:
+        raise InputError(
+            f"{output.name} is macro-enabled but the source workbook carries no macros; "
+            "rp-xlsx will not write a macro-free file under a macro-enabled extension."
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
-    workbook.template = output.suffix.lower() in TEMPLATE_SUFFIXES
+    workbook.template = suffix in TEMPLATE_SUFFIXES
     workbook.calculation.fullCalcOnLoad = True
     workbook.save(str(output))
     return output
+
+
+def populated_cells(ws: Any) -> list[Any]:
+    """Every cell in ``ws`` that actually exists — holds a value, a formula,
+    a comment, or a style — in row-major order.
+
+    **Never scan a sheet with ``ws.iter_rows()`` and no bounds.** With no
+    arguments it walks openpyxl's *declared* rectangle, ``1..max_row`` by
+    ``1..max_col`` (``worksheet.py``'s own ``_cells_by_row``), constructing a
+    ``Cell`` object for every position in between — section 9's
+    phantom-dimension problem turned into a performance one, since a single
+    stray formatted cell far from the real data (the ``phantom_dimension``
+    fixture's own shape) makes a full-sheet scan cost ``max_row * max_col``
+    cell constructions instead of the handful of cells the sheet actually
+    has.
+
+    ``Worksheet._cells`` holds exactly the cells that ever appeared in the
+    sheet XML or were written to since (verified against openpyxl 3.1.5: a
+    sheet with one value at A1 and only a fill at E1000 has exactly two
+    entries, keyed ``(row, column)``), so reading it directly is both correct
+    and cheap — a private attribute, not a public API, but the same one
+    every performance-sensitive openpyxl consumer relies on for this reason.
+    Sorted rather than trusted to already be in row-major order, because
+    insertion order reflects how the sheet was populated, not its layout.
+    """
+    return [ws._cells[key] for key in sorted(ws._cells)]
+
+
+def has_any_formula(workbook: Workbook) -> bool:
+    """Whether any cell in ``workbook`` is a formula.
+
+    Shared by every write path that needs to report
+    ``recalculation_required``/``WriteResult.recalculation_required`` on its
+    result (spec section 6.1): ``ooxml.save`` drops every formula's cached
+    value on *every* save regardless of what a particular edit touched, so a
+    caller learns whether that happened from the source's own formula count,
+    not from what it wrote. Iterates the already-opened workbook rather than
+    ``fidelity.has_cached_values`` — that answers a different question (does a
+    *cached* value already exist on disk), and this one only needs to know
+    whether a formula exists at all.
+    """
+    for ws in workbook.worksheets:
+        for cell in populated_cells(ws):
+            if cell.data_type == "f":
+                return True
+    return False
 
 
 #: Every header/footer text slot openpyxl models on a worksheet — odd/even/
@@ -279,10 +360,12 @@ __all__ = [
     "check_readable",
     "content_type_of",
     "format_of",
+    "has_any_formula",
     "header_footer_fields",
     "opened",
     "parse_part",
     "part_names",
+    "populated_cells",
     "read_part",
     "require_output",
     "save",

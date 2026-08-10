@@ -18,6 +18,7 @@ from rp_xlsx.refs import (
     parse_a1_range,
     parse_cell_ref,
     resolve_sheet_selection,
+    validate_sheet_name,
 )
 
 
@@ -160,3 +161,39 @@ class TestResolveSheetSelection:
 
     def test_empty_names_list_falls_back_to_sheets(self):
         assert resolve_sheet_selection(self.NAMES, sheets="1", names=[]) == [1]
+
+
+class TestValidateSheetName:
+    def test_a_plain_name_is_fine(self):
+        validate_sheet_name("Report")  # must not raise
+
+    def test_empty_name_raises(self):
+        with pytest.raises(InputError):
+            validate_sheet_name("")
+
+    def test_over_31_characters_raises(self):
+        with pytest.raises(InputError):
+            validate_sheet_name("x" * 32)
+
+    def test_31_characters_is_fine(self):
+        validate_sheet_name("x" * 31)  # must not raise
+
+    @pytest.mark.parametrize("char", list(":\\/?*[]"))
+    def test_forbidden_characters_raise(self, char):
+        with pytest.raises(InputError):
+            validate_sheet_name(f"Bad{char}Name")
+
+    def test_an_exact_duplicate_raises(self):
+        with pytest.raises(InputError):
+            validate_sheet_name("Data", ["Data"])
+
+    def test_case_only_difference_also_raises(self):
+        """Verified against openpyxl 3.1.5: Excel treats sheet names as
+        case-insensitive, and wb.create_sheet("data") next to an existing
+        "Data" does not raise -- it silently renames the new sheet to
+        "data1". This function must not repeat that silence."""
+        with pytest.raises(InputError, match="Data"):
+            validate_sheet_name("data", ["Data"])
+
+    def test_a_distinct_name_is_fine(self):
+        validate_sheet_name("New", ["Data", "Other"])  # must not raise

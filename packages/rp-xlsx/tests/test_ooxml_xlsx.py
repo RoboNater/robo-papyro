@@ -13,6 +13,7 @@ import zipfile
 import pytest
 from openpyxl import Workbook, load_workbook
 
+from rp_core.errors import InputError
 from rp_xlsx import ooxml
 from rp_xlsx.errors import InvalidXlsxError, MissingFileError
 
@@ -158,6 +159,85 @@ class TestContentTypes:
         with zipfile.ZipFile(output) as zf:
             assert "xl/vbaProject.bin" in zf.namelist()
         assert ooxml.content_type_of(output) == ooxml.MACRO_WORKBOOK_CONTENT_TYPE
+
+
+class TestSaveValidatesTheOutputExtension:
+    """openpyxl's own docstring: 'Excel requires the file extension to match
+    but openpyxl does not enforce this.' save() does, in both directions,
+    because a mismatch is not a corrupt file -- it opens fine and lies about
+    what it is."""
+
+    def test_an_unsupported_suffix_is_refused(self, tmp_path, plain_workbook):
+        with ooxml.opened(plain_workbook) as wb, pytest.raises(InputError):
+            ooxml.save(wb, tmp_path / "out.docx")
+
+    def test_saving_a_macro_workbook_under_a_non_macro_suffix_is_refused(
+        self, tmp_path, macro_workbook
+    ):
+        """Without this check, openpyxl keeps the macro-enabled content type
+        (and the macros) under a name that claims otherwise -- verified by
+        the raw-openpyxl probe below."""
+        with ooxml.opened(macro_workbook) as wb, pytest.raises(InputError):
+            ooxml.save(wb, tmp_path / "out.xlsx")
+
+    def test_openpyxl_itself_mislabels_a_macro_workbook_saved_as_xlsx(
+        self, tmp_path, macro_workbook
+    ):
+        """The bug the refusal above exists for, without rp-xlsx in the way."""
+        wb = load_workbook(macro_workbook, keep_vba=True)
+        try:
+            out = tmp_path / "raw-out.xlsx"
+            wb.save(out)  # no rp-xlsx validation -- raw openpyxl behaviour
+        finally:
+            # Same leak ooxml.opened()'s finally block guards against --
+            # left open, its __del__ fires during GC and can warn about an
+            # I/O operation on a file this test has already left behind.
+            if wb.vba_archive is not None:
+                wb.vba_archive.close()
+            wb.close()
+        with zipfile.ZipFile(out) as zf:
+            assert "xl/vbaProject.bin" in zf.namelist()  # macros survived...
+            content_types = zf.read("[Content_Types].xml").decode()
+        assert ooxml.MACRO_WORKBOOK_CONTENT_TYPE in content_types  # ...under an .xlsx name
+
+    def test_saving_a_plain_workbook_under_a_macro_suffix_is_refused(
+        self, tmp_path, plain_workbook
+    ):
+        with ooxml.opened(plain_workbook) as wb, pytest.raises(InputError):
+            ooxml.save(wb, tmp_path / "out.xlsm")
+
+
+class TestPopulatedCells:
+    """Every full-sheet scan in this package goes through this rather than
+    ``ws.iter_rows()`` with no bounds, which walks the *declared* rectangle
+    and can cost billions of cell constructions on a phantom dimension."""
+
+    def test_returns_only_cells_that_exist(self, phantom_dimension_workbook):
+        with ooxml.opened(phantom_dimension_workbook) as wb:
+            cells = ooxml.populated_cells(wb.active)
+        assert [(c.row, c.column) for c in cells] == [(1, 1), (1000, 5)]
+
+    def test_row_major_order_regardless_of_write_order(self, tmp_path):
+        wb = Workbook()
+        ws = wb.active
+        # Written out of row-major order deliberately.
+        ws.cell(row=3, column=1, value="c")
+        ws.cell(row=1, column=2, value="a")
+        ws.cell(row=1, column=1, value="a0")
+        cells = ooxml.populated_cells(ws)
+        assert [(c.row, c.column) for c in cells] == [(1, 1), (1, 2), (3, 1)]
+
+    def test_stays_fast_at_excels_actual_row_and_column_limits(
+        self, adversarial_phantom_dimension_workbook
+    ):
+        import time
+
+        with ooxml.opened(adversarial_phantom_dimension_workbook) as wb:
+            start = time.monotonic()
+            cells = ooxml.populated_cells(wb.active)
+            elapsed = time.monotonic() - start
+        assert elapsed < 5, f"populated_cells took {elapsed:.1f}s"
+        assert len(cells) == 2
 
 
 class TestFormatOf:

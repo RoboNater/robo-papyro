@@ -87,6 +87,76 @@ class TestToCsv:
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert paths[0].read_text().splitlines()[1] == "true"
 
+    def test_a_sheet_name_with_windows_forbidden_characters_is_sanitized(self, tmp_path):
+        """ "<", ">", '"', and "|" are all valid Excel sheet-name characters
+        and all illegal in a Windows filename -- Excel's own forbidden set
+        (": \\ / ? * [ ]") does not cover them."""
+        out = write.create(
+            tmp_path / "src.xlsx", sheets=[SheetSpec(name='Q1|Draft<2024>"', rows=[["x"]])]
+        )
+        paths = tabular.to_csv(out, tmp_path / "csv")
+        assert len(paths) == 1
+        for char in '<>:"|':
+            assert char not in paths[0].name
+        assert paths[0].is_file()
+
+    def test_a_reserved_windows_device_name_gets_a_suffix(self, tmp_path):
+        out = write.create(tmp_path / "src.xlsx", sheets=[SheetSpec(name="CON", rows=[["x"]])])
+        paths = tabular.to_csv(out, tmp_path / "csv")
+        assert paths[0].stem.upper() != "CON"
+
+    def test_sheets_that_sanitize_to_the_same_stem_stay_distinct_files(self, tmp_path):
+        """Two sheets differing only in a character Windows forbids -- e.g.
+        "Q1|A" and "Q1_A" -- would otherwise sanitize to the same filename
+        and the second write would silently clobber the first."""
+        out = write.create(
+            tmp_path / "src.xlsx",
+            sheets=[
+                SheetSpec(name="Q1|A", header=["X"], rows=[["one"]]),
+                SheetSpec(name="Q1_A", header=["X"], rows=[["two"]]),
+            ],
+        )
+        paths = tabular.to_csv(out, tmp_path / "csv")
+        assert len(paths) == 2
+        assert len({p.name for p in paths}) == 2
+        contents = {p.read_text() for p in paths}
+        assert any("one" in c for c in contents)
+        assert any("two" in c for c in contents)
+
+
+class TestSafeArtifactStems:
+    def test_a_plain_name_is_unchanged(self):
+        assert tabular.safe_artifact_stems(["Data"]) == {"Data": "Data"}
+
+    def test_forbidden_characters_are_replaced(self):
+        stems = tabular.safe_artifact_stems(['A<B>C:D"E/F\\G|H?I*J'])
+        stem = next(iter(stems.values()))
+        for char in '<>:"/\\|?*':
+            assert char not in stem
+
+    def test_a_reserved_device_name_gets_a_suffix(self):
+        stems = tabular.safe_artifact_stems(["NUL"])
+        assert next(iter(stems.values())).upper() != "NUL"
+
+    def test_reserved_device_names_are_case_insensitive(self):
+        stems = tabular.safe_artifact_stems(["con"])
+        assert next(iter(stems.values())).upper() != "CON"
+
+    def test_colliding_sanitized_names_get_distinct_suffixes(self):
+        stems = tabular.safe_artifact_stems(["Q1|A", "Q1_A", "Q1?A"])
+        assert len(set(stems.values())) == 3
+
+    def test_the_first_occurrence_keeps_the_bare_stem(self):
+        stems = tabular.safe_artifact_stems(["Report", "Report|2"])
+        assert stems["Report"] == "Report"
+
+    def test_trailing_dots_and_spaces_are_stripped(self):
+        """Also forbidden by Windows -- a trailing dot or space in a
+        filename is silently stripped by the OS itself, which is exactly
+        the kind of surprise this function exists to avoid causing."""
+        stems = tabular.safe_artifact_stems(["Report. "])
+        assert next(iter(stems.values())) == "Report"
+
 
 class TestFromCsv:
     def test_reads_header_and_rows(self, tmp_path):

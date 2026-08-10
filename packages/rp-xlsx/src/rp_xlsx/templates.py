@@ -187,12 +187,11 @@ def find_placeholders(path: Path) -> list[str]:
     seen: list[str] = []
     with ooxml.opened(path) as wb:
         for ws in wb.worksheets:
-            for row in ws.iter_rows():
-                for cell in row:
-                    if isinstance(cell.value, str):
-                        for key in PLACEHOLDER.findall(cell.value):
-                            if key not in seen:
-                                seen.append(key)
+            for cell in ooxml.populated_cells(ws):
+                if isinstance(cell.value, str):
+                    for key in PLACEHOLDER.findall(cell.value):
+                        if key not in seen:
+                            seen.append(key)
             for _label, part in ooxml.header_footer_fields(ws):
                 if part.text:
                     for key in PLACEHOLDER.findall(part.text):

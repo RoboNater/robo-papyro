@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -216,6 +217,23 @@ class TestCommands:
         result = run("data", rich_workbook_path, "--sheets", "1", "--format", "csv", "-o", out)
         assert result.exit_code == 0
         assert any(out.iterdir())
+
+    def test_data_csv_reports_the_source_sheet_per_file(self, tmp_path):
+        """A sanitized/deduplicated filename can diverge from the sheet's
+        literal name, so the JSON result must say which sheet each file
+        came from rather than leaving a caller to guess from the filename."""
+        source = tmp_path / "sheets.json"
+        source.write_text(
+            '[{"name": "Q1|Draft", "header": ["A"], "rows": [["x"]]}]', encoding="utf-8"
+        )
+        created = run("create", "-o", tmp_path / "src.xlsx", "--from-json", source)
+        assert created.exit_code == 0
+        out = tmp_path / "csvs"
+        result = run("data", tmp_path / "src.xlsx", "--format", "csv", "-o", out)
+        assert result.exit_code == 0
+        [entry] = payload(result)
+        assert entry["sheet"] == "Q1|Draft"
+        assert "|" not in Path(entry["output"]).name
 
     def test_images_extracted(self, rich_workbook_path, tmp_path):
         out = tmp_path / "images"

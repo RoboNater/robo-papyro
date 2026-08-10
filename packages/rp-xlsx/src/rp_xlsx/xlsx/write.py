@@ -55,15 +55,6 @@ def _set_cell_value(cell: Any, value: CellValue) -> None:
         cell.value = value
 
 
-def _has_any_formula(wb: Any) -> bool:
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if cell.data_type == "f":
-                    return True
-    return False
-
-
 def _sheet_by_name(wb: Any, name: str) -> Any:
     if name not in wb.sheetnames:
         available = ", ".join(repr(n) for n in wb.sheetnames)
@@ -77,12 +68,15 @@ def _next_empty_row(ws: Any) -> int:
     Never ``ws.max_row + 1``: that inherits section 9's phantom-dimension
     lie (a format-only cell far below the data inflates ``max_row``), which
     would make ``append_rows`` open a gap of blank rows instead of appending.
+    Scans ``ooxml.populated_cells`` rather than ``ws.iter_rows()`` for the
+    same reason ``read._used_bounds`` does: the declared rectangle is exactly
+    what a phantom dimension inflates, so walking it would trade the wrong
+    answer for a slow one instead of fixing it.
     """
     last = 0
-    for row in ws.iter_rows():
-        for cell in row:
-            if cell.value is not None:
-                last = max(last, cell.row)
+    for cell in ooxml.populated_cells(ws):
+        if cell.value is not None:
+            last = max(last, cell.row)
     return last + 1
 
 
@@ -129,10 +123,16 @@ def _populate_workbook(
     if not sheets:
         return 0
     seen: set[str] = set()
+    seen_folded: set[str] = set()
     for spec in sheets:
-        if spec.name in seen:
-            raise InputError(f"Duplicate sheet name {spec.name!r} in the same create() call.")
+        folded = spec.name.casefold()
+        if folded in seen_folded:
+            raise InputError(
+                f"Duplicate sheet name {spec.name!r} in the same create() call "
+                "(sheet names collide case-insensitively)."
+            )
         seen.add(spec.name)
+        seen_folded.add(folded)
     original_default = wb.sheetnames[0] if replacing_default else None
     cells_written = 0
     for spec in sheets:
@@ -172,11 +172,10 @@ def create(
             _populate_workbook(wb, sheets, header_style, replacing_default=False)
             return ooxml.save(wb, output)
 
-    if output.suffix.lower() in ooxml.MACRO_SUFFIXES:
-        raise InputError(
-            f"{output.name} is macro-enabled but no template (a macro source) was given; "
-            "rp-xlsx will not write a macro-free file under a macro-enabled extension."
-        )
+    # A blank ``Workbook()`` never carries macros, so a macro-enabled output
+    # suffix here is refused by ``ooxml.save``'s own macro/non-macro check —
+    # the same check that also covers a template-backed create against a
+    # mismatched suffix, which a check only in this branch would have missed.
     wb = Workbook()
     _populate_workbook(wb, sheets, header_style, replacing_default=True)
     return ooxml.save(wb, output)
@@ -193,7 +192,7 @@ def set_cells(
     report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
-        recalculation_required = _has_any_formula(wb)
+        recalculation_required = ooxml.has_any_formula(wb)
         cells_written = 0
         for sheet_name, cell_updates in updates.items():
             ws = _sheet_by_name(wb, sheet_name)
@@ -223,7 +222,7 @@ def append_rows(
     report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
-        recalculation_required = _has_any_formula(wb)
+        recalculation_required = ooxml.has_any_formula(wb)
         ws = _sheet_by_name(wb, sheet)
         start_row = _next_empty_row(ws)
         cells_written = 0
@@ -279,29 +278,28 @@ def replace_text(
     otherwise produce a formula that is broken or silently pointing
     somewhere else.
     """
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     counts = dict.fromkeys(replacements, 0)
     locations: list[str] = []
     order = sorted(replacements, key=len, reverse=True)
     with ooxml.opened(path) as wb:
-        recalculation_required = _has_any_formula(wb)
+        recalculation_required = ooxml.has_any_formula(wb)
         positions = refs.resolve_sheet_selection(wb.sheetnames, sheets=sheets)
         for position in positions:
             ws = wb.worksheets[position - 1]
-            for row in ws.iter_rows():
-                for cell in row:
-                    if cell.data_type == "f" and not include_formulas:
-                        continue
-                    if not isinstance(cell.value, str):
-                        continue
-                    new_text, hits = _replace_in_text(cell.value, replacements, order, match_case)
-                    if not hits:
-                        continue
-                    cell.value = new_text
-                    for key, n in hits.items():
-                        counts[key] += n
-                    locations.append(f"{ws.title}!{cell.coordinate}")
+            for cell in ooxml.populated_cells(ws):
+                if cell.data_type == "f" and not include_formulas:
+                    continue
+                if not isinstance(cell.value, str):
+                    continue
+                new_text, hits = _replace_in_text(cell.value, replacements, order, match_case)
+                if not hits:
+                    continue
+                cell.value = new_text
+                for key, n in hits.items():
+                    counts[key] += n
+                locations.append(f"{ws.title}!{cell.coordinate}")
             header_hit = False
             for _label, part in ooxml.header_footer_fields(ws):
                 if not part.text:
@@ -321,6 +319,7 @@ def replace_text(
         replacements=counts,
         locations=locations,
         recalculation_required=recalculation_required,
+        dropped=report.at_risk,
     )
 
 
@@ -330,12 +329,20 @@ def set_properties(
     *,
     output: Path | None = None,
     allow_lossy: bool = False,
-) -> Path:
+) -> WriteResult:
     """Update core properties. ``None`` fields mean leave alone, not clear —
     openpyxl's ``created``/``modified`` are non-nullable on save, so blindly
     assigning every field would crash on the common case of a caller setting
-    only ``title``."""
-    fidelity.guard(path, allow_lossy=allow_lossy)
+    only ``title``.
+
+    Returns a :class:`~rp_xlsx.models.WriteResult`, exactly like every other
+    edit of an existing workbook (spec section 6's contract applies here too:
+    a workbook is opened and re-saved, so its formulas lose their cached
+    values and any at-risk part named by ``allow_lossy`` is just as real a
+    loss as it is for ``set_cells``). ``cells_written`` is always 0 — this
+    function touches workbook-level properties, never a cell.
+    """
+    report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     field_map = {
         "title": "title",
@@ -347,6 +354,7 @@ def set_properties(
         "keywords": "keywords",
     }
     with ooxml.opened(path) as wb:
+        recalculation_required = ooxml.has_any_formula(wb)
         for field, attr in field_map.items():
             value = getattr(props, field)
             if value is not None:
@@ -354,7 +362,12 @@ def set_properties(
         if props.revision is not None:
             wb.properties.revision = str(props.revision)
         ooxml.save(wb, target)
-    return target
+    return WriteResult(
+        output=target,
+        cells_written=0,
+        recalculation_required=recalculation_required,
+        dropped=report.at_risk,
+    )
 
 
 __all__ = [
