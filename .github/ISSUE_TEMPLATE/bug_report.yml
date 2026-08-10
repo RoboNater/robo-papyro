@@ -1,0 +1,96 @@
+name: Bug report
+description: Report unexpected robo-papyro behavior
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping test robo-papyro.
+
+        **Do not upload confidential, proprietary, personal, or otherwise sensitive documents to a public issue.**
+        If a document is needed to reproduce the problem, prefer a small sanitized or synthetic example.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - robo-papyro / rp umbrella
+        - rp-pdf
+        - rp-docx
+        - rp-pptx
+        - rp-xlsx
+        - rp-mcp
+        - rp-core / shared behavior
+        - Unsure
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or Git tag
+      description: For the first beta, this should normally be robo-papyro-v0.1.0.
+      placeholder: robo-papyro-v0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, Rocky Linux 9, macOS 15, ...
+    validations:
+      required: true
+
+  - type: input
+    id: runtime
+    attributes:
+      label: Python and uv versions
+      placeholder: Python 3.13.5; uv 0.x.y
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command or API call
+      description: Show the smallest command or code fragment that reproduces the problem.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic output
+      description: Include relevant stderr, traceback, and `uv run rp doctor` output. Remove secrets and sensitive paths/data.
+      render: shell
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Reproduction document
+      description: State whether the problem reproduces with a sanitized or synthetic document and describe how to construct it. Do not attach sensitive source files.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety check
+      options:
+        - label: I have removed API keys, credentials, confidential document content, and other sensitive information from this report.
+          required: true
