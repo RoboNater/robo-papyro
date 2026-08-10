@@ -1,8 +1,10 @@
 # robo-papyro — Workspace & Architecture Specification
 
-**Version:** 1.7
-**Status:** Phases 0, 0.5, 1, 2, and 2.5 complete · Phase 3 (`rp-xlsx`) specified, not started
-**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`) · `rp-xlsx-spec.md` v1.0 (specified; §12 is the Phase 3 plan)
+**Version:** 1.8
+**Status:** Phases 0, 0.5, 1, 2, 2.5, and 3 complete
+**Companion documents:** `rp-docx-spec.md` v1.3 · `rp-pptx-spec.md` v1.0 · `rp-mcp-spec.md` v1.0 · `rp-xlsx-spec.md` v1.0 (all implemented — see the matching notes in `dev-notes/`)
+
+**Changes from v1.7:** §1, §3, and §9 record Phase 3 (`rp-xlsx`) as complete rather than specified · §9's Phase 3 row links `dev-notes/status-robo-papyro-phase-3.md` · §1's dependency-direction sentence and distribution table drop "specified, not started" now that `rp-xlsx` ships alongside its MCP server and skill · §3's layout drops the "not started" annotation on `packages/rp-xlsx/` and `skills/` now covers four CLIs, not three.
 
 **Changes from v1.6:** §9's Phase 3 row names `rp-xlsx-spec.md` where it said `TBD`, and §1 and §3 add the distribution and its spec · §7 adds `et-xmlfile` (MIT), openpyxl's only runtime dependency, which `openpyxl` was approved without · §4.2 records that `CoreProperties` is promoted into `rp_core.models` by Phase 3 step 2, on the rule `rp-pptx-spec.md` §3 wrote for its own duplication ("if a third leaf needs it, promote it then") · §11 adds a fourth open decision: a part-preserving writer, which `rp-xlsx-spec.md` §6.3 rules out of Phase 3 and which is the only route to a lossless workbook edit.
 
@@ -30,11 +32,11 @@
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word document read/write/edit |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint deck read/write/edit (Phase 2.5) |
-| `rp-xlsx` | `rp_xlsx` | `rp-xlsx` | Excel workbook read/write/edit (Phase 3 — specified, not started) |
+| `rp-xlsx` | `rp_xlsx` | `rp-xlsx` | Excel workbook read/write/edit (Phase 3) |
 | `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the leaves to agents (Phase 2) |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution: installs the whole suite, `rp-mcp` included, and provides the umbrella `rp` dispatcher |
 
-`rp-mcp` is the one distribution that imports the leaves. It is a consumer sitting above them, not a peer: nothing in `rp-pdf`, `rp-docx`, or `rp-pptx` imports `rp_mcp`, so the dependency direction stays one-way. Its own spec is `rp-mcp-spec.md`.
+`rp-mcp` is the one distribution that imports the leaves. It is a consumer sitting above them, not a peer: nothing in `rp-pdf`, `rp-docx`, `rp-pptx`, or `rp-xlsx` imports `rp_mcp`, so the dependency direction stays one-way. Its own spec is `rp-mcp-spec.md`.
 
 **Rationale for one repo, several distributions:** corporate overhead (license scan, SBOM, security review, CI onboarding) is charged per repo. Workspace path dependencies resolve with nothing but git — no internal package index required. Cross-cutting changes land atomically in one PR. Separate distributions keep version histories independent and keep `rp-pdf` users from installing `python-docx`.
 
@@ -88,7 +90,7 @@ robo-papyro/
 │   │   ├── rp-pdf-spec.md
 │   │   ├── rp-pptx-spec.md
 │   │   ├── rp-mcp-spec.md
-│   │   └── rp-xlsx-spec.md        # Phase 3 — specified, not started
+│   │   └── rp-xlsx-spec.md
 │   └── usage.md
 ├── packages/
 │   ├── rp-core/
@@ -111,19 +113,19 @@ robo-papyro/
 │   │   └── tests/
 │   ├── rp-docx/                    # Phase 1 — complete
 │   ├── rp-pptx/                    # Phase 2.5 — complete
-│   ├── rp-xlsx/                    # Phase 3 — not started
+│   ├── rp-xlsx/                    # Phase 3 — complete
 │   │   ├── pyproject.toml
 │   │   ├── src/rp_xlsx/            # refs, ooxml, fidelity, templates, xlsx/*, cli
 │   │   └── tests/
 │   ├── rp-mcp/                     # Phase 2 — complete
 │   │   ├── pyproject.toml
-│   │   ├── src/rp_mcp/             # sandbox, tools, {pdf,docx,pptx}.py, server, cli
+│   │   ├── src/rp_mcp/             # sandbox, tools, {pdf,docx,pptx,xlsx}.py, server, cli
 │   │   └── tests/
 │   └── robo-papyro/
 │       ├── pyproject.toml
 │       ├── src/robo_papyro/
 │       └── tests/
-├── skills/                         # agent skills for the three CLIs (Phase 2)
+├── skills/                         # agent skills for the four CLIs (Phase 2, Phase 3)
 └── templates/                      # corporate .dotx/.docx and .potx/.pptx style templates
     └── README.md                   # provenance + owner per template
 ```
@@ -419,7 +421,7 @@ Convert the two `AGENTS.md` notes from Phase 0 into enforced checks per §10.
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | `rp-docx-spec.md` §12 | Complete — no house template was needed |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | `rp-pptx-spec.md` §12 | Complete — landed before Phase 2, per `dev-notes/status-robo-papyro-phase-2.5.md`; no house deck was needed |
 | **2** | `rp-mcp`: a fourth distribution holding the MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | `rp-mcp-spec.md` | Complete — see `dev-notes/status-robo-papyro-phase-2.md`. "FastMCP" is `MCPServer` in the SDK's 2.x line |
-| **3** | `rp-xlsx`: workbook read/write/edit over openpyxl, plus its MCP server and skill | `rp-xlsx-spec.md` §12 | Specified, not started. Its §6 is the phase: openpyxl does not round-trip a workbook, so a fidelity guard, not a format swap |
+| **3** | `rp-xlsx`: workbook read/write/edit over openpyxl, plus its MCP server and skill | `rp-xlsx-spec.md` §12 | Complete — see `dev-notes/status-robo-papyro-phase-3.md`. Its §6 was the phase: openpyxl does not round-trip a workbook, so a fidelity guard, not a format swap |
 
 ---
 

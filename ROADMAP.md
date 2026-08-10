@@ -15,7 +15,7 @@ Driven by [`docs/specs/robo-papyro-spec.md`](docs/specs/robo-papyro-spec.md) §9
 | **1** | `rp-docx`: templates, docx read/write/template, CLI | [rp-docx-spec](docs/specs/rp-docx-spec.md) §12 | ✅ |
 | **2** | `rp-mcp`: MCP servers for `rp-pdf`, `rp-docx`, and `rp-pptx`; skills in `skills/` | [rp-mcp-spec](docs/specs/rp-mcp-spec.md) | ✅ |
 | **2.5** | `rp-pptx`: templates, pptx read/write/template, slide operations, CLI | [rp-pptx-spec](docs/specs/rp-pptx-spec.md) §12 | ✅ |
-| **3** | `rp-xlsx` (openpyxl), same core/CLI split | [rp-xlsx-spec](docs/specs/rp-xlsx-spec.md) §12 | Planned |
+| **3** | `rp-xlsx` (openpyxl), same core/CLI split | [rp-xlsx-spec](docs/specs/rp-xlsx-spec.md) §12 | ✅ |
 
 Phase 0 delivered the workspace, `rp-core` (errors and exit codes, binary
 discovery, rasterization, range specs, CLI conventions), the `rp-pdf` rename, and
@@ -100,16 +100,19 @@ weak copyleft at all. Rendering, the AI review pass, progress reporting, and
 non-stdio transports are all deliberately not exposed; the reasons are in
 [dev-notes/status-robo-papyro-phase-2.md](dev-notes/status-robo-papyro-phase-2.md).
 
-Phase 3 is specified and not started. `rp-xlsx` reads, creates, and edits Excel
-workbooks over openpyxl, with the same core/CLI/MCP split the other three leaves
-use — but it is not another sibling with the format swapped, and
-[rp-xlsx-spec](docs/specs/rp-xlsx-spec.md) §6 is where the difference lives.
-**openpyxl does not round-trip a workbook.** A load→save silently discards every
-cached formula value and every package part openpyxl does not model — threaded
-comments, pivot caches, slicers, form controls, custom XML. Both losses were
-verified against openpyxl 3.1.5 before the spec was written, along with the
-`.xltx` retyping rule, the `keep_vba` default, and the phantom-dimension
-problem; the outputs are in
+Phase 3 added `rp-xlsx`: reading (index, data, cells, formulas, tables, names,
+comments, images, charts, properties, markdown, fidelity), writing (create from
+CSV/JSON/Markdown, set cells, append rows, replace text, set properties),
+native `{{ placeholder }}` templating, and sheet add/delete/rename/reorder — the
+same core/CLI/MCP split the other three leaves use, plus an `rp-mcp` server and
+an `xlsx-toolkit` skill. But it is not another sibling with the format swapped,
+and [rp-xlsx-spec](docs/specs/rp-xlsx-spec.md) §6 is where the difference
+lives. **openpyxl does not round-trip a workbook.** A load→save silently
+discards every cached formula value and every package part openpyxl does not
+model — threaded comments, pivot caches, slicers, form controls, custom XML.
+Both losses were verified against openpyxl 3.1.5 before the spec was written,
+along with the `.xltx` retyping rule, the `keep_vba` default, and the
+phantom-dimension problem; the outputs are in
 [dev-notes/phase-3-openpyxl-probe.md](dev-notes/phase-3-openpyxl-probe.md).
 
 So the phase's central mechanism is a fidelity guard: every write path scans the
@@ -120,6 +123,12 @@ application recomputes what the writer could not. Reads are never blocked by it,
 and `rp-xlsx fidelity FILE` answers "what would editing this cost?" without
 attempting the edit. Formula *evaluation* stays out of scope in both
 directions — a subtly wrong number is the worst output this suite could produce.
+It held exactly as verified, with one new finding (openpyxl writes an empty
+`<v/>` for a value-less formula it wrote itself) and two real bugs found by
+round-tripping `synthesize()` against its own manifest, all recorded in
+[dev-notes/status-robo-papyro-phase-3.md](dev-notes/status-robo-papyro-phase-3.md).
+The spec's documented fallback — defer `build_manifest`/`synthesize` if the
+templates checkpoint fights back — was not needed; the full round trip worked.
 
 Open from the spec: `templates/README.md` needs an owner and canonical location
 per template (§11.2), archiving `w528-pdf-extraction-toolkit` should happen now

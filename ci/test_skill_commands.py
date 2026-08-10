@@ -28,6 +28,7 @@ from rp_docx.cli import app as docx_app
 from rp_mcp.cli import app as mcp_app
 from rp_pdf.cli import app as pdf_app
 from rp_pptx.cli import app as pptx_app
+from rp_xlsx.cli import app as xlsx_app
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SKILLS = sorted((ROOT / "skills").glob("*/SKILL.md"))
@@ -37,11 +38,18 @@ APPS = {
     "rp-pdf": pdf_app,
     "rp-docx": docx_app,
     "rp-pptx": pptx_app,
+    "rp-xlsx": xlsx_app,
     "rp-mcp": mcp_app,
 }
 
 #: `rp <name> ...` reaches the same app through the umbrella's entry points.
-UMBRELLA = {"pdf": "rp-pdf", "docx": "rp-docx", "pptx": "rp-pptx", "mcp": "rp-mcp"}
+UMBRELLA = {
+    "pdf": "rp-pdf",
+    "docx": "rp-docx",
+    "pptx": "rp-pptx",
+    "xlsx": "rp-xlsx",
+    "mcp": "rp-mcp",
+}
 
 #: A long option, ignoring any trailing prose punctuation.
 LONG_OPTION = re.compile(r"^--[a-z][a-z0-9-]*$")

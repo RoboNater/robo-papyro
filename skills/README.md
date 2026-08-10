@@ -1,12 +1,13 @@
 # Skills
 
-Agent skills for the three robo-papyro CLIs, one per format:
+Agent skills for the four robo-papyro CLIs, one per format:
 
 | Skill | Covers | Full guide |
 |---|---|---|
 | [`pdf-toolkit`](pdf-toolkit/SKILL.md) | `rp-pdf` — read, search, extract, convert | [docs/usage.md](../docs/usage.md) |
 | [`word-toolkit`](word-toolkit/SKILL.md) | `rp-docx` — read, create, edit, template | [docs/usage-docx.md](../docs/usage-docx.md) |
 | [`powerpoint-toolkit`](powerpoint-toolkit/SKILL.md) | `rp-pptx` — read, create, edit, slide operations | [docs/usage-pptx.md](../docs/usage-pptx.md) |
+| [`spreadsheet-toolkit`](spreadsheet-toolkit/SKILL.md) | `rp-xlsx` — read, create, edit, sheet operations | [docs/usage-xlsx.md](../docs/usage-xlsx.md) |
 
 Each is a single `SKILL.md` with YAML frontmatter (`name`, `description`) and
 no scripts: the CLIs *are* the interface, and a skill that wrapped them in
@@ -44,10 +45,16 @@ those are what an agent cannot infer from `--help`:
   be re-planned against the new file.
 - Style and layout resolution never falls back; a missing style is an error
   naming the style, not a document that looks wrong.
+- `rp-xlsx` drops every formula's cached value on every write — that is a
+  property of the underlying library, not a bug, and `has_cached_values`
+  says so up front rather than leaving an agent to discover `None` values.
+- `rp-xlsx` refuses an edit that would silently delete a part it cannot
+  model (exit 3), rather than dropping threaded comments, pivot caches, or
+  similar without saying so; `--allow-lossy` opts in and reports the loss.
 
 ## Installing
 
 Copy a skill directory into wherever your agent reads skills from — for Claude
 Code, `~/.claude/skills/` for a user-wide skill or `.claude/skills/` in a
-project. The skills assume `rp-pdf`, `rp-docx`, and `rp-pptx` are on `PATH`;
-`uv sync` in this checkout puts them there.
+project. The skills assume `rp-pdf`, `rp-docx`, `rp-pptx`, and `rp-xlsx` are on
+`PATH`; `uv sync` in this checkout puts them there.

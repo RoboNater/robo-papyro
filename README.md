@@ -12,9 +12,9 @@ composes with shell pipelines; given `-o` it writes the file, and what it
 prints instead of the Markdown varies by package — see each package's usage
 guide.
 
-**Status:** Phases 0, 0.5, 1, 2, and 2.5 are complete — `rp-core`, `rp-pdf`,
-`rp-docx`, `rp-pptx`, and `rp-mcp` all ship. `rp-xlsx` (Phase 3) remains future
-work. See [ROADMAP.md](ROADMAP.md) for details.
+**Status:** Phases 0, 0.5, 1, 2, 2.5, and 3 are complete — `rp-core`, `rp-pdf`,
+`rp-docx`, `rp-pptx`, `rp-xlsx`, and `rp-mcp` all ship. See
+[ROADMAP.md](ROADMAP.md) for details.
 
 One repository, several independently versioned distributions:
 
@@ -24,27 +24,30 @@ One repository, several independently versioned distributions:
 | [`rp-pdf`](packages/rp-pdf) | `rp_pdf` | `rp-pdf`, `rp pdf` | PDF read/extract/render |
 | [`rp-docx`](packages/rp-docx) | `rp_docx` | `rp-docx`, `rp docx` | Word read/create/edit |
 | [`rp-pptx`](packages/rp-pptx) | `rp_pptx` | `rp-pptx`, `rp pptx` | PowerPoint read/create/edit |
-| [`rp-mcp`](packages/rp-mcp) | `rp_mcp` | `rp-mcp`, `rp mcp` | MCP servers for the three above |
+| [`rp-xlsx`](packages/rp-xlsx) | `rp_xlsx` | `rp-xlsx`, `rp xlsx` | Excel read/create/edit |
+| [`rp-mcp`](packages/rp-mcp) | `rp_mcp` | `rp-mcp`, `rp mcp` | MCP servers for the four above |
 | [`robo-papyro`](packages/robo-papyro) | `robo_papyro` | `rp` | Umbrella dispatcher |
 
 Dependency direction is strictly one-way: leaf packages never import each
 other, `robo-papyro` reaches the leaves through entry-point discovery, and
-`rp-mcp` sits above all three — it imports them, nothing imports it back.
+`rp-mcp` sits above all four — it imports them, nothing imports it back.
 `rp-core` knows nothing PDF- or format-specific, but it does own the generic,
 format-agnostic mechanics every OOXML leaf needs — package zip read/repack,
 content-type rewriting, and a shared Markdown block/inline parser
-(`rp_core.ooxml`, `rp_core.markdown`); WordprocessingML and PresentationML
-knowledge itself stays in `rp-docx` and `rp-pptx`. Permissive licenses only —
-no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL. External binaries
-(LibreOffice, poppler) are optional and invoked only as subprocesses.
+(`rp_core.ooxml`, `rp_core.markdown`); WordprocessingML, PresentationML, and
+SpreadsheetML knowledge itself stays in `rp-docx`, `rp-pptx`, and `rp-xlsx`.
+Permissive licenses only — no PyMuPDF/AGPL, no `docxtpl`/LGPL, no pandoc/GPL.
+External binaries (LibreOffice, poppler) are optional and invoked only as
+subprocesses.
 
 Full usage guides: [docs/usage.md](docs/usage.md) for `rp-pdf`,
 [docs/usage-docx.md](docs/usage-docx.md) for `rp-docx`,
 [docs/usage-pptx.md](docs/usage-pptx.md) for `rp-pptx`,
+[docs/usage-xlsx.md](docs/usage-xlsx.md) for `rp-xlsx`,
 [docs/usage-mcp.md](docs/usage-mcp.md) for `rp-mcp`, whose security model and
 deliberate limitations are in [docs/security-mcp.md](docs/security-mcp.md). The
 governing specifications are in [docs/specs/](docs/specs). Agent skills for the
-three CLIs are in [skills/](skills).
+four CLIs are in [skills/](skills).
 
 ## Setup
 
@@ -84,8 +87,8 @@ uv run rp doctor                 # capability report across the suite
 uv run rp pdf index FILE         # identical to `rp-pdf index FILE`
 ```
 
-Installing a new package (say `rp-xlsx`) makes it appear under `rp`
-automatically; nothing in `robo-papyro` changes.
+Installing a new format package makes it appear under `rp` automatically;
+nothing in `robo-papyro` changes.
 
 `robo-papyro` installs the whole suite, `rp-mcp` included, so `rp mcp` is there
 in a plain `pip install robo-papyro`. That does bring the MCP SDK and an ASGI
@@ -314,10 +317,52 @@ loudly rather than reporting an empty list. Classic comments are read normally.
 
 Full guide: [docs/usage-pptx.md](docs/usage-pptx.md).
 
+## rp-xlsx
+
+Reads, creates, and edits Excel workbooks. `.xlsx`, `.xlsm`, `.xltx`, and
+`.xltm` are accepted everywhere; no external binary is needed for any read or
+write path.
+
+```sh
+uv run rp-xlsx index report.xlsx                 # sheets, formulas, defined names, at-risk parts
+uv run rp-xlsx data report.xlsx --sheets 1-3     # values as a grid, never display strings
+uv run rp-xlsx cells report.xlsx --cells A1:D20  # every cell, formula and cached value
+uv run rp-xlsx markdown report.xlsx -o report.md # the workbook as markdown
+
+uv run rp-xlsx create -o out.xlsx --from-csv data.csv --template house
+uv run rp-xlsx set report.xlsx --map ./values.json -o edited.xlsx
+uv run rp-xlsx template house --context ./client.json -o pitch.xlsx
+uv run rp-xlsx sheets reorder report.xlsx --order 3,1,2 -o reordered.xlsx
+```
+
+One thing it does that a naive implementation gets wrong, loudly rather than
+quietly:
+
+- **openpyxl (the library underneath) does not round-trip a workbook.** Every
+  write discards every formula's cached value until a real spreadsheet
+  application recomputes it — unavoidable, so `rp-xlsx` forces recalculation
+  on next open and reports `has_cached_values`/`recalculation_required`
+  rather than let a caller discover stale `None`s on its own. Separately, a
+  handful of parts (threaded comments, pivot caches, slicers, form controls,
+  custom XML) are silently deleted by any write through openpyxl. Rather than
+  let that happen quietly, every edit to an *existing* workbook checks for
+  them first and refuses with exit **3** unless `--allow-lossy` opts in — and
+  even then, `WriteResult.dropped` says exactly what was lost.
+
+Confidential templates never enter the repository, exactly as with `rp-docx`
+and `rp-pptx`: `templates manifest` describes a template's *shape* — sheet
+names, header rows, per-column number formats, placeholder cells, no other
+cell content — and `templates synthesize` rebuilds a structurally equivalent
+`.xltx` from that JSON. Synthesis reproduces structure, not appearance:
+themes, fonts, colours, conditional formatting, and data validation are out
+of scope.
+
+Full guide: [docs/usage-xlsx.md](docs/usage-xlsx.md).
+
 ## rp-mcp
 
-The same three toolkits as MCP tools, for a client that has no shell. One
-server per format, or all three at once, over stdio:
+The same four toolkits as MCP tools, for a client that has no shell. One
+server per format, or all four at once, over stdio:
 
 ```sh
 uv run rp-mcp serve --root ~/documents                    # read-only
@@ -380,6 +425,17 @@ reorder_slides(Path("deck.pptx"), [3, 1, 2], output=Path("out.pptx"))
 ```
 
 ```python
+from pathlib import Path
+from rp_xlsx import get_index, get_data, create, set_cells, reorder_sheets
+
+index = get_index(Path("report.xlsx"))                   # WorkbookIndex
+data = get_data(Path("report.xlsx"), sheets="1-3")        # list[SheetData]
+create(Path("out.xlsx"), sheets=None, template="house")
+result = set_cells(Path("in.xlsx"), {"Sheet1": {"B2": 5}}, output=Path("out.xlsx"))
+reorder_sheets(Path("report.xlsx"), [3, 1, 2], output=Path("out.xlsx"))
+```
+
+```python
 from rp_mcp import Sandbox, build_server
 
 build_server(Sandbox(roots=["/docs"], write_root="/docs/out")).run(transport="stdio")
@@ -397,8 +453,8 @@ uv run ruff check packages
 uv run ruff format packages
 ```
 
-PDF, Word, and PowerPoint test fixtures — including templates — are generated
-at run time; no binary fixtures are committed. Tests that need poppler skip
+PDF, Word, PowerPoint, and Excel test fixtures — including templates — are
+generated at run time; no binary fixtures are committed. Tests that need poppler skip
 automatically when it is not installed. LibreOffice-dependent tests use a
 functional probe (`requires_soffice` checks that `soffice` can actually
 *convert*, not merely that the binary exists — some containers ship a

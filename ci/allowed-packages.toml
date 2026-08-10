@@ -6,8 +6,8 @@
 # see docs/specs/robo-papyro-spec.md §7. Copyleft in the dependency graph is a
 # blocker in this environment, not a preference.
 #
-# Workspace members (rp-core, rp-pdf, rp-docx, rp-pptx, rp-mcp, robo-papyro)
-# are allowed automatically and do not need listing.
+# Workspace members (rp-core, rp-pdf, rp-docx, rp-pptx, rp-xlsx, rp-mcp,
+# robo-papyro) are allowed automatically and do not need listing.
 #
 # An entry is either a bare license string or a table. The table form adds a
 # `tag`, which is a *checked claim*: `extra:ai` asserts the package is
