@@ -182,6 +182,33 @@ class FillResult(BaseModel):
     unresolved: list[str]
 
 
+class FileWritten(BaseModel):
+    """A CLI write whose only result is the file itself — ``create``,
+    ``markdown -o``, ``data --format csv -o``, and the ``templates``
+    manifest/synthesize commands, none of which touch cells in an existing
+    workbook and so have nothing to report beyond where they wrote (spec
+    section 10; the same shape as the other two leaves' equivalent)."""
+
+    output: Path
+
+
+class ConversionResult(BaseModel):
+    """Where ``convert`` wrote its output, and in what format."""
+
+    source: Path
+    output: Path
+    format: str
+
+
+class RenderResult(BaseModel):
+    """One rendered page image. LibreOffice paginates a sheet according to
+    its print area, so page count is a property of the file's print
+    settings rather than of its data (spec section 4)."""
+
+    page: int
+    path: Path
+
+
 class SheetSpec(BaseModel):
     """One sheet's worth of rows, as ``create`` takes it regardless of source
     (CSV, JSON, or a Markdown table — spec section 9)."""
@@ -233,12 +260,15 @@ __all__ = [
     "CellValue",
     "ChartRef",
     "ChartSeries",
+    "ConversionResult",
     "CoreProperties",
     "EmbeddedImage",
     "ExcelTable",
     "FidelityReport",
+    "FileWritten",
     "FillResult",
     "NamedRange",
+    "RenderResult",
     "ReplaceResult",
     "SheetData",
     "SheetInfo",
