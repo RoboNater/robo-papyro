@@ -18,14 +18,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
-bash "$SCRIPT_DIR/release-check.sh" "$VERSION"
-
+# Fail before the expensive validation suite if the publication dependency is
+# missing or unauthenticated. release-check.sh itself deliberately needs no gh.
 command -v gh >/dev/null 2>&1 || {
   echo "error: GitHub CLI (gh) is required to create the GitHub Release" >&2
   echo "install it, then run: gh auth login" >&2
   exit 2
 }
 gh auth status >/dev/null
+
+bash "$SCRIPT_DIR/release-check.sh" "$VERSION"
 
 TAG="robo-papyro-v${VERSION}"
 NOTES="docs/releases/${TAG}.md"
