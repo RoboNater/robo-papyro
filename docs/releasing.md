@@ -78,8 +78,8 @@ bash scripts/release.sh 0.1.0
 
 The script:
 
-1. runs `release-check.sh`;
-2. confirms `gh` authentication;
+1. confirms `gh` is installed and authenticated;
+2. runs `release-check.sh`;
 3. shows the exact `main` commit being released;
 4. asks for confirmation;
 5. creates and pushes annotated tag `robo-papyro-v<VERSION>` if it does not already exist;
