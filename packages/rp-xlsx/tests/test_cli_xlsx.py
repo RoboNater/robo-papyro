@@ -305,7 +305,7 @@ class TestCommands:
         )
         assert result.exit_code == 1
 
-    def test_sheets_list_add_rename_delete(self, plain_workbook, tmp_path):
+    def test_sheets_list_add_delete(self, plain_workbook, tmp_path):
         listed = run("sheets", "list", plain_workbook)
         assert listed.exit_code == 0
         assert payload(listed) == ["Sheet1"]
@@ -313,29 +313,32 @@ class TestCommands:
         added = run("sheets", "add", plain_workbook, "--name", "New", "-o", tmp_path / "a.xlsx")
         assert added.exit_code == 0
 
-        renamed = run(
-            "sheets",
-            "rename",
-            tmp_path / "a.xlsx",
-            "--from",
-            "New",
-            "--to",
-            "Renamed",
-            "-o",
-            tmp_path / "b.xlsx",
-        )
-        assert renamed.exit_code == 0
-
         deleted = run(
             "sheets",
             "delete",
-            tmp_path / "b.xlsx",
+            tmp_path / "a.xlsx",
             "--sheet",
-            "Renamed",
+            "New",
             "-o",
-            tmp_path / "c.xlsx",
+            tmp_path / "b.xlsx",
         )
         assert deleted.exit_code == 0
+
+    def test_sheets_rename_is_temporarily_disabled(self, plain_workbook, tmp_path):
+        """rp_xlsx.xlsx.sheets.rename_sheet() refuses unconditionally --
+        see its module docstring for why."""
+        renamed = run(
+            "sheets",
+            "rename",
+            plain_workbook,
+            "--from",
+            "Sheet1",
+            "--to",
+            "Renamed",
+            "-o",
+            tmp_path / "out.xlsx",
+        )
+        assert renamed.exit_code == 1
 
     def test_templates_list_inspect_manifest_synthesize(
         self, house_like_template, tmp_path, monkeypatch

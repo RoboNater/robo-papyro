@@ -420,7 +420,7 @@ one prefixes with `'` exactly as they would in Excel. Document it, test it.
 ```python
 add_sheet(path, name, *, index=None, output=None, allow_lossy=False) -> SheetOpResult
 delete_sheets(path, sheets="", names=None, *, output=None, allow_lossy=False) -> SheetOpResult
-rename_sheet(path, old, new, *, output=None, allow_lossy=False) -> SheetOpResult
+rename_sheet(path, old, new, *, output=None, allow_lossy=False) -> SheetOpResult  # disabled -- always raises, see below
 reorder_sheets(path, order: list[int], *, output=None, allow_lossy=False) -> SheetOpResult
 ```
 
@@ -439,31 +439,38 @@ workbook. openpyxl raises `ValueError` for the characters but only *warns* past
 31 characters (verified) — a warning is invisible to an agent, so this package
 raises.
 
-**Correction, post-implementation (PR review, two rounds).** `rename_sheet`
-refuses (`InputError`) rather than renames when anything sheet-qualifies a
-reference to `old`. openpyxl does not rewrite these references when a
-worksheet's title changes — verified directly for each structure below.
-Detection (`refs.sheet_reference_matcher`) matches the quoted form
-(`'Sheet Name'!`, internal `'` doubled per Excel's own escaping), the bare
-form (`Sheet1!`), and either endpoint of a 3-D range in both forms
-(`Sheet1:Sheet3!A1` bare; `'Sheet 1:Sheet 3'!A1` quoted — Excel wraps *both*
-endpoints in one pair of quotes, not each separately), case-insensitively.
-The first round only matched a name immediately before `!`, which caught a
-3-D range's second endpoint but silently missed the first (`Sheet1` in
-`Sheet1:Sheet3!A1` sits before `:`) — closed in the second round together
-with the scan's coverage.
+**Correction, post-implementation (PR review, three rounds — `rename_sheet`
+is now temporarily disabled).** The signature above is `_rename_sheet_impl`'s;
+the public `rename_sheet` is a thin wrapper that raises `InputError`
+unconditionally (`sheets.RENAME_DISABLED_MESSAGE`) and never calls it. How
+this got here:
 
-Coverage: ordinary cell formulas, workbook- and sheet-scoped defined names,
-chart series (`numRef.f`/`strRef.f` on a series' `val`/`cat` source),
-conditional-formatting rule formulas, and data-validation `formula1`/
-`formula2`. All five are already plain reference/formula text once openpyxl
-has parsed the part, so the same matcher checks all of them — no separate
-parser needed. Not scanned: pivot caches, slicers, and other structures
-openpyxl does not model at all (already flagged separately by the fidelity
-guard, §6, when present). Reference *rewriting* — the alternative the
-original spec text implied — is not implemented; refusal was chosen
-deliberately over a rewrite that could still miss some reference-bearing
-structure and look done when it wasn't.
+Round one: `rename_sheet` refused (`InputError`) rather than renamed when a
+formula or defined name sheet-qualified a reference to `old`, since openpyxl
+does not rewrite these when a worksheet's title changes. Round two found the
+detection matcher (then `refs.sheet_reference_pattern`) missed chart series,
+conditional-formatting rules, and data-validation rules entirely, and missed
+the first endpoint of a bare 3-D range (`Sheet1` in `Sheet1:Sheet3!A1` sits
+before `:`, not immediately before `!`) — both closed, and the matcher
+(renamed `refs.sheet_reference_matcher`) extended to also handle quoted 3-D
+ranges, where Excel wraps *both* endpoints in one pair of quotes
+(`'Sheet 1:Sheet 3'!A1`, not `'Sheet 1':'Sheet 3'!A1`). Round three found
+*more* structures the scan still missed and confirmed unrewritten by direct
+reproduction: scatter/bubble chart series (`xVal`/`yVal`/`bubbleSize` rather
+than `val`/`cat`), series/axis title `strRef`s, cell hyperlinks, and table
+`calculatedColumnFormula`/`totalsRowFormula`.
+
+Given that pattern — three rounds, each finding another reference-bearing
+structure the previous round's scan did not cover — the operation was
+disabled rather than patched a fourth time: `rename_sheet` now refuses
+unconditionally, regardless of whether any reference to `old` actually
+exists, and `_rename_sheet_impl` retains the working (but still incomplete)
+detection logic for whenever this is revisited with a structurally complete
+approach — one that enumerates every openpyxl-modeled reference-bearing
+field it intends to support, and refuses on any structure whose references
+are not yet fully understood, rather than adding coverage one discovered gap
+at a time. Reference *rewriting* — the alternative the original spec text
+implied — was never implemented at any point in this arc.
 
 ### Tabular interchange (`rp_xlsx.xlsx.tabular`)
 

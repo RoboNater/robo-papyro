@@ -629,7 +629,7 @@ def sheets_rename(
     allow_lossy: AllowLossyOpt = False,
     plain: clikit.plain_option = False,
 ) -> None:
-    """Rename a sheet."""
+    """Rename a sheet. Temporarily disabled — see the error message."""
     with _errors():
         clikit.emit(
             sheets_module.rename_sheet(

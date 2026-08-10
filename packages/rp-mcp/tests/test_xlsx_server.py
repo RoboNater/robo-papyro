@@ -186,7 +186,7 @@ class TestWrites:
         data = get_data(outbox / "appended.xlsx", header=True)
         assert data[0].rows[-1] == ["East", 15]
 
-    def test_add_rename_delete_sheet(self, writable, sample_xlsx: Path, outbox: Path, mcp):
+    def test_add_delete_sheet(self, writable, sample_xlsx: Path, outbox: Path, mcp):
         """Each step's input is the previous step's output, addressed by its
         absolute path -- a relative ``path`` always resolves against the
         server's first root (``docs``), never the write root."""
@@ -199,28 +199,30 @@ class TestWrites:
         )
         assert "New" in added["sheets"]
 
-        renamed = mcp.structured(
-            mcp.call(
-                writable,
-                "xlsx_rename_sheet",
-                {
-                    "path": str(outbox / "a.xlsx"),
-                    "old": "New",
-                    "new": "Renamed",
-                    "output": "b.xlsx",
-                },
-            )
-        )
-        assert "Renamed" in renamed["sheets"]
-
         deleted = mcp.structured(
             mcp.call(
                 writable,
                 "xlsx_delete_sheets",
-                {"path": str(outbox / "b.xlsx"), "names": ["Renamed"], "output": "c.xlsx"},
+                {"path": str(outbox / "a.xlsx"), "names": ["New"], "output": "b.xlsx"},
             )
         )
-        assert "Renamed" not in deleted["sheets"]
+        assert "New" not in deleted["sheets"]
+
+    def test_rename_sheet_is_temporarily_disabled(
+        self, writable, sample_xlsx: Path, outbox: Path, mcp
+    ):
+        """rp_xlsx.xlsx.sheets.rename_sheet() refuses unconditionally (see
+        its module docstring): repeated PR review found another
+        reference-bearing structure (chart series, hyperlinks, table
+        formulas) openpyxl leaves dangling after a rename that the
+        detection scan did not yet cover, so the operation is disabled
+        rather than shipped with an open-ended list of gaps."""
+        result = mcp.call(
+            writable,
+            "xlsx_rename_sheet",
+            {"path": sample_xlsx.name, "old": "Data", "new": "Renamed", "output": "out.xlsx"},
+        )
+        assert mcp.error_type(result) == "InputError"
 
     def test_replace_text_reaches_the_cells(self, writable, sample_xlsx: Path, outbox: Path, mcp):
         result = mcp.structured(
@@ -341,23 +343,24 @@ class TestWrites:
         )
         assert result["dropped"]
 
-    def test_allow_lossy_on_rename_sheet_reports_what_was_dropped(
+    def test_rename_sheet_stays_disabled_even_with_allow_lossy(
         self, writable, xlsx_at_risk: Path, outbox: Path, mcp
     ):
-        result = mcp.structured(
-            mcp.call(
-                writable,
-                "xlsx_rename_sheet",
-                {
-                    "path": xlsx_at_risk.name,
-                    "old": "Data",
-                    "new": "Renamed",
-                    "output": "renamed.xlsx",
-                    "allow_lossy": True,
-                },
-            )
+        """``allow_lossy`` opts into a fidelity-guard loss, not into running
+        a disabled operation -- rename_sheet refuses before the guard is
+        even reached, regardless of this flag."""
+        result = mcp.call(
+            writable,
+            "xlsx_rename_sheet",
+            {
+                "path": xlsx_at_risk.name,
+                "old": "Data",
+                "new": "Renamed",
+                "output": "renamed.xlsx",
+                "allow_lossy": True,
+            },
         )
-        assert result["dropped"]
+        assert mcp.error_type(result) == "InputError"
 
     def test_fill_template_cannot_reach_outside_the_roots(self, writable, tmp_path: Path, mcp):
         stray = tmp_path / "stray" / "book.xlsx"

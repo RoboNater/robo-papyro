@@ -102,26 +102,63 @@ class TestDeleteSheets:
         assert result.sheets == ["Three"]
 
 
-class TestRenameSheet:
+class TestRenameSheetDisabled:
+    """``rename_sheet`` is temporarily disabled (module docstring): repeated
+    review found another reference-bearing structure (chart series, then
+    hyperlinks, table formulas) openpyxl leaves dangling after a rename that
+    the detection scan did not yet cover, so the public entry point refuses
+    unconditionally rather than ship with an open-ended list of gaps. The
+    working implementation is retained as ``_rename_sheet_impl`` and
+    exercised directly by :class:`TestRenameSheetImpl` below, so it stays
+    tested for whenever this is re-enabled.
+    """
+
+    def test_refuses_unconditionally(self, three_sheet_workbook, tmp_path):
+        with pytest.raises(InputError):
+            sheets.rename_sheet(
+                three_sheet_workbook, "Two", "Renamed", output=tmp_path / "out.xlsx"
+            )
+
+    def test_refuses_even_on_an_otherwise_valid_rename_with_no_references(self, tmp_path):
+        """Not just refusing bad input -- a rename that `_rename_sheet_impl`
+        would happily perform (no references to the old name anywhere) is
+        refused too, because the disable is unconditional."""
+        wb = openpyxl.Workbook()
+        wb.active.title = "Alone"
+        wb.create_sheet("Other")
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "Alone", "Renamed", output=tmp_path / "out.xlsx")
+
+
+class TestRenameSheetImpl:
     def test_renames(self, three_sheet_workbook, tmp_path):
-        result = sheets.rename_sheet(
+        result = sheets._rename_sheet_impl(
             three_sheet_workbook, "Two", "Renamed", output=tmp_path / "out.xlsx"
         )
         assert result.sheets == ["One", "Renamed", "Three"]
 
     def test_unknown_old_name_is_an_input_error(self, three_sheet_workbook, tmp_path):
         with pytest.raises(InputError):
-            sheets.rename_sheet(three_sheet_workbook, "Nope", "New", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(
+                three_sheet_workbook, "Nope", "New", output=tmp_path / "out.xlsx"
+            )
 
     def test_renaming_to_an_existing_name_is_an_input_error(self, three_sheet_workbook, tmp_path):
         with pytest.raises(InputError):
-            sheets.rename_sheet(three_sheet_workbook, "Two", "Three", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(
+                three_sheet_workbook, "Two", "Three", output=tmp_path / "out.xlsx"
+            )
 
     def test_renaming_to_a_case_only_duplicate_is_also_an_input_error(
         self, three_sheet_workbook, tmp_path
     ):
         with pytest.raises(InputError):
-            sheets.rename_sheet(three_sheet_workbook, "Two", "three", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(
+                three_sheet_workbook, "Two", "three", output=tmp_path / "out.xlsx"
+            )
 
     def test_a_case_only_rename_of_the_same_sheet_succeeds_exactly(
         self, three_sheet_workbook, tmp_path
@@ -132,7 +169,7 @@ class TestRenameSheet:
         would otherwise silently become "two1" instead of "two" -- verified
         directly against openpyxl 3.1.5. The requested name must never
         silently gain a numeric suffix."""
-        result = sheets.rename_sheet(
+        result = sheets._rename_sheet_impl(
             three_sheet_workbook, "Two", "two", output=tmp_path / "out.xlsx"
         )
         assert result.sheets == ["One", "two", "Three"]
@@ -151,7 +188,7 @@ class TestRenameSheet:
                 SheetSpec(name="~Rename2", rows=[["z"]]),
             ],
         ).output
-        result = sheets.rename_sheet(out, "Data", "data", output=tmp_path / "out.xlsx")
+        result = sheets._rename_sheet_impl(out, "Data", "data", output=tmp_path / "out.xlsx")
         assert "data" in result.sheets
         assert "~rename" in result.sheets
         assert "~Rename2" in result.sheets
@@ -161,7 +198,7 @@ class TestRenameSheet:
         self, three_sheet_workbook, tmp_path
     ):
         with pytest.raises(InputError):
-            sheets.rename_sheet(
+            sheets._rename_sheet_impl(
                 three_sheet_workbook, "Two", "Bad:Name", output=tmp_path / "out.xlsx"
             )
 
@@ -180,7 +217,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError, match="Data"):
-            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_refuses_when_a_defined_name_references_the_old_name(self, tmp_path):
         wb = openpyxl.Workbook()
@@ -192,7 +229,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError, match="MyName"):
-            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_refuses_on_a_quoted_reference_to_a_name_with_spaces_and_an_apostrophe(self, tmp_path):
         """A sheet name containing a space or apostrophe can only be
@@ -208,7 +245,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError):
-            sheets.rename_sheet(source, "It's Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "It's Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_proceeds_when_nothing_references_the_old_name(self, tmp_path):
         wb = openpyxl.Workbook()
@@ -217,7 +254,7 @@ class TestRenameSheet:
         source = tmp_path / "src.xlsx"
         wb.save(source)
 
-        result = sheets.rename_sheet(source, "Alone", "Renamed", output=tmp_path / "out.xlsx")
+        result = sheets._rename_sheet_impl(source, "Alone", "Renamed", output=tmp_path / "out.xlsx")
         assert result.sheets == ["Renamed", "Other"]
 
     def test_a_reference_to_a_different_sheet_does_not_block_the_rename(self, tmp_path):
@@ -230,7 +267,7 @@ class TestRenameSheet:
         source = tmp_path / "src.xlsx"
         wb.save(source)
 
-        result = sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+        result = sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
         assert result.sheets == ["Renamed", "Other"]
 
     def test_refuses_when_a_chart_series_references_the_old_name(self, tmp_path):
@@ -251,7 +288,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError):
-            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_refuses_when_a_conditional_formatting_rule_references_the_old_name(self, tmp_path):
         from openpyxl.formatting.rule import FormulaRule
@@ -264,7 +301,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError):
-            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_refuses_when_a_data_validation_references_the_old_name(self, tmp_path):
         from openpyxl.worksheet.datavalidation import DataValidation
@@ -279,7 +316,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError):
-            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
 
     def test_refuses_on_the_first_endpoint_of_a_bare_3d_range(self, tmp_path):
         """`=SUM(Sheet1:Sheet3!A1)` sheet-qualifies `Sheet1` too, even
@@ -293,7 +330,7 @@ class TestRenameSheet:
         wb.save(source)
 
         with pytest.raises(InputError):
-            sheets.rename_sheet(source, "Sheet1", "Renamed", output=tmp_path / "out.xlsx")
+            sheets._rename_sheet_impl(source, "Sheet1", "Renamed", output=tmp_path / "out.xlsx")
 
 
 class TestReorderSheets:

@@ -5,6 +5,13 @@ Every function here calls section 6's guard first, exactly like
 package never overwrites implicitly), and a workbook must end with at least
 one visible sheet — stricter than openpyxl, which will happily write a
 workbook Excel refuses to open.
+
+**``rename_sheet`` is temporarily disabled** (see :data:`RENAME_DISABLED_MESSAGE`
+and its docstring) — PR review kept finding another reference-bearing
+structure (chart series, then hyperlinks, table formulas, ...) that
+openpyxl leaves dangling after a rename and this package's scan did not
+yet cover, so it is refused unconditionally rather than shipped with an
+open-ended list of known gaps.
 """
 
 from __future__ import annotations
@@ -191,6 +198,23 @@ def _references_to_old_sheet(wb: Any, old: str) -> list[str]:
     return found
 
 
+#: Message for :func:`rename_sheet`'s unconditional refusal (module level so
+#: the CLI/MCP layers can reference the same text rather than re-explain it).
+RENAME_DISABLED_MESSAGE = (
+    "sheets rename is temporarily disabled. Renaming a sheet can leave formulas, "
+    "defined names, chart series, conditional formatting, data validation, cell "
+    "hyperlinks, or table calculated-column/totals-row formulas referring to the "
+    "old sheet name -- openpyxl does not rewrite any of these on save. Each "
+    "review pass on this feature's reference-detection scan found another "
+    "reference-bearing structure it missed (chart series shapes beyond val/cat, "
+    "then hyperlinks and table formulas), so rather than continue closing one "
+    "structure at a time this operation is disabled until a structurally "
+    "complete solution replaces the current per-structure scan. See "
+    "docs/specs/rp-xlsx-spec.md's Sheets section for the tracked gap; "
+    "_rename_sheet_impl below still has the detection logic this will build on."
+)
+
+
 def rename_sheet(
     path: Path,
     old: str,
@@ -201,6 +225,24 @@ def rename_sheet(
 ) -> SheetOpResult:
     """Rename sheet ``old`` to ``new``.
 
+    **Temporarily disabled** — see :data:`RENAME_DISABLED_MESSAGE`. The
+    working implementation is retained as :func:`_rename_sheet_impl`, not
+    deleted, so re-enabling this is a matter of wiring this name back to it
+    once the remaining reference-bearing structures are covered.
+    """
+    raise InputError(RENAME_DISABLED_MESSAGE)
+
+
+def _rename_sheet_impl(
+    path: Path,
+    old: str,
+    new: str,
+    *,
+    output: Path | None = None,
+    allow_lossy: bool = False,
+) -> SheetOpResult:
+    """The rename implementation :func:`rename_sheet` currently refuses to run.
+
     **Refuses rather than rename when anything sheet-qualifies a reference
     to ``old``.** openpyxl does not update these references when a sheet's
     title changes, so a rename that proceeded anyway would silently leave
@@ -209,13 +251,14 @@ def rename_sheet(
     wrongness with no error anywhere. Detection (:func:`_references_to_old_sheet`)
     covers cell formulas, workbook- and sheet-scoped defined names, chart
     series, conditional-formatting rules, and data-validation rules, in
-    both bare and quoted form and at either endpoint of a 3-D range. This
-    package has no reference-*rewriting* implementation — refusal was
+    both bare and quoted form and at either endpoint of a 3-D range —
+    **known incomplete**: it does not yet cover scatter/bubble chart series
+    (``xVal``/``yVal``/``bubbleSize``), series/axis titles (``tx.strRef``),
+    cell hyperlinks, or table ``calculatedColumnFormula``/``totalsRowFormula``,
+    each confirmed by direct reproduction to survive a rename unrewritten.
+    This package has no reference-*rewriting* implementation — refusal was
     chosen deliberately over a rewrite that could still miss some
-    reference-bearing structure and look done when it wasn't. Rename the
-    sheet back to something without any live references first (or accept
-    the dangling references knowingly and edit them by hand), or add
-    reference rewriting to this package before lifting this restriction.
+    reference-bearing structure and look done when it wasn't.
     """
     report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
@@ -231,9 +274,9 @@ def rename_sheet(
             more = f" (and {len(references) - 5} more)" if len(references) > 5 else ""
             raise InputError(
                 f"Refusing to rename sheet {old!r}: openpyxl does not update sheet-qualified "
-                f"references when a sheet is renamed, and {len(references)} formula(s) or "
-                f"defined name(s) still refer to {old!r}: {shown}{more}. Update or remove "
-                "those references first, then rename."
+                f"references when a sheet is renamed, and {len(references)} reference(s) "
+                f"still refer to {old!r}: {shown}{more}. Update or remove those references "
+                "first, then rename."
             )
         _rename_via_a_temporary_title(wb[old], wb, new)
         ooxml.save(wb, target)

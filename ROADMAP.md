@@ -103,9 +103,12 @@ non-stdio transports are all deliberately not exposed; the reasons are in
 Phase 3 added `rp-xlsx`: reading (index, data, cells, formulas, tables, names,
 comments, images, charts, properties, markdown, fidelity), writing (create from
 CSV/JSON/Markdown, set cells, append rows, replace text, set properties),
-native `{{ placeholder }}` templating, and sheet add/delete/rename/reorder — the
-same core/CLI/MCP split the other three leaves use, plus an `rp-mcp` server and
-an `xlsx-toolkit` skill. But it is not another sibling with the format swapped,
+native `{{ placeholder }}` templating, and sheet add/delete/reorder — the same
+core/CLI/MCP split the other three leaves use, plus an `rp-mcp` server and an
+`xlsx-toolkit` skill. Sheet rename exists in the code (`sheets` CLI/MCP
+surface, `_rename_sheet_impl`) but is temporarily disabled at the public
+`rename_sheet` entry point — [rp-xlsx-spec](docs/specs/rp-xlsx-spec.md)'s
+Sheets section has the history. But it is not another sibling with the format swapped,
 and [rp-xlsx-spec](docs/specs/rp-xlsx-spec.md) §6 is where the difference
 lives. **openpyxl does not round-trip a workbook.** A load→save silently
 discards every cached formula value and every package part openpyxl does not

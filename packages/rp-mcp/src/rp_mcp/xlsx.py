@@ -453,7 +453,7 @@ def register(server: MCPServer, sandbox: Sandbox) -> None:
         output: OutputArg,
         allow_lossy: AllowLossyArg = False,
     ) -> SheetOpResult:
-        """Rename a sheet, writing a new file."""
+        """Rename a sheet, writing a new file. Temporarily disabled — raises."""
         return sheets_module.rename_sheet(
             sandbox.resolve_input(path),
             old,

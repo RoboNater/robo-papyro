@@ -71,7 +71,6 @@ rp-xlsx replace report.xlsx --map '{"old": "new"}' -o filled.xlsx
 rp-xlsx template house --context '{"client": {"name": "Acme"}}' -o pitch.xlsx
 rp-xlsx sheets add     report.xlsx --name New -o added.xlsx
 rp-xlsx sheets delete  report.xlsx --sheet New -o trimmed.xlsx
-rp-xlsx sheets rename  report.xlsx --from Old --to New -o renamed.xlsx
 rp-xlsx sheets reorder report.xlsx --order 3,1,2 -o reordered.xlsx
 ```
 
@@ -86,13 +85,18 @@ be a complete permutation of the workbook's sheets; anything else is an error
 naming what is missing, duplicated, or out of range, and `sheets delete`
 refuses to leave zero visible sheets.
 
-**`sheets rename` refuses rather than rename when anything still refers to the
-sheet being renamed.** openpyxl does not rewrite sheet-qualified references
-(`=Data!A1`, a defined name's `'Data'!$A$1`, a chart series, a
-conditional-formatting rule, a data-validation rule) when a worksheet's title
-changes, so proceeding anyway would leave those references pointed at a sheet
-that no longer exists — success that is actually silent data corruption.
-Update or remove the referencing formulas/rules first, then rename.
+**`sheets rename` is temporarily disabled** and always fails with exit code 1.
+openpyxl does not rewrite sheet-qualified references (`=Data!A1`, a defined
+name's `'Data'!$A$1`, a chart series, a conditional-formatting rule, a
+data-validation rule, a cell hyperlink, a table's calculated-column formula)
+when a worksheet's title changes, so a rename can leave those references
+pointed at a sheet that no longer exists — success that is actually silent
+data corruption. A reference-detection guard was built and repeatedly
+extended across several review rounds, and each round found another
+reference-bearing structure it had missed; rather than keep shipping a scan
+with an open-ended list of gaps, the command is refused unconditionally
+until a structurally complete solution replaces it (tracked in
+`docs/specs/rp-xlsx-spec.md`'s Sheets section).
 
 `replace` rewrites cell values and header/footer text, and **skips formulas by
 default** — a replacement landing inside `=SUM(Revenue!A1:A9)` would otherwise
