@@ -225,3 +225,114 @@ def empty_workbook(tmp_path) -> Path:
     path = tmp_path / "empty.xlsx"
     openpyxl.Workbook().save(path)
     return path
+
+
+# --- the three synthetic templates (spec section 11.2) -----------------------
+#
+# Adversarial, not realistic -- the same doctrine rp-docx and rp-pptx use for
+# their own trio. No real house template ever enters this repository (spec
+# section 5.2); these exist purely to exercise resolution, inspection,
+# manifest building, and synthesis.
+
+
+@pytest.fixture
+def minimal_template(tmp_path) -> Path:
+    """One sheet, a header row, no placeholders, `.xlsx`. The happy path and
+    the no-template path."""
+    path = tmp_path / "minimal.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    ws.append(["Name", "Amount"])
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def house_like_template(tmp_path) -> Path:
+    """`.xltx`; three sheets -- one hidden and named "2" (section 4's
+    disambiguation case), one with a space and a non-ASCII character in its
+    name; a header row; per-column number formats including a percentage
+    and a date; frozen panes; a defined name; an Excel table; `{{ }}`
+    placeholders in a title block; an image on the first sheet.
+
+    The table's own header row is deliberately made to coincide with the
+    sheet's first used row (rather than sitting under a separate title
+    block), and the title-block placeholders sit in a single dense column
+    below the table. openpyxl does not round-trip an empty-string cell value
+    (verified: it comes back ``None`` after a save/reload, unlike every
+    other value including a bare space), so any layout that leaves a *gap*
+    inside a manifest's header row cannot be reconstructed byte-for-byte by
+    ``synthesize()``. Keeping the header row itself gap-free sidesteps that
+    openpyxl limitation rather than fighting it.
+    """
+    path = tmp_path / "house_like.xltx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Report"
+    ws.append(["Item", "Amount", "Share", "Due"])
+    ws.append(["Alpha", 100, 0.5, datetime(2024, 5, 1)])
+    ws.append(["Beta", 200, 0.75, datetime(2024, 6, 1)])
+    ws["C2"].number_format = "0.00%"
+    ws["C3"].number_format = "0.00%"
+    ws["D2"].number_format = "yyyy-mm-dd"
+    ws["D3"].number_format = "yyyy-mm-dd"
+    ws.freeze_panes = "A2"
+    table = Table(displayName="LineItems", ref="A1:D3")
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium9", showRowStripes=True)
+    ws.add_table(table)
+    ws["A5"] = "Client: {{ client.name }}"
+    ws["A6"] = "Date: {{ report.date }}"
+    buf = io.BytesIO()
+    PILImage.new("RGB", (8, 8), color="green").save(buf, format="PNG")
+    buf.seek(0)
+    ws.add_image(Image(buf), "F1")
+    wb.defined_names["ReportTitle"] = openpyxl.workbook.defined_name.DefinedName(
+        "ReportTitle", attr_text="Report!$A$1"
+    )
+
+    hidden = wb.create_sheet("2")
+    hidden.sheet_state = "hidden"
+    hidden["A1"] = "internal"
+
+    unicode_sheet = wb.create_sheet("Résumé Data")
+    unicode_sheet["A1"] = "Header"
+
+    wb.template = True
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def hostile_template(tmp_path) -> Path:
+    """A sheet whose name is exactly 31 characters; a cell whose value
+    begins with `=` but is stored as text; a merged block; a formula with
+    no cached value; a column of mixed types; a format-only cell at row
+    5000 (the phantom-dimension case); a placeholder split by nothing but
+    adjacent to another placeholder key that is a prefix of it
+    (`{{ client }}` next to `{{ client.name }}` -- the longest-first rule)."""
+    path = tmp_path / "hostile.xlsx"
+    long_name = "x" * 31
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = long_name
+    ws["A1"] = "Name"
+    ws["B1"] = "Value"
+    ws["A2"] = "literal-equals"
+    literal_cell = ws["B2"]
+    literal_cell.value = "=NOTAFORMULA"
+    literal_cell.data_type = "s"
+    ws["A3"] = "formula"
+    ws["B3"] = "=SUM(C1:C2)"
+    ws["A4"] = "mixed"
+    ws["B4"] = 42
+    ws["A5"] = "mixed"
+    ws["B5"] = "not a number"
+    ws.merge_cells("A6:B6")
+    ws["A6"] = "merged block"
+    ws["A8"] = "{{ client }} and {{ client.name }} adjacent"
+    ws["E5000"].fill = openpyxl.styles.PatternFill(
+        start_color="FFFF00", end_color="FFFF00", fill_type="solid"
+    )
+    wb.save(path)
+    return path
