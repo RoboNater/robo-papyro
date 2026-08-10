@@ -8,7 +8,9 @@ sheet-name validation on the way in.
 
 from __future__ import annotations
 
+import openpyxl
 import pytest
+from openpyxl.workbook.defined_name import DefinedName
 
 from rp_core.errors import InputError
 from rp_xlsx.errors import LossyEditError
@@ -162,6 +164,74 @@ class TestRenameSheet:
             sheets.rename_sheet(
                 three_sheet_workbook, "Two", "Bad:Name", output=tmp_path / "out.xlsx"
             )
+
+    def test_refuses_when_a_formula_elsewhere_references_the_old_name(self, tmp_path):
+        """openpyxl does not rewrite `=Data!A1` when `Data` is renamed --
+        verified directly: after rename+save+reload the formula text is
+        still `=Data!A1` even though the sheet is now named something else.
+        A rename that proceeded anyway would silently leave the formula
+        pointed at a sheet that no longer exists."""
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        wb.active["A1"] = 42
+        summary = wb.create_sheet("Summary")
+        summary["A1"] = "=Data!A1"
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError, match="Data"):
+            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_refuses_when_a_defined_name_references_the_old_name(self, tmp_path):
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        wb.active["A1"] = 42
+        wb.create_sheet("Summary")
+        wb.defined_names["MyName"] = DefinedName("MyName", attr_text="'Data'!$A$1")
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError, match="MyName"):
+            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_refuses_on_a_quoted_reference_to_a_name_with_spaces_and_an_apostrophe(self, tmp_path):
+        """A sheet name containing a space or apostrophe can only be
+        referenced in quoted form (`'It''s Data'!A1`, apostrophe doubled
+        per Excel's own escaping -- verified against a real workbook), so
+        the bare-name check alone would miss it."""
+        wb = openpyxl.Workbook()
+        wb.active.title = "It's Data"
+        wb.active["A1"] = 42
+        summary = wb.create_sheet("Summary")
+        summary["A1"] = "='It''s Data'!A1"
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "It's Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_proceeds_when_nothing_references_the_old_name(self, tmp_path):
+        wb = openpyxl.Workbook()
+        wb.active.title = "Alone"
+        wb.create_sheet("Other")
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        result = sheets.rename_sheet(source, "Alone", "Renamed", output=tmp_path / "out.xlsx")
+        assert result.sheets == ["Renamed", "Other"]
+
+    def test_a_reference_to_a_different_sheet_does_not_block_the_rename(self, tmp_path):
+        """A formula referencing some *other* sheet must not false-positive
+        just because it happens to run near the renamed sheet's name."""
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        other = wb.create_sheet("Other")
+        other["A1"] = "=Other!B1"
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        result = sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+        assert result.sheets == ["Renamed", "Other"]
 
 
 class TestReorderSheets:

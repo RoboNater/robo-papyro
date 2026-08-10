@@ -439,6 +439,26 @@ workbook. openpyxl raises `ValueError` for the characters but only *warns* past
 31 characters (verified) — a warning is invisible to an agent, so this package
 raises.
 
+**Correction, post-implementation (PR review).** `rename_sheet` refuses
+(`InputError`) rather than renames when a formula or a defined name
+(workbook- or sheet-scoped) sheet-qualifies a reference to `old`. openpyxl
+does not rewrite those references when a worksheet's title changes —
+verified directly: a workbook with `Summary!A1 = =Data!A1` and a defined
+name `'Data'!$A$1`, renamed `Data → Renamed` and reloaded, still contains
+`=Data!A1` and `'Data'!$A$1` even though the sheet is now called
+`Renamed`. A rename that proceeded anyway would report success while
+leaving references pointed at a sheet that no longer exists — this
+package's no-silent-wrong-output posture (§10) treats that as worse than
+refusing. Detection (`refs.sheet_reference_pattern`) matches both the
+quoted (`'Sheet Name'!`, internal `'` doubled per Excel's own escaping)
+and bare (`Sheet1!`) forms, case-insensitively, and covers ordinary cell
+formulas plus workbook- and sheet-scoped defined names; it does not scan
+chart series, conditional formatting, or data validation formulas
+(a documented gap, not a silent one). Reference *rewriting* — the
+alternative the original spec text implied — is not implemented; refusal
+was chosen deliberately over a partial rewrite that could miss some
+reference-bearing structure and look done when it wasn't.
+
 ### Tabular interchange (`rp_xlsx.xlsx.tabular`)
 
 ```python

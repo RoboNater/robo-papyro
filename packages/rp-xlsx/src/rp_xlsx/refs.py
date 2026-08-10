@@ -243,6 +243,32 @@ def validate_sheet_name(name: str, existing: list[str] = ()) -> None:
         )
 
 
+def sheet_reference_pattern(name: str) -> re.Pattern[str]:
+    """A compiled, case-insensitive pattern matching a sheet-qualified
+    reference to ``name`` in formula text or a defined name's ``attr_text``.
+
+    A formula can qualify a sheet reference two ways, and this matches
+    both: quoted (``'Sheet Name'!A1``, with any internal ``'`` doubled per
+    Excel's own escaping — verified against a real workbook) and bare
+    (``Sheet1!A1``). Matching is case-insensitive because Excel resolves a
+    sheet qualifier case-insensitively, same as sheet-name uniqueness
+    itself (:func:`validate_sheet_name`).
+
+    Deliberately over-inclusive: the bare form is reported even where Excel
+    would technically require the quoted form (``name`` contains a space,
+    say), and a match inside what happens to be a 3-D range
+    (``Sheet1:Sheet3!A1``) is still caught since nothing excludes a
+    preceding ``:``. A false positive here costs an explicit refusal to
+    rename; a false negative would silently ship a workbook with a
+    dangling reference — the whole reason this function exists.
+    """
+    quoted = "'" + name.replace("'", "''") + "'"
+    return re.compile(
+        r"(?:" + re.escape(quoted) + r"|(?<![A-Za-z0-9_.])" + re.escape(name) + r")!",
+        re.IGNORECASE,
+    )
+
+
 __all__ = [
     "A1Range",
     "CellPosition",
@@ -253,5 +279,6 @@ __all__ = [
     "parse_a1_range",
     "parse_cell_ref",
     "resolve_sheet_selection",
+    "sheet_reference_pattern",
     "validate_sheet_name",
 ]

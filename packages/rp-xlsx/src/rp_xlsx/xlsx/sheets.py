@@ -111,6 +111,36 @@ def delete_sheets(
         return _result(target, wb, report.at_risk)
 
 
+def _references_to_old_sheet(wb: Any, old: str) -> list[str]:
+    """Every formula or defined-name text that sheet-qualifies a reference
+    to ``old``, each rendered as a short description for an error message.
+
+    openpyxl does not rewrite these when a sheet's title changes (verified:
+    renaming ``Data`` to ``Renamed`` leaves ``=Data!A1`` and a defined name's
+    ``'Data'!$A$1`` untouched after save/reload) — a rename that proceeded
+    anyway would return success while leaving references pointed at a sheet
+    that no longer exists. Covers ordinary cell formulas and both
+    workbook- and sheet-scoped defined names; does not cover chart series,
+    conditional formatting, or data validation formulas, which openpyxl
+    also does not rewrite but which this function does not scan (a
+    documented gap, not a silent one — see the caller).
+    """
+    pattern = refs.sheet_reference_pattern(old)
+    found: list[str] = []
+    for ws in wb.worksheets:
+        for cell in ooxml.populated_cells(ws):
+            if cell.data_type == "f" and isinstance(cell.value, str) and pattern.search(cell.value):
+                found.append(f"formula {ws.title}!{cell.coordinate} = {cell.value}")
+    for name, dn in wb.defined_names.items():
+        if dn.attr_text and pattern.search(dn.attr_text):
+            found.append(f"defined name {name!r} = {dn.attr_text}")
+    for ws in wb.worksheets:
+        for name, dn in ws.defined_names.items():
+            if dn.attr_text and pattern.search(dn.attr_text):
+                found.append(f"defined name {name!r} (scoped to {ws.title!r}) = {dn.attr_text}")
+    return found
+
+
 def rename_sheet(
     path: Path,
     old: str,
@@ -119,6 +149,24 @@ def rename_sheet(
     output: Path | None = None,
     allow_lossy: bool = False,
 ) -> SheetOpResult:
+    """Rename sheet ``old`` to ``new``.
+
+    **Refuses rather than rename when a formula or defined name refers to
+    ``old`` by sheet-qualified reference.** openpyxl does not update those
+    references when a sheet's title changes, so a rename that proceeded
+    anyway would silently leave formulas and defined names pointed at a
+    sheet name that no longer exists — indistinguishable from success until
+    someone opens the file and finds ``#REF!``-shaped wrongness with no
+    error anywhere. This package has no reference-rewriting implementation
+    (rewriting every reference-bearing structure correctly — quoted and
+    unquoted forms, 3-D ranges, chart series, conditional formatting, data
+    validation — is real work, not a small patch), and shipping a partial
+    rewrite that silently missed some of those would be worse than
+    refusing: it would look done. Rename the sheet back to something
+    without any live references first (or accept the dangling references
+    knowingly and edit them by hand), or add reference rewriting to this
+    package before lifting this restriction.
+    """
     report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)
     with ooxml.opened(path) as wb:
@@ -127,6 +175,16 @@ def rename_sheet(
             raise InputError(f"No sheet named {old!r}. Available sheets: {available}")
         others = [name for name in wb.sheetnames if name != old]
         refs.validate_sheet_name(new, others)
+        references = _references_to_old_sheet(wb, old)
+        if references:
+            shown = "; ".join(references[:5])
+            more = f" (and {len(references) - 5} more)" if len(references) > 5 else ""
+            raise InputError(
+                f"Refusing to rename sheet {old!r}: openpyxl does not update sheet-qualified "
+                f"references when a sheet is renamed, and {len(references)} formula(s) or "
+                f"defined name(s) still refer to {old!r}: {shown}{more}. Update or remove "
+                "those references first, then rename."
+            )
         _rename_via_a_temporary_title(wb[old], wb, new)
         ooxml.save(wb, target)
         return _result(target, wb, report.at_risk)

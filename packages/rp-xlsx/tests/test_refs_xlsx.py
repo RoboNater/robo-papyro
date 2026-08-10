@@ -18,6 +18,7 @@ from rp_xlsx.refs import (
     parse_a1_range,
     parse_cell_ref,
     resolve_sheet_selection,
+    sheet_reference_pattern,
     validate_sheet_name,
 )
 
@@ -197,3 +198,32 @@ class TestValidateSheetName:
 
     def test_a_distinct_name_is_fine(self):
         validate_sheet_name("New", ["Data", "Other"])  # must not raise
+
+
+class TestSheetReferencePattern:
+    def test_matches_the_bare_form(self):
+        assert sheet_reference_pattern("Data").search("=Data!A1")
+
+    def test_matches_the_bare_form_case_insensitively(self):
+        assert sheet_reference_pattern("Data").search("=DATA!A1")
+
+    def test_does_not_match_a_longer_name_sharing_a_prefix(self):
+        assert not sheet_reference_pattern("Data").search("=Data2!A1")
+
+    def test_does_not_match_an_unrelated_sheet(self):
+        assert not sheet_reference_pattern("Data").search("=Other!B1")
+
+    def test_matches_the_quoted_form(self):
+        assert sheet_reference_pattern("My Sheet").search("='My Sheet'!A1")
+
+    def test_matches_the_quoted_form_with_a_doubled_apostrophe(self):
+        """Excel escapes an internal `'` as `''` inside the quoted sheet
+        name -- verified against a real workbook (`It's Data` renders as
+        `'It''s Data'!A1`)."""
+        assert sheet_reference_pattern("It's Data").search("='It''s Data'!A1")
+
+    def test_matches_inside_a_defined_name_attr_text(self):
+        assert sheet_reference_pattern("Data").search("'Data'!$A$1")
+
+    def test_matches_a_3d_range_endpoint(self):
+        assert sheet_reference_pattern("Sheet3").search("=SUM(Sheet1:Sheet3!A1)")
