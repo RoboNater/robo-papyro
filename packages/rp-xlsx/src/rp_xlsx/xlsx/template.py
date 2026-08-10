@@ -49,6 +49,7 @@ def fill_template(
     output: Path,
     *,
     strict: bool = True,
+    allow_lossy: bool = False,
 ) -> FillResult:
     """Fill ``template``'s placeholders from ``context``.
 
@@ -68,6 +69,15 @@ def fill_template(
     still leaves a half-filled workbook on disk is worse than no strict
     mode at all, because the next step in a pipeline cannot tell it apart
     from success.
+
+    **This opens and re-saves an existing workbook — the template — so
+    section 6's guard applies exactly as it does to every other edit of an
+    existing file.** Delegated to :func:`~rp_xlsx.xlsx.write.replace_text`,
+    which calls the guard and computes ``recalculation_required``/``dropped``
+    whether or not any placeholder actually matched (any save discards
+    cached formula values, not only one that changed text); ``allow_lossy``
+    is threaded straight through to it, and its result — not a fabricated
+    one — is what this function reports.
     """
     source = templates.resolve_template(template)
     if source is None:
@@ -91,11 +101,17 @@ def fill_template(
     replacements = {templates.placeholder_for(key): value for key, value in filled.items()}
     with tempfile.TemporaryDirectory(prefix="rp-xlsx-fill-") as tmp:
         staged = Path(tmp) / f"filled{output.suffix or '.xlsx'}"
-        replace_text(source, replacements, output=staged)
+        replace_result = replace_text(source, replacements, output=staged, allow_lossy=allow_lossy)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(staged.read_bytes())
 
-    return FillResult(output=output, filled=filled, unresolved=unresolved)
+    return FillResult(
+        output=output,
+        filled=filled,
+        unresolved=unresolved,
+        recalculation_required=replace_result.recalculation_required,
+        dropped=replace_result.dropped,
+    )
 
 
 __all__ = ["fill_template", "flatten"]

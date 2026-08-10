@@ -20,7 +20,7 @@ class TestToCsv:
                 SheetSpec(name="One", header=["A"], rows=[["x"]]),
                 SheetSpec(name="Two", header=["B"], rows=[["y"]]),
             ],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert {p.name for p in paths} == {"One.csv", "Two.csv"}
 
@@ -28,7 +28,7 @@ class TestToCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="Data", header=["Name", "Amount"], rows=[["a", 1]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         # Path.read_text() applies universal-newline translation, so \r\n on
         # disk (verified separately) normalizes to \n here -- this asserts
@@ -38,7 +38,7 @@ class TestToCsv:
     def test_writes_carriage_return_line_feed_on_disk(self, tmp_path):
         out = write.create(
             tmp_path / "src.xlsx", sheets=[SheetSpec(name="Data", header=["A"], rows=[["x"]])]
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert b"\r\n" in paths[0].read_bytes()
 
@@ -49,7 +49,7 @@ class TestToCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="Data", header=["A", "B"], rows=[["a", None]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv", sheets="1")
         assert paths[0].read_text() == "A,B\na,\n"
 
@@ -57,7 +57,7 @@ class TestToCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="Data", header=["A", "B"], rows=[["a", "b"]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv", delimiter="\t")
         assert paths[0].suffix == ".tsv"
         assert "a\tb" in paths[0].read_text()
@@ -66,7 +66,7 @@ class TestToCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="One", rows=[["x"]]), SheetSpec(name="Two", rows=[["y"]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv", sheets="1")
         assert len(paths) == 1
 
@@ -76,14 +76,14 @@ class TestToCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="Data", header=["When"], rows=[[datetime(2024, 5, 1, 12, 30)]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert "2024-05-01T12:30:00" in paths[0].read_text()
 
     def test_boolean_is_lowercase(self, tmp_path):
         out = write.create(
             tmp_path / "src.xlsx", sheets=[SheetSpec(name="Data", header=["Flag"], rows=[[True]])]
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert paths[0].read_text().splitlines()[1] == "true"
 
@@ -93,7 +93,7 @@ class TestToCsv:
         (": \\ / ? * [ ]") does not cover them."""
         out = write.create(
             tmp_path / "src.xlsx", sheets=[SheetSpec(name='Q1|Draft<2024>"', rows=[["x"]])]
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert len(paths) == 1
         for char in '<>:"|':
@@ -101,7 +101,9 @@ class TestToCsv:
         assert paths[0].is_file()
 
     def test_a_reserved_windows_device_name_gets_a_suffix(self, tmp_path):
-        out = write.create(tmp_path / "src.xlsx", sheets=[SheetSpec(name="CON", rows=[["x"]])])
+        out = write.create(
+            tmp_path / "src.xlsx", sheets=[SheetSpec(name="CON", rows=[["x"]])]
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert paths[0].stem.upper() != "CON"
 
@@ -115,10 +117,30 @@ class TestToCsv:
                 SheetSpec(name="Q1|A", header=["X"], rows=[["one"]]),
                 SheetSpec(name="Q1_A", header=["X"], rows=[["two"]]),
             ],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         assert len(paths) == 2
         assert len({p.name for p in paths}) == 2
+        contents = {p.read_text() for p in paths}
+        assert any("one" in c for c in contents)
+        assert any("two" in c for c in contents)
+
+    def test_sheets_that_sanitize_to_a_case_only_collision_stay_distinct_files(self, tmp_path):
+        """ "A<B" and "a_b" are distinct, valid Excel sheet names -- Excel's
+        own case-insensitive uniqueness does not merge them, since "a<b" and
+        "a_b" are different strings -- but both sanitize to stems that
+        differ only in case ("A_B", "a_b"), which collide on any normal
+        (case-insensitive) Windows or macOS filesystem."""
+        out = write.create(
+            tmp_path / "src.xlsx",
+            sheets=[
+                SheetSpec(name="A<B", header=["X"], rows=[["one"]]),
+                SheetSpec(name="a_b", header=["X"], rows=[["two"]]),
+            ],
+        ).output
+        paths = tabular.to_csv(out, tmp_path / "csv")
+        assert len(paths) == 2
+        assert len({p.name.casefold() for p in paths}) == 2
         contents = {p.read_text() for p in paths}
         assert any("one" in c for c in contents)
         assert any("two" in c for c in contents)
@@ -156,6 +178,32 @@ class TestSafeArtifactStems:
         the kind of surprise this function exists to avoid causing."""
         stems = tabular.safe_artifact_stems(["Report. "])
         assert next(iter(stems.values())) == "Report"
+
+    def test_collisions_are_detected_case_insensitively(self):
+        """Normal Windows and macOS filesystems are case-insensitive, so two
+        sheets that sanitize to stems differing only in case -- "A<B" ->
+        "A_B" and "a_b" (already safe) -- collide on disk even though they
+        are distinct strings to a case-sensitive comparison."""
+        stems = tabular.safe_artifact_stems(["A<B", "a_b"])
+        assert len(set(s.casefold() for s in stems.values())) == 2
+
+    def test_the_first_occurrence_keeps_its_casing_on_a_case_only_collision(self):
+        stems = tabular.safe_artifact_stems(["A<B", "a_b"])
+        assert stems["A<B"] == "A_B"
+
+    def test_a_reserved_device_name_followed_by_an_extension_is_still_caught(self):
+        """Windows reserves a device name up to the *first* dot, whatever
+        follows it -- "CON.txt" is exactly as reserved as "CON", including
+        when a caller appends its own extension on top ("CON.txt.csv")."""
+        stems = tabular.safe_artifact_stems(["CON.txt"])
+        stem = next(iter(stems.values()))
+        base = stem.split(".")[0]
+        assert base.upper() != "CON"
+
+    def test_a_reserved_device_name_with_extension_keeps_the_extension(self):
+        stems = tabular.safe_artifact_stems(["NUL.report"])
+        stem = next(iter(stems.values()))
+        assert stem.endswith(".report")
 
 
 class TestFromCsv:
@@ -236,10 +284,10 @@ class TestFromCsv:
         out = write.create(
             tmp_path / "src.xlsx",
             sheets=[SheetSpec(name="Data", header=["Name", "Amount"], rows=[["x", 5], ["y", 10]])],
-        )
+        ).output
         paths = tabular.to_csv(out, tmp_path / "csv")
         specs = tabular.from_csv(paths)
-        rebuilt = write.create(tmp_path / "rebuilt.xlsx", sheets=specs)
+        rebuilt = write.create(tmp_path / "rebuilt.xlsx", sheets=specs).output
         data = read.get_data(rebuilt, sheets="1")
         assert data[0].header == ["Name", "Amount"]
         assert data[0].rows == [["x", 5], ["y", 10]]
@@ -328,7 +376,7 @@ class TestFromMarkdown:
 | b | 2 |
 """
         specs = tabular.from_markdown(text)
-        out = write.create(tmp_path / "out.xlsx", sheets=specs)
+        out = write.create(tmp_path / "out.xlsx", sheets=specs).output
         data = read.get_data(out, sheets="1")
         assert data[0].header == ["Name", "Amount"]
         assert data[0].rows == [["a", 1], ["b", 2]]

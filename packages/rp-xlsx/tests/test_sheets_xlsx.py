@@ -25,7 +25,7 @@ def three_sheet_workbook(tmp_path):
             SheetSpec(name="Two", rows=[["2"]]),
             SheetSpec(name="Three", rows=[["3"]]),
         ],
-    )
+    ).output
 
 
 class TestAddSheet:
@@ -120,6 +120,40 @@ class TestRenameSheet:
     ):
         with pytest.raises(InputError):
             sheets.rename_sheet(three_sheet_workbook, "Two", "three", output=tmp_path / "out.xlsx")
+
+    def test_a_case_only_rename_of_the_same_sheet_succeeds_exactly(
+        self, three_sheet_workbook, tmp_path
+    ):
+        """openpyxl's own title setter runs its own case-insensitive
+        uniqueness check that does not exclude the sheet's own prior name,
+        so `ws.title = "two"` next to the sheet's own current title "Two"
+        would otherwise silently become "two1" instead of "two" -- verified
+        directly against openpyxl 3.1.5. The requested name must never
+        silently gain a numeric suffix."""
+        result = sheets.rename_sheet(
+            three_sheet_workbook, "Two", "two", output=tmp_path / "out.xlsx"
+        )
+        assert result.sheets == ["One", "two", "Three"]
+        assert "two1" not in result.sheets
+
+    def test_a_case_only_rename_works_even_when_the_scratch_title_is_taken(self, tmp_path):
+        """The scratch title itself must avoid colliding with a real sheet
+        name, case-insensitively -- a workbook that happens to have a sheet
+        literally named "~rename" must not make the rename pick the wrong
+        (already-occupied) scratch title."""
+        out = write.create(
+            tmp_path / "src.xlsx",
+            sheets=[
+                SheetSpec(name="Data", rows=[["x"]]),
+                SheetSpec(name="~rename", rows=[["y"]]),
+                SheetSpec(name="~Rename2", rows=[["z"]]),
+            ],
+        ).output
+        result = sheets.rename_sheet(out, "Data", "data", output=tmp_path / "out.xlsx")
+        assert "data" in result.sheets
+        assert "~rename" in result.sheets
+        assert "~Rename2" in result.sheets
+        assert len(result.sheets) == 3
 
     def test_renaming_to_a_forbidden_character_is_an_input_error(
         self, three_sheet_workbook, tmp_path

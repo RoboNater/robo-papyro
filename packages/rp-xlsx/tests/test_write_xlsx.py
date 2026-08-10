@@ -22,7 +22,7 @@ class TestCreate:
         out = write.create(
             tmp_path / "new.xlsx",
             sheets=[SheetSpec(name="Data", header=["Name", "Amount"], rows=[["a", 1], ["b", 2]])],
-        )
+        ).output
         data = read.get_data(out, sheets="1")
         assert data[0].header == ["Name", "Amount"]
         assert data[0].rows == [["a", 1], ["b", 2]]
@@ -31,7 +31,7 @@ class TestCreate:
         out = write.create(
             tmp_path / "styled.xlsx",
             sheets=[SheetSpec(name="Data", header=["A"], rows=[["x"]])],
-        )
+        ).output
         idx = read.get_index(out)
         assert idx.sheets[0].freeze_panes == "A2"
 
@@ -40,12 +40,12 @@ class TestCreate:
             tmp_path / "plain.xlsx",
             sheets=[SheetSpec(name="Data", header=["A"], rows=[["x"]])],
             header_style=False,
-        )
+        ).output
         idx = read.get_index(out)
         assert idx.sheets[0].freeze_panes is None
 
     def test_no_template_and_no_sheets_is_a_blank_workbook(self, tmp_path):
-        out = write.create(tmp_path / "blank.xlsx")
+        out = write.create(tmp_path / "blank.xlsx").output
         idx = read.get_index(out)
         assert idx.sheet_count == 1
 
@@ -56,7 +56,7 @@ class TestCreate:
                 SheetSpec(name="One", rows=[["x"]]),
                 SheetSpec(name="Two", rows=[["y"]]),
             ],
-        )
+        ).output
         idx = read.get_index(out)
         assert idx.sheets[0].name == "One"
         assert idx.sheets[1].name == "Two"
@@ -100,7 +100,7 @@ class TestCreate:
             tmp_path / "from-template.xlsx",
             sheets=[SheetSpec(name="NewSheet", rows=[["x"]])],
             template=template_workbook_path,
-        )
+        ).output
         idx = read.get_index(out)
         names = [s.name for s in idx.sheets]
         assert "NewSheet" in names
@@ -110,7 +110,7 @@ class TestCreate:
         out = write.create(
             tmp_path / "wide.xlsx",
             sheets=[SheetSpec(name="Data", header=["Short"], rows=[["a very long value indeed"]])],
-        )
+        ).output
         wb = openpyxl.load_workbook(out)
         width = wb["Data"].column_dimensions["A"].width
         assert width > 10
@@ -119,28 +119,58 @@ class TestCreate:
         out = write.create(
             tmp_path / "exact.xlsx",
             sheets=[SheetSpec(name="Data", rows=[["x"]], column_widths={"A": 42.0})],
-        )
+        ).output
         wb = openpyxl.load_workbook(out)
         assert wb["Data"].column_dimensions["A"].width == 42.0
 
 
+class TestCreateFidelityGuard:
+    """A template-backed create() opens and re-saves an existing workbook --
+    the template -- so section 6's guard applies to it exactly as it does
+    to every other function that opens one."""
+
+    def test_refuses_an_at_risk_template_without_allow_lossy(self, at_risk_workbook, tmp_path):
+        with pytest.raises(LossyEditError):
+            write.create(tmp_path / "out.xlsx", template=at_risk_workbook)
+
+    def test_allow_lossy_proceeds_and_reports_dropped(self, at_risk_workbook, tmp_path):
+        result = write.create(tmp_path / "out.xlsx", template=at_risk_workbook, allow_lossy=True)
+        assert result.dropped
+
+    def test_a_template_less_create_never_calls_the_guard(self, tmp_path):
+        """No existing workbook is opened, so nothing to be lossy about --
+        dropped is always empty and there is no LossyEditError to raise."""
+        result = write.create(tmp_path / "out.xlsx", sheets=[SheetSpec(name="Data", rows=[["x"]])])
+        assert result.dropped == []
+
+    def test_recalculation_required_reflects_the_template(self, cached_value_workbook, tmp_path):
+        result = write.create(tmp_path / "out.xlsx", template=cached_value_workbook)
+        assert result.recalculation_required is True
+
+    def test_cells_written_counts_the_new_sheets(self, tmp_path):
+        result = write.create(
+            tmp_path / "out.xlsx", sheets=[SheetSpec(name="Data", header=["A"], rows=[["x"]])]
+        )
+        assert result.cells_written == 2
+
+
 class TestFormulaAndLiteralEscape:
     def test_leading_equals_is_written_as_a_formula(self, tmp_path):
-        out = write.create(tmp_path / "f.xlsx", sheets=[SheetSpec(name="D", rows=[[1, 2]])])
+        out = write.create(tmp_path / "f.xlsx", sheets=[SheetSpec(name="D", rows=[[1, 2]])]).output
         result = write.set_cells(out, {"D": {"C1": "=A1+B1"}}, output=tmp_path / "f2.xlsx")
         assert result.cells_written == 1
         cells = {c.ref: c for c in read.get_cells(tmp_path / "f2.xlsx", sheets="1", empty=True)}
         assert cells["C1"].formula == "=A1+B1"
 
     def test_apostrophe_prefix_is_stored_as_literal_text(self, tmp_path):
-        out = write.create(tmp_path / "e.xlsx", sheets=[SheetSpec(name="D", rows=[[1]])])
+        out = write.create(tmp_path / "e.xlsx", sheets=[SheetSpec(name="D", rows=[[1]])]).output
         write.set_cells(out, {"D": {"B1": "'=notaformula"}}, output=tmp_path / "e2.xlsx")
         cells = {c.ref: c for c in read.get_cells(tmp_path / "e2.xlsx", sheets="1", empty=True)}
         assert cells["B1"].value == "=notaformula"
         assert cells["B1"].formula is None
 
     def test_apostrophe_prefix_survives_a_reload(self, tmp_path):
-        out = write.create(tmp_path / "e.xlsx", sheets=[SheetSpec(name="D", rows=[[1]])])
+        out = write.create(tmp_path / "e.xlsx", sheets=[SheetSpec(name="D", rows=[[1]])]).output
         write.set_cells(out, {"D": {"B1": "'plain text"}}, output=tmp_path / "e2.xlsx")
         cells = {c.ref: c for c in read.get_cells(tmp_path / "e2.xlsx", sheets="1", empty=True)}
         assert cells["B1"].value == "plain text"
@@ -151,7 +181,7 @@ class TestSetCells:
         out = write.create(
             tmp_path / "base.xlsx",
             sheets=[SheetSpec(name="A", rows=[[1]]), SheetSpec(name="B", rows=[[2]])],
-        )
+        ).output
         result = write.set_cells(
             out, {"A": {"B1": 10}, "B": {"B1": 20}}, output=tmp_path / "out.xlsx"
         )
@@ -161,17 +191,17 @@ class TestSetCells:
         assert data[1].rows[0] == [2, 20]
 
     def test_unknown_sheet_is_an_input_error(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])])
+        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])]).output
         with pytest.raises(InputError):
             write.set_cells(out, {"Nope": {"A1": 1}}, output=tmp_path / "out.xlsx")
 
     def test_output_required(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])])
+        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])]).output
         with pytest.raises(InputError):
             write.set_cells(out, {"A": {"A1": 1}})
 
     def test_does_not_overwrite_the_input_file(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])])
+        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])]).output
         before = out.read_bytes()
         write.set_cells(out, {"A": {"A1": 99}}, output=tmp_path / "changed.xlsx")
         assert out.read_bytes() == before
@@ -181,7 +211,7 @@ class TestAppendRows:
     def test_appends_after_the_last_used_row(self, tmp_path):
         out = write.create(
             tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", header=["H"], rows=[["r1"]])]
-        )
+        ).output
         result = write.append_rows(out, "A", [["r2"], ["r3"]], output=tmp_path / "out.xlsx")
         assert result.cells_written == 2
         data = read.get_data(tmp_path / "out.xlsx", header=False)
@@ -217,7 +247,7 @@ class TestAppendRows:
         assert data[0].rows[1][0] == "appended"
 
     def test_unknown_sheet_is_an_input_error(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])])
+        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[[1]])]).output
         with pytest.raises(InputError):
             write.append_rows(out, "Nope", [[1]], output=tmp_path / "out.xlsx")
 
@@ -226,19 +256,23 @@ class TestReplaceText:
     def test_replaces_matching_text(self, tmp_path):
         out = write.create(
             tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["hello world"]])]
-        )
+        ).output
         result = write.replace_text(out, {"world": "there"}, output=tmp_path / "out.xlsx")
         assert result.replacements == {"world": 1}
         data = read.get_data(tmp_path / "out.xlsx", header=False)
         assert data[0].rows == [["hello there"]]
 
     def test_unmatched_key_reports_zero(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["hi"]])])
+        out = write.create(
+            tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["hi"]])]
+        ).output
         result = write.replace_text(out, {"nope": "x"}, output=tmp_path / "out.xlsx")
         assert result.replacements == {"nope": 0}
 
     def test_does_not_touch_formulas_by_default(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="Revenue", rows=[[1]])])
+        out = write.create(
+            tmp_path / "base.xlsx", sheets=[SheetSpec(name="Revenue", rows=[[1]])]
+        ).output
         set_out = tmp_path / "with-formula.xlsx"
         write.set_cells(out, {"Revenue": {"A2": "=SUM(Revenue!A1:A1)"}}, output=set_out)
         write.replace_text(set_out, {"Revenue": "Sales"}, output=tmp_path / "out.xlsx")
@@ -246,7 +280,9 @@ class TestReplaceText:
         assert cells["A2"].formula == "=SUM(Revenue!A1:A1)"
 
     def test_include_formulas_touches_them_and_marks_the_location(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="Revenue", rows=[[1]])])
+        out = write.create(
+            tmp_path / "base.xlsx", sheets=[SheetSpec(name="Revenue", rows=[[1]])]
+        ).output
         set_out = tmp_path / "with-formula.xlsx"
         write.set_cells(out, {"Revenue": {"A2": "=SUM(Revenue!A1:A1)"}}, output=set_out)
         result = write.replace_text(
@@ -257,7 +293,9 @@ class TestReplaceText:
         assert "Revenue!A2" in result.locations
 
     def test_case_insensitive_replace(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["Hello"]])])
+        out = write.create(
+            tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["Hello"]])]
+        ).output
         result = write.replace_text(
             out, {"hello": "hi"}, match_case=False, output=tmp_path / "out.xlsx"
         )
@@ -266,7 +304,9 @@ class TestReplaceText:
         assert data[0].rows == [["hi"]]
 
     def test_case_sensitive_by_default_does_not_match(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["Hello"]])])
+        out = write.create(
+            tmp_path / "base.xlsx", sheets=[SheetSpec(name="A", rows=[["Hello"]])]
+        ).output
         result = write.replace_text(out, {"hello": "hi"}, output=tmp_path / "out.xlsx")
         assert result.replacements == {"hello": 0}
 
@@ -285,14 +325,14 @@ class TestReplaceText:
         out = write.create(
             tmp_path / "base.xlsx",
             sheets=[SheetSpec(name="A", rows=[["x"]]), SheetSpec(name="B", rows=[["x"]])],
-        )
+        ).output
         result = write.replace_text(out, {"x": "y"}, sheets="1", output=tmp_path / "out.xlsx")
         assert result.replacements == {"x": 1}
 
 
 class TestSetProperties:
     def test_sets_and_reads_back(self, tmp_path):
-        out = write.create(tmp_path / "base.xlsx")
+        out = write.create(tmp_path / "base.xlsx").output
         result = write.set_properties(
             out, CoreProperties(title="Q1 Report", author="Ada"), output=tmp_path / "out.xlsx"
         )
@@ -304,7 +344,7 @@ class TestSetProperties:
         """openpyxl's created/modified are non-nullable on save -- a caller
         setting only title must not crash by blanking them, and must not
         clear the pre-existing author either."""
-        out = write.create(tmp_path / "base.xlsx")
+        out = write.create(tmp_path / "base.xlsx").output
         write.set_properties(out, CoreProperties(author="Ada"), output=tmp_path / "step1.xlsx")
         result = write.set_properties(
             tmp_path / "step1.xlsx", CoreProperties(title="Later"), output=tmp_path / "step2.xlsx"

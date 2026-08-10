@@ -70,9 +70,11 @@ class TestSurface:
         assert "1-based" in description
 
     def test_allow_lossy_is_on_every_write_tool(self, writable, mcp):
-        """Section 6: rp-xlsx exposes ``allow_lossy`` on every write tool, not
-        just edits of an existing workbook -- unlike its own CLI."""
-        for name in sorted(WRITE_TOOLS - {"xlsx_create", "xlsx_fill_template"}):
+        """Section 6: every write tool that can open an existing workbook
+        exposes ``allow_lossy`` -- including ``xlsx_create`` (only relevant
+        with ``template_name``) and ``xlsx_fill_template`` (always opens the
+        resolved template)."""
+        for name in sorted(WRITE_TOOLS):
             assert "allow_lossy" in mcp.schema(writable, name)["properties"], name
 
 
@@ -122,6 +124,32 @@ class TestWrites:
         (outbox / "book.xlsx").write_bytes(b"already here")
         result = mcp.call(writable, "xlsx_create", {"output": "book.xlsx"})
         assert mcp.error_type(result) == "OutputExistsError"
+
+    def test_create_from_an_at_risk_template_is_refused_without_allow_lossy(
+        self, writable, xlsx_at_risk: Path, mcp
+    ):
+        result = mcp.call(
+            writable,
+            "xlsx_create",
+            {"output": "book.xlsx", "template_name": str(xlsx_at_risk)},
+        )
+        assert mcp.error_type(result) == "LossyEditError"
+
+    def test_create_from_an_at_risk_template_reports_dropped_with_allow_lossy(
+        self, writable, xlsx_at_risk: Path, mcp
+    ):
+        result = mcp.structured(
+            mcp.call(
+                writable,
+                "xlsx_create",
+                {
+                    "output": "book.xlsx",
+                    "template_name": str(xlsx_at_risk),
+                    "allow_lossy": True,
+                },
+            )
+        )
+        assert result["dropped"]
 
     def test_set_cells_writes_a_new_file_and_leaves_the_input_alone(
         self, writable, sample_xlsx: Path, outbox: Path, mcp
@@ -227,6 +255,33 @@ class TestWrites:
         data = get_data(outbox / "filled.xlsx", header=False)
         text = "\n".join(str(cell) for row in data[0].rows for cell in row)
         assert "Acme" in text
+
+    def test_fill_template_from_an_at_risk_template_is_refused_without_allow_lossy(
+        self, writable, xlsx_at_risk: Path, mcp
+    ):
+        result = mcp.call(
+            writable,
+            "xlsx_fill_template",
+            {"template_name": str(xlsx_at_risk), "context": {}, "output": "filled.xlsx"},
+        )
+        assert mcp.error_type(result) == "LossyEditError"
+
+    def test_fill_template_from_an_at_risk_template_reports_dropped_with_allow_lossy(
+        self, writable, xlsx_at_risk: Path, mcp
+    ):
+        result = mcp.structured(
+            mcp.call(
+                writable,
+                "xlsx_fill_template",
+                {
+                    "template_name": str(xlsx_at_risk),
+                    "context": {},
+                    "output": "filled.xlsx",
+                    "allow_lossy": True,
+                },
+            )
+        )
+        assert result["dropped"]
 
     def test_ranged_extraction_accumulates_in_one_directory(
         self, writable, xlsx_with_images: Path, outbox: Path, mcp

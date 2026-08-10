@@ -164,6 +164,25 @@ class TestExitCodes:
         )
         assert result.exit_code == 3
 
+    def test_create_from_an_at_risk_template_exits_three(self, at_risk_workbook, tmp_path):
+        """create --template opens and re-saves the template -- an existing
+        workbook -- so it is bound by section 6's guard exactly like set."""
+        result = run("create", "-o", tmp_path / "o.xlsx", "--template", at_risk_workbook)
+        assert result.exit_code == 3
+
+    def test_create_from_an_at_risk_template_with_allow_lossy_succeeds(
+        self, at_risk_workbook, tmp_path
+    ):
+        result = run(
+            "create", "-o", tmp_path / "o.xlsx", "--template", at_risk_workbook, "--allow-lossy"
+        )
+        assert result.exit_code == 0
+        assert payload(result)["dropped"]
+
+    def test_template_fill_from_an_at_risk_template_exits_three(self, at_risk_workbook, tmp_path):
+        result = run("template", at_risk_workbook, "--context", "{}", "-o", tmp_path / "o.xlsx")
+        assert result.exit_code == 3
+
     def test_the_error_envelope_is_on_stderr_with_the_exit_code(self, tmp_path):
         broken = tmp_path / "fake.xlsx"
         broken.write_text("not a zip", encoding="utf-8")

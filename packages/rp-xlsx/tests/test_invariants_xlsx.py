@@ -107,18 +107,15 @@ def test_markdown_has_no_plain_flag():
             assert "plain" not in command.callback.__annotations__
 
 
-def test_allow_lossy_is_absent_from_create_and_template():
-    """spec section 10: ``--allow-lossy`` appears on every command that
-    writes to an *existing* workbook, and nowhere else -- ``create`` and
-    ``template`` never open one."""
-    for command in app.registered_commands:
-        name = command.name or command.callback.__name__.replace("_", "-")
-        if name in {"create", "template"}:
-            assert "allow_lossy" not in command.callback.__annotations__, name
-
-
-def test_allow_lossy_is_present_on_every_edit_command():
-    edits = {"set", "append", "replace"}
+def test_allow_lossy_is_present_on_every_command_that_can_open_an_existing_workbook():
+    """spec section 6: every function that opens and re-saves an existing
+    workbook goes through the guard, and every command reaching such a
+    function exposes ``--allow-lossy`` to override it. ``create`` and
+    ``template`` are not exceptions -- ``create --template`` opens and
+    re-saves the template, and ``template`` always opens the one it fills;
+    only a template-*less* ``create`` opens nothing existing, and the flag
+    is still present there because the same command handles both cases."""
+    edits = {"create", "set", "append", "replace", "template"}
     for command in app.registered_commands:
         name = command.name or command.callback.__name__.replace("_", "-")
         if name in edits:

@@ -9,9 +9,10 @@ Conventions, all inherited from ``rp_core.clikit`` rather than restated here:
   unreadable or unsupported file — including ``LossyEditError`` (spec section 6).
 * **Never overwrite an input file** without ``--in-place``. Every editing command
   insists on ``-o`` or ``--in-place`` and says so rather than guessing.
-* ``--allow-lossy`` appears on every command that writes to an existing
-  workbook, and nowhere else — never on ``create`` or ``template``, which
-  never open one.
+* ``--allow-lossy`` appears on every command that opens and re-saves an
+  existing workbook, section 6's guard applying uniformly whether that
+  workbook is the file being edited or, for ``create --template``/
+  ``template``, the template being built from or filled.
 
 Options are options and arguments are arguments: a typer parameter without a
 default silently becomes a positional argument instead, so each one is
@@ -407,9 +408,16 @@ def create(
     no_header_style: Annotated[
         bool, typer.Option("--no-header-style", help="Skip the bold header row and freeze")
     ] = False,
+    allow_lossy: AllowLossyOpt = False,
     plain: clikit.plain_option = False,
 ) -> None:
-    """Create a workbook, from CSV/JSON/markdown sources and/or a template."""
+    """Create a workbook, from CSV/JSON/markdown sources and/or a template.
+
+    ``--allow-lossy`` only matters with ``--template``: that path opens and
+    re-saves the template, an existing workbook, so section 6's guard
+    applies to it exactly as it does to every editing command. Without a
+    template there is nothing existing to guard.
+    """
     with _errors():
         sheets: list[SheetSpec] = []
         if from_csv:
@@ -418,10 +426,14 @@ def create(
             sheets.extend(tabular_module.from_json(from_json))
         if from_markdown:
             sheets.extend(tabular_module.from_markdown(from_markdown))
-        written = write.create(
-            out, sheets=sheets or None, template=template, header_style=not no_header_style
+        result = write.create(
+            out,
+            sheets=sheets or None,
+            template=template,
+            header_style=not no_header_style,
+            allow_lossy=allow_lossy,
         )
-        clikit.emit(FileWritten(output=written), plain)
+        clikit.emit(result, plain)
 
 
 @app.command(name="set")
@@ -522,13 +534,22 @@ def template(
         bool,
         typer.Option("--strict/--no-strict", help="Fail when a placeholder is unresolved"),
     ] = True,
+    allow_lossy: AllowLossyOpt = False,
     plain: clikit.plain_option = False,
 ) -> None:
-    """Fill a template's {{ placeholders }} from a JSON context."""
+    """Fill a template's {{ placeholders }} from a JSON context.
+
+    This opens and re-saves the resolved template, an existing workbook, so
+    section 6's guard applies exactly as it does to every editing command.
+    """
     with _errors():
         clikit.emit(
             template_module.fill_template(
-                template_name, _json_object(context, what="--context"), out, strict=strict
+                template_name,
+                _json_object(context, what="--context"),
+                out,
+                strict=strict,
+                allow_lossy=allow_lossy,
             ),
             plain,
         )

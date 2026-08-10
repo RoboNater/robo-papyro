@@ -183,6 +183,8 @@ class FillResult(BaseModel):
     output: Path
     filled: dict[str, str]
     unresolved: list[str]
+    recalculation_required: bool  # the template had formulas whose cached values are now gone
+    dropped: list[AtRiskPart]  # non-empty only when allow_lossy let a write through
 
 
 class FileWritten(BaseModel):

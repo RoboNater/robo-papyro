@@ -46,10 +46,12 @@ _NUMBER_RE = re.compile(r"^-?(0|[1-9]\d*)(\.\d+)?([eE][-+]?\d+)?$")
 #: to export on Windows.
 _WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"/\\|?*')
 
-#: Windows' reserved device names, matched case-insensitively against the
-#: filename *stem* regardless of extension (`CON.csv` is just as reserved as
-#: `CON`) — verified against Windows' own documented list, not a filesystem
-#: probe, since this package develops and tests on Linux/macOS.
+#: Windows' reserved device names. Reserved *before the first dot*, whatever
+#: follows it — Windows' own documentation calls out ``NUL.txt`` explicitly,
+#: and the rule applies regardless of how many further extensions a caller
+#: appends on top (``CON.txt.csv`` is exactly as reserved as ``CON``) —
+#: verified against Windows' own documented list, not a filesystem probe,
+#: since this package develops and tests on Linux/macOS.
 _WINDOWS_RESERVED_STEMS = frozenset(
     {"CON", "PRN", "AUX", "NUL"}
     | {f"COM{i}" for i in range(1, 10)}
@@ -62,14 +64,24 @@ def safe_artifact_stems(names: list[str]) -> dict[str, str]:
 
     Every character Windows forbids in a filename is replaced with ``_``, a
     trailing dot or space (also forbidden) is stripped, and a Windows-reserved
-    device name gets a trailing ``_``. Two sheet names that sanitize to the
-    same stem — ``"Q1|A"`` and ``"Q1_A"``, say — would otherwise silently
-    overwrite one another; the second and later collisions instead get a
-    ``-2``, ``-3``, ... suffix, keeping every sheet's artifact distinct.
-    Order matters only for which colliding name keeps the bare stem — the
-    first occurrence wins, matching the order ``names`` was given in.
+    device name gets an ``_`` inserted right after the reserved word — before
+    the first dot, not at the very end, because Windows reserves ``CON`` in
+    ``CON.txt`` too and ``"CON.txt" + "_"`` would leave the reserved part
+    untouched.
+
+    Two sheet names that sanitize to the same stem — ``"Q1|A"`` and
+    ``"Q1_A"``, say, or ``"A<B"`` and ``"a_b"`` — would otherwise silently
+    overwrite one another on a normal (case-*insensitive*) Windows or macOS
+    filesystem even though they are distinct strings; the second and later
+    collisions instead get a ``-2``, ``-3``, ... suffix, keeping every
+    sheet's artifact distinct. Collisions are detected case-insensitively
+    for the same reason, but the stem returned for the first occurrence
+    keeps its original casing — only the *comparison* folds case, not the
+    output. Order matters only for which colliding name keeps the bare
+    stem — the first occurrence wins, matching the order ``names`` was
+    given in.
     """
-    taken: set[str] = set()
+    taken: set[str] = set()  # casefolded, since the filesystem may be too
     result: dict[str, str] = {}
     for name in names:
         cleaned = "".join(
@@ -77,14 +89,15 @@ def safe_artifact_stems(names: list[str]) -> dict[str, str]:
         ).rstrip(" .")
         if not cleaned:
             cleaned = "sheet"
-        if cleaned.upper() in _WINDOWS_RESERVED_STEMS:
-            cleaned += "_"
+        base, dot, rest = cleaned.partition(".")
+        if base.upper() in _WINDOWS_RESERVED_STEMS:
+            cleaned = f"{base}_{dot}{rest}"
         stem = cleaned
         suffix = 2
-        while stem in taken:
+        while stem.casefold() in taken:
             stem = f"{cleaned}-{suffix}"
             suffix += 1
-        taken.add(stem)
+        taken.add(stem.casefold())
         result[name] = stem
     return result
 

@@ -270,16 +270,21 @@ class ReplaceResult(BaseModel):
     replacements: dict[str, int]    # key -> count; unmatched keys report 0
     locations: list[str]            # "Sheet1!B4", "header:Sheet1"
     recalculation_required: bool
+    dropped: list[AtRiskPart]       # non-empty only when allow_lossy let a write through
 
 class SheetOpResult(BaseModel):
     output: Path
     sheet_count: int                # after the operation
     sheets: list[str]               # names, in order, after the operation
+    recalculation_required: bool
+    dropped: list[AtRiskPart]
 
 class FillResult(BaseModel):
     output: Path
     filled: dict[str, str]
     unresolved: list[str]
+    recalculation_required: bool
+    dropped: list[AtRiskPart]
 
 class TemplateInfo(BaseModel):
     name: str
@@ -369,7 +374,7 @@ Every function that opens an existing workbook goes through §6's guard.
 ```python
 create(output: Path, *, sheets: list[SheetSpec] | None = None,
        template: str | Path | None = None,
-       header_style: bool = True) -> Path
+       header_style: bool = True, allow_lossy: bool = False) -> WriteResult
 
 set_cells(path: Path, updates: dict[str, dict[str, CellValue]], *,
           output: Path | None = None, allow_lossy: bool = False) -> WriteResult
@@ -384,8 +389,18 @@ replace_text(path: Path, replacements: dict[str, str], *,
              allow_lossy: bool = False) -> ReplaceResult
 
 set_properties(path: Path, props: CoreProperties, *,
-               output: Path | None = None, allow_lossy: bool = False) -> Path
+               output: Path | None = None, allow_lossy: bool = False) -> WriteResult
 ```
+
+**Correction, post-implementation (PR review).** `create`'s `template=` branch opens and
+re-saves an existing workbook — the template — so it goes through §6's guard exactly like
+every other function here, with `allow_lossy` to override it; a template-less `create` opens
+nothing existing, so the guard never fires on that path and `WriteResult.dropped` is always
+empty there. `create` and `set_properties` return `WriteResult` rather than the bare `Path`
+originally specified, so a caller (the CLI, the MCP tool) reports what the guard actually
+found instead of fabricating `recalculation_required`/`dropped`. `fill_template` (below)
+gained the same `allow_lossy` parameter and `FillResult` gained `recalculation_required`/
+`dropped`, for the same reason: it opens and re-saves the template it fills.
 
 `SheetSpec` is a small model — `name`, `rows`, optional `header`, optional
 `column_widths`, optional `freeze_header: bool` — so `create` has one input
@@ -454,7 +469,7 @@ inspect_template(path: Path) -> TemplateInfo
 build_manifest(path: Path) -> TemplateManifest
 synthesize(manifest: TemplateManifest, output: Path) -> Path
 fill_template(template: str | Path, context: dict, output: Path, *,
-              strict: bool = True) -> FillResult
+              strict: bool = True, allow_lossy: bool = False) -> FillResult
 ```
 
 **`resolve_template` returns `None` for `None` here, unlike its two siblings**,

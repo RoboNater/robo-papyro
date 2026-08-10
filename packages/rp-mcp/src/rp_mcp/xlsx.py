@@ -3,16 +3,16 @@
 Same shape as :mod:`rp_mcp.pptx`: reads always, writes only with a write root,
 and every write names a new output because there is no ``--in-place`` over MCP.
 
-**``allow_lossy`` is exposed on every write tool that opens an existing
-workbook**, unlike anywhere else in this package — an agent that cannot
-override rp-xlsx section 6's fidelity guard will retry the same failing call
-forever, and this is the tool's only way to opt in. ``xlsx_create`` and
-``xlsx_fill_template`` never open one, so they have no flag, matching the
-CLI's own ``create``/``template`` exemption. Every other write tool's
-docstring says what the flag actually does: a workbook a write touches loses
-every formula's cached value until a real spreadsheet application recomputes
-it, which is true whether or not ``allow_lossy`` was needed for anything else
-in that same file.
+**``allow_lossy`` is exposed on every write tool**, unlike anywhere else in
+this package — an agent that cannot override rp-xlsx section 6's fidelity
+guard will retry the same failing call forever, and this is the tool's only
+way to opt in. That includes ``xlsx_create`` (only when `template_name` is
+given — a template is an existing workbook this opens and re-saves, exactly
+like editing one directly) and ``xlsx_fill_template`` (which always opens an
+existing template). Every write tool's docstring says what the flag actually
+does: a workbook a write touches loses every formula's cached value until a
+real spreadsheet application recomputes it, which is true whether or not
+``allow_lossy`` was needed for anything else in that same file.
 """
 
 from __future__ import annotations
@@ -267,22 +267,26 @@ def register(server: MCPServer, sandbox: Sandbox) -> None:
         header_style: Annotated[
             bool, Field(description="Bold the header row and freeze it.")
         ] = True,
+        allow_lossy: AllowLossyArg = False,
     ) -> WriteResult:
         """Create a workbook, optionally starting from a template's shell.
 
         A resolved template's own sheets, styles, and defined names are kept;
         each entry in `sheets` becomes a freshly written sheet, replacing any
         template sheet of the same name outright.
+
+        `allow_lossy` only matters with `template_name`: that path opens and
+        re-saves an existing workbook, so section 6's guard applies to it
+        exactly as it does to every other write tool. With no template there
+        is nothing existing to guard.
         """
         specs = [SheetSpec.model_validate(item) for item in sheets] if sheets else None
-        written = write.create(
+        return write.create(
             sandbox.resolve_output(output),
             sheets=specs,
             template=sandboxed_template(sandbox, template_name),
             header_style=header_style,
-        )
-        return WriteResult(
-            output=written, cells_written=0, recalculation_required=False, dropped=[]
+            allow_lossy=allow_lossy,
         )
 
     @server.tool(name="xlsx_set_cells")
@@ -384,13 +388,20 @@ def register(server: MCPServer, sandbox: Sandbox) -> None:
         strict: Annotated[
             bool, Field(description="Fail when a placeholder in the template has no value.")
         ] = True,
+        allow_lossy: AllowLossyArg = False,
     ) -> FillResult:
-        """Fill a `{{ placeholder }}` workbook template and write the result."""
+        """Fill a `{{ placeholder }}` workbook template and write the result.
+
+        This opens and re-saves the resolved template, an existing workbook,
+        so section 6's guard applies exactly as it does to every other write
+        tool.
+        """
         return template_module.fill_template(
             sandboxed_template(sandbox, template_name),
             context,
             sandbox.resolve_output(output),
             strict=strict,
+            allow_lossy=allow_lossy,
         )
 
     @server.tool(name="xlsx_add_sheet")

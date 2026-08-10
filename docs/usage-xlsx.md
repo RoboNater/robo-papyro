@@ -135,8 +135,13 @@ edit against an *existing* workbook checks it first:
   what was lost. **The flag never makes the loss silent** — it opts into the
   loss, it does not hide it.
 
-`create` and `template` never open an existing workbook, so `--allow-lossy`
-does not appear on either — there is nothing at risk to opt into.
+`--allow-lossy` also appears on `create` and `template`, because each can
+open an existing workbook too: `create --template FILE` opens and re-saves
+the template before writing the new sheets into it, and `template` always
+opens the template it fills. A template-less `create` opens nothing
+existing, so the flag is a no-op there — there is nothing at risk to opt
+into — but the command still accepts it rather than refusing it
+conditionally on whether `--template` was also given.
 
 Classic per-cell comments are read normally by `comments`. **Threaded
 comments are not read at all** — openpyxl only models classic comments, so a

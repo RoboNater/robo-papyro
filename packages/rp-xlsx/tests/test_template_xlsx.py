@@ -9,6 +9,7 @@ import openpyxl
 import pytest
 
 from rp_core.errors import InputError
+from rp_xlsx.errors import LossyEditError
 from rp_xlsx.xlsx import read
 from rp_xlsx.xlsx.template import fill_template, flatten
 
@@ -121,3 +122,32 @@ class TestFillTemplate:
         # assertion shape for any future placeholder-in-formula-adjacent-cell
         # regression: formulas, if present, come through untouched.
         assert all(c.formula is None for c in cells.values() if c.ref in ("A1", "B1"))
+
+
+class TestFillTemplateFidelityGuard:
+    """fill_template opens and re-saves the resolved template -- an existing
+    workbook -- so section 6's guard applies to it exactly as it does to
+    every other function that opens one, via the replace_text it delegates
+    to. `at_risk_workbook` is a plain, resolvable file; a template does not
+    need to be `.xltx`-typed for `resolve_template`'s path branch to accept
+    it."""
+
+    def test_refuses_without_allow_lossy(self, at_risk_workbook, tmp_path):
+        with pytest.raises(LossyEditError):
+            fill_template(at_risk_workbook, {}, tmp_path / "out.xlsx", strict=False)
+
+    def test_allow_lossy_proceeds_and_reports_dropped(self, at_risk_workbook, tmp_path):
+        result = fill_template(
+            at_risk_workbook, {}, tmp_path / "out.xlsx", strict=False, allow_lossy=True
+        )
+        assert result.dropped
+
+    def test_reports_dropped_even_with_no_placeholders_matched(self, at_risk_workbook, tmp_path):
+        """Any save of the template loses cached formula values and at-risk
+        parts, whether or not a placeholder actually substituted -- an empty
+        `filled`/`unresolved` result must not imply an empty `dropped`."""
+        result = fill_template(
+            at_risk_workbook, {}, tmp_path / "out.xlsx", strict=False, allow_lossy=True
+        )
+        assert result.filled == {}
+        assert result.dropped

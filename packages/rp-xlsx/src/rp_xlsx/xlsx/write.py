@@ -153,7 +153,8 @@ def create(
     sheets: list[SheetSpec] | None = None,
     template: str | Path | None = None,
     header_style: bool = True,
-) -> Path:
+    allow_lossy: bool = False,
+) -> WriteResult:
     """Build a new workbook, optionally starting from a template's shell.
 
     ``template=None`` starts from ``openpyxl.Workbook()`` — there is no
@@ -164,21 +165,43 @@ def create(
     rather than attempting a partial cell-by-cell overlay. Filling a
     template's own placeholder cells in place is ``fill_template``'s job
     (spec section 8), not this function's.
+
+    **A template-backed call opens and re-saves an existing workbook —
+    the template — so section 6's guard applies here too**, exactly as it
+    does to every other function in this module. A blank ``Workbook()``
+    call opens nothing existing, so it skips the guard entirely and
+    ``dropped`` is always empty on that path; there is nothing to be lossy
+    about.
     """
     output = Path(output)
     resolved = templates.resolve_template(template)
     if resolved is not None:
+        report = fidelity.guard(resolved, allow_lossy=allow_lossy)
         with ooxml.opened(resolved) as wb:
-            _populate_workbook(wb, sheets, header_style, replacing_default=False)
-            return ooxml.save(wb, output)
+            recalculation_required = ooxml.has_any_formula(wb)
+            cells_written = _populate_workbook(wb, sheets, header_style, replacing_default=False)
+            target = ooxml.save(wb, output)
+        return WriteResult(
+            output=target,
+            cells_written=cells_written,
+            recalculation_required=recalculation_required,
+            dropped=report.at_risk,
+        )
 
     # A blank ``Workbook()`` never carries macros, so a macro-enabled output
     # suffix here is refused by ``ooxml.save``'s own macro/non-macro check —
     # the same check that also covers a template-backed create against a
     # mismatched suffix, which a check only in this branch would have missed.
     wb = Workbook()
-    _populate_workbook(wb, sheets, header_style, replacing_default=True)
-    return ooxml.save(wb, output)
+    cells_written = _populate_workbook(wb, sheets, header_style, replacing_default=True)
+    recalculation_required = ooxml.has_any_formula(wb)
+    target = ooxml.save(wb, output)
+    return WriteResult(
+        output=target,
+        cells_written=cells_written,
+        recalculation_required=recalculation_required,
+        dropped=[],
+    )
 
 
 def set_cells(

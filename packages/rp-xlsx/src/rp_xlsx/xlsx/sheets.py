@@ -37,6 +37,31 @@ def _require_a_visible_sheet_remains(wb: Any, doomed: set[str]) -> None:
         )
 
 
+def _rename_via_a_temporary_title(ws: Any, wb: Any, new: str) -> None:
+    """Set ``ws.title = new``, routed through a scratch title first.
+
+    openpyxl's own title setter runs its *own* case-insensitive uniqueness
+    check against every current sheet name — including the sheet's own prior
+    title, which it does not exclude. On a case-only rename that means the
+    sheet being renamed always collides with itself: ``ws.title = "data"``
+    next to the sheet's own current title ``"Data"`` raises nothing and
+    instead silently becomes ``"data1"`` (verified against openpyxl 3.1.5),
+    even though :func:`~rp_xlsx.refs.validate_sheet_name` already confirmed
+    ``new`` is not taken by any *other* sheet. Assigning a scratch title
+    first removes the old title from the workbook before ``new`` is ever
+    checked, so the second assignment has nothing of the sheet's own to
+    collide with.
+    """
+    taken = {name.casefold() for name in wb.sheetnames}
+    scratch = "~rename"
+    suffix = 1
+    while scratch.casefold() in taken:
+        suffix += 1
+        scratch = f"~rename{suffix}"
+    ws.title = scratch
+    ws.title = new
+
+
 def add_sheet(
     path: Path,
     name: str,
@@ -102,7 +127,7 @@ def rename_sheet(
             raise InputError(f"No sheet named {old!r}. Available sheets: {available}")
         others = [name for name in wb.sheetnames if name != old]
         refs.validate_sheet_name(new, others)
-        wb[old].title = new
+        _rename_via_a_temporary_title(wb[old], wb, new)
         ooxml.save(wb, target)
         return _result(target, wb, report.at_risk)
 
