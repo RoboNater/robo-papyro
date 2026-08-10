@@ -1,11 +1,11 @@
 [project]
 name = "rp-mcp"
 version = "0.1.0"
-description = "MCP servers for the robo-papyro suite: rp-pdf, rp-docx, and rp-pptx over stdio"
+description = "MCP servers for the robo-papyro suite: rp-pdf, rp-docx, rp-pptx, and rp-xlsx over stdio"
 readme = "README.md"
 requires-python = ">=3.11"
 # The one distribution in the suite that imports the leaves. It is a consumer,
-# not a peer: nothing in rp-pdf/rp-docx/rp-pptx imports rp_mcp, so the
+# not a peer: nothing in rp-pdf/rp-docx/rp-pptx/rp-xlsx imports rp_mcp, so the
 # dependency direction stays one-way (parent spec §10).
 #
 # `mcp` is floored at 2.0 and capped below 3, deliberately. The server class was
@@ -21,10 +21,11 @@ dependencies = [
     "rp-docx",
     "rp-pdf",
     "rp-pptx",
+    "rp-xlsx",
     "typer>=0.26.8",
 ]
 
-# `rp-mcp` drives any of the three servers; the three per-package scripts are
+# `rp-mcp` drives any of the four servers; the four per-package scripts are
 # what an MCP client config names when it wants exactly one of them, and each
 # serves on bare invocation with no subcommand to remember.
 [project.scripts]
@@ -32,6 +33,7 @@ rp-mcp = "rp_mcp.cli:app"
 rp-pdf-mcp = "rp_mcp.cli:pdf_app"
 rp-docx-mcp = "rp_mcp.cli:docx_app"
 rp-pptx-mcp = "rp_mcp.cli:pptx_app"
+rp-xlsx-mcp = "rp_mcp.cli:xlsx_app"
 
 [project.entry-points."robo_papyro.commands"]
 mcp = "rp_mcp.cli:app"
@@ -41,6 +43,7 @@ rp-core = { workspace = true }
 rp-docx = { workspace = true }
 rp-pdf = { workspace = true }
 rp-pptx = { workspace = true }
+rp-xlsx = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -1393,6 +1393,7 @@ dependencies = [
     { name = "rp-docx" },
     { name = "rp-pdf" },
     { name = "rp-pptx" },
+    { name = "rp-xlsx" },
     { name = "typer" },
 ]
 
@@ -1404,6 +1405,7 @@ requires-dist = [
     { name = "rp-docx", editable = "packages/rp-docx" },
     { name = "rp-pdf", editable = "packages/rp-pdf" },
     { name = "rp-pptx", editable = "packages/rp-pptx" },
+    { name = "rp-xlsx", editable = "packages/rp-xlsx" },
     { name = "typer", specifier = ">=0.26.8" },
 ]
 

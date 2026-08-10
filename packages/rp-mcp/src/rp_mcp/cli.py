@@ -35,6 +35,7 @@ class Suite(str, enum.Enum):
     pdf = "pdf"
     docx = "docx"
     pptx = "pptx"
+    xlsx = "xlsx"
     all = "all"
 
 
@@ -99,7 +100,7 @@ def _summaries(suites: tuple[str, ...], sandbox: Sandbox) -> ServerInfo:
 app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
-    help="rp-mcp — MCP servers exposing rp-pdf, rp-docx, and rp-pptx to agents.",
+    help="rp-mcp — MCP servers exposing rp-pdf, rp-docx, rp-pptx, and rp-xlsx to agents.",
 )
 
 
@@ -159,6 +160,7 @@ def _suite_app(suite: str) -> typer.Typer:
 pdf_app = _suite_app("pdf")
 docx_app = _suite_app("docx")
 pptx_app = _suite_app("pptx")
+xlsx_app = _suite_app("xlsx")
 
 
-__all__ = ["app", "docx_app", "pdf_app", "pptx_app"]
+__all__ = ["app", "docx_app", "pdf_app", "pptx_app", "xlsx_app"]

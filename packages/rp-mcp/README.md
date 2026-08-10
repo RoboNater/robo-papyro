@@ -1,7 +1,8 @@
 # rp-mcp
 
 MCP servers exposing the [robo-papyro](../../README.md) suite to agents:
-`rp-pdf`, `rp-docx`, and `rp-pptx` as tools an MCP client can call, over stdio.
+`rp-pdf`, `rp-docx`, `rp-pptx`, and `rp-xlsx` as tools an MCP client can call,
+over stdio.
 
 Everything the tools do is a leaf package's work. This distribution supplies
 three things the leaves deliberately do not: the tool definitions, a **path
@@ -24,7 +25,7 @@ take the suite and get everything.
 ```sh
 uv sync                                   # in the workspace
 uv run rp-mcp tools --root .              # what a server would expose, as JSON
-uv run rp-mcp serve --root ~/documents    # all three servers, read-only, stdio
+uv run rp-mcp serve --root ~/documents    # all four servers, read-only, stdio
 ```
 
 One format at a time, which is what an MCP client config usually names:
@@ -33,6 +34,7 @@ One format at a time, which is what an MCP client config usually names:
 rp-pdf-mcp  --root ~/documents
 rp-docx-mcp --root ~/documents --write-root ~/documents/out
 rp-pptx-mcp --root ~/documents
+rp-xlsx-mcp --root ~/documents --write-root ~/documents/out
 ```
 
 A client config entry looks like this:
@@ -73,26 +75,31 @@ A client config entry looks like this:
 
 Read tools are always registered. Write tools (marked ✎) need a write root.
 
-| PDF | Word | PowerPoint |
-|---|---|---|
-| `pdf_index` | `docx_index` | `pptx_index` |
-| `pdf_text` | `docx_text` | `pptx_text` |
-| `pdf_tables` | `docx_tables` | `pptx_tables` |
-| `pdf_search` | `docx_markdown` | `pptx_markdown` |
-| `pdf_markdown` | `docx_images` | `pptx_images` |
-| `pdf_images` | `docx_comments` | `pptx_notes` |
-| | `docx_tracked_changes` | `pptx_charts` |
-| | `docx_properties` | `pptx_comments` |
-| | `docx_find_placeholders` | `pptx_properties` |
-| | `docx_list_templates` | `pptx_list_templates` |
-| | ✎ `docx_create` | ✎ `pptx_create` |
-| | ✎ `docx_append_markdown` | ✎ `pptx_append_markdown` |
-| | ✎ `docx_replace_text` | ✎ `pptx_replace_text` |
-| | ✎ `docx_fill_template` | ✎ `pptx_fill_template` |
-| | ✎ `docx_set_properties` | ✎ `pptx_set_properties` |
-| | ✎ `docx_accept_changes` | ✎ `pptx_set_notes` |
-| | ✎ `docx_reject_changes` | ✎ `pptx_delete_slides` |
-| | | ✎ `pptx_reorder_slides` |
+| PDF | Word | PowerPoint | Excel |
+|---|---|---|---|
+| `pdf_index` | `docx_index` | `pptx_index` | `xlsx_index` |
+| `pdf_text` | `docx_text` | `pptx_text` | `xlsx_data` |
+| `pdf_tables` | `docx_tables` | `pptx_tables` | `xlsx_cells` |
+| `pdf_search` | `docx_markdown` | `pptx_markdown` | `xlsx_formulas` |
+| `pdf_markdown` | `docx_images` | `pptx_images` | `xlsx_tables` |
+| `pdf_images` | `docx_comments` | `pptx_notes` | `xlsx_names` |
+| | `docx_tracked_changes` | `pptx_charts` | `xlsx_comments` |
+| | `docx_properties` | `pptx_comments` | `xlsx_images` |
+| | `docx_find_placeholders` | `pptx_properties` | `xlsx_charts` |
+| | `docx_list_templates` | `pptx_list_templates` | `xlsx_properties` |
+| | ✎ `docx_create` | ✎ `pptx_create` | `xlsx_markdown` |
+| | ✎ `docx_append_markdown` | ✎ `pptx_append_markdown` | `xlsx_fidelity` |
+| | ✎ `docx_replace_text` | ✎ `pptx_replace_text` | `xlsx_list_templates` |
+| | ✎ `docx_fill_template` | ✎ `pptx_fill_template` | ✎ `xlsx_create` |
+| | ✎ `docx_set_properties` | ✎ `pptx_set_properties` | ✎ `xlsx_set_cells` |
+| | ✎ `docx_accept_changes` | ✎ `pptx_set_notes` | ✎ `xlsx_append_rows` |
+| | ✎ `docx_reject_changes` | ✎ `pptx_delete_slides` | ✎ `xlsx_replace_text` |
+| | | ✎ `pptx_reorder_slides` | ✎ `xlsx_set_properties` |
+| | | | ✎ `xlsx_fill_template` |
+| | | | ✎ `xlsx_add_sheet` |
+| | | | ✎ `xlsx_delete_sheets` |
+| | | | ✎ `xlsx_rename_sheet` |
+| | | | ✎ `xlsx_reorder_sheets` |
 
 `rp_sandbox` is on every server. Arguments and defaults match the CLIs, so
 `--pages 3-7` and `{"pages": "3-7"}` mean the same thing.
@@ -125,8 +132,9 @@ server = build_server(Sandbox(roots=["/docs"], write_root="/docs/out"))
 server.run(transport="stdio")
 ```
 
-`build_pdf_server`, `build_docx_server`, and `build_pptx_server` build one
-suite each. **stdio is the only transport the CLI offers**; `MCPServer` can
+`build_pdf_server`, `build_docx_server`, `build_pptx_server`, and
+`build_xlsx_server` build one suite each. **stdio is the only transport the
+CLI offers**; `MCPServer` can
 serve SSE and streamable HTTP, and a caller who wants either should reach for
 `build_server` and bring an authentication story — a path allowlist is not one.
 

@@ -31,6 +31,7 @@ from reportlab.pdfgen import canvas as rl_canvas
 
 import rp_docx
 import rp_pptx
+import rp_xlsx
 from rp_mcp.sandbox import ROOTS_ENV, WRITE_ROOT_ENV, Sandbox
 
 PDF_PAGES = ["Alpha page one", "Beta page two", "Gamma page three"]
@@ -207,6 +208,62 @@ def docx_template(docs: Path) -> Path:
 def pptx_template(docs: Path) -> Path:
     path = docs / "engagement.pptx"
     rp_pptx.create(path, markdown="# {{ client_name }}\n\n## Terms\n\n- Dated {{ start_date }}\n")
+    return path
+
+
+@pytest.fixture
+def sample_xlsx(docs: Path) -> Path:
+    from rp_xlsx.models import SheetSpec
+
+    path = docs / "report.xlsx"
+    rp_xlsx.create(
+        path,
+        sheets=[
+            SheetSpec(
+                name="Data",
+                header=["Region", "Total"],
+                rows=[["North", 12], ["South", 8]],
+            )
+        ],
+    )
+    return path
+
+
+@pytest.fixture
+def xlsx_with_images(docs: Path, tmp_path: Path) -> Path:
+    """A four-sheet workbook with one picture per sheet.
+
+    The rp-xlsx counterpart of :func:`pptx_with_images`: images are numbered
+    across the whole workbook before the sheet filter is applied, so a second
+    range continues the numbering instead of restarting it.
+    """
+    import openpyxl
+    from openpyxl.drawing.image import Image as XlImage
+
+    photo = tmp_path / "photo.png"
+    PILImage.new("RGB", (32, 24), "blue").save(photo)
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for number in range(1, 5):
+        ws = wb.create_sheet(f"Sheet{number}")
+        ws["A1"] = f"sheet {number}"
+        ws.add_image(XlImage(str(photo)), "C1")
+    path = docs / "illustrated.xlsx"
+    wb.save(path)
+    return path
+
+
+@pytest.fixture
+def xlsx_template(docs: Path) -> Path:
+    import openpyxl
+
+    path = docs / "engagement.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Letter"
+    ws["A1"] = "Dear {{ client_name }},"
+    ws["A2"] = "We are pleased to confirm the engagement dated {{ start_date }}."
+    wb.save(path)
     return path
 
 

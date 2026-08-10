@@ -6,10 +6,11 @@ it may touch — which is how a read-only server accidentally grows write tools.
 :func:`build_server` takes the sandbox first and registers accordingly, so the
 capability set and the configuration cannot come apart.
 
-The tool names are prefixed by format (``pdf_``, ``docx_``, ``pptx_``) in every
-server, including the single-format ones. An agent that learns ``pdf_search``
-against ``rp-pdf-mcp`` calls the same tool through the combined server, and a
-client that connects to two of them has no name collisions to resolve.
+The tool names are prefixed by format (``pdf_``, ``docx_``, ``pptx_``, ``xlsx_``)
+in every server, including the single-format ones. An agent that learns
+``pdf_search`` against ``rp-pdf-mcp`` calls the same tool through the combined
+server, and a client that connects to two of them has no name collisions to
+resolve.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from mcp.server.mcpserver import MCPServer
 from rp_mcp import docx as docx_tools
 from rp_mcp import pdf as pdf_tools
 from rp_mcp import pptx as pptx_tools
+from rp_mcp import xlsx as xlsx_tools
 from rp_mcp.models import SandboxInfo
 from rp_mcp.sandbox import Sandbox
 
@@ -30,6 +32,7 @@ REGISTRARS = {
     "pdf": pdf_tools.register,
     "docx": docx_tools.register,
     "pptx": pptx_tools.register,
+    "xlsx": xlsx_tools.register,
 }
 
 #: Every suite, which is what a bare ``rp-mcp serve`` builds.
@@ -38,7 +41,7 @@ ALL_SUITES: tuple[str, ...] = tuple(REGISTRARS)
 __version__ = "0.1.0"
 
 _INSTRUCTIONS = """\
-Document tools for PDF, Word, and PowerPoint files, from the robo-papyro suite.
+Document tools for PDF, Word, PowerPoint, and Excel files, from the robo-papyro suite.
 
 Start with the `*_index` tool for the format you are looking at: it is cheap and
 tells you what the document contains, which is what the other tools' arguments
@@ -104,6 +107,11 @@ def build_pptx_server(sandbox: Sandbox) -> MCPServer:
     return build_server(sandbox, ("pptx",))
 
 
+def build_xlsx_server(sandbox: Sandbox) -> MCPServer:
+    """The `rp-xlsx-mcp` server."""
+    return build_server(sandbox, ("xlsx",))
+
+
 __all__ = [
     "ALL_SUITES",
     "REGISTRARS",
@@ -111,5 +119,6 @@ __all__ = [
     "build_pdf_server",
     "build_pptx_server",
     "build_server",
+    "build_xlsx_server",
     "server_name",
 ]
