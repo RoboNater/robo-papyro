@@ -111,32 +111,82 @@ def delete_sheets(
         return _result(target, wb, report.at_risk)
 
 
-def _references_to_old_sheet(wb: Any, old: str) -> list[str]:
-    """Every formula or defined-name text that sheet-qualifies a reference
-    to ``old``, each rendered as a short description for an error message.
+#: The same defensive-attribute-access exceptions ``xlsx/read.py``'s chart
+#: reading guards against (spec section 9): one exotic chart's shape must not
+#: sink a scan that exists purely to be conservative.
+_CHART_REF_ERRORS = (AttributeError, TypeError, ValueError, IndexError)
 
-    openpyxl does not rewrite these when a sheet's title changes (verified:
-    renaming ``Data`` to ``Renamed`` leaves ``=Data!A1`` and a defined name's
-    ``'Data'!$A$1`` untouched after save/reload) — a rename that proceeded
-    anyway would return success while leaving references pointed at a sheet
-    that no longer exists. Covers ordinary cell formulas and both
-    workbook- and sheet-scoped defined names; does not cover chart series,
-    conditional formatting, or data validation formulas, which openpyxl
-    also does not rewrite but which this function does not scan (a
-    documented gap, not a silent one — see the caller).
+
+def _chart_reference_texts(chart: Any) -> list[str]:
+    """Every cell-reference string a chart's series point at — never a
+    value, just the reference text a sheet rename could leave dangling.
+
+    Mirrors ``xlsx/read.py``'s ``_ref_of`` (kept separate rather than
+    imported, since that module's helpers are private to its own read
+    path): a series' value/category source holds its reference under
+    ``numRef.f`` or ``strRef.f`` depending on the data type.
     """
-    pattern = refs.sheet_reference_pattern(old)
+    texts: list[str] = []
+    try:
+        for series in getattr(chart, "series", []):
+            for axis in ("val", "cat"):
+                source = getattr(series, axis, None)
+                if source is None:
+                    continue
+                for ref_attr in ("numRef", "strRef"):
+                    sub = getattr(source, ref_attr, None)
+                    formula = getattr(sub, "f", None) if sub is not None else None
+                    if formula:
+                        texts.append(formula)
+    except _CHART_REF_ERRORS:
+        pass
+    return texts
+
+
+def _references_to_old_sheet(wb: Any, old: str) -> list[str]:
+    """Every formula, defined name, chart series, conditional-formatting
+    rule, or data-validation rule that sheet-qualifies a reference to
+    ``old``, each rendered as a short description for an error message.
+
+    openpyxl does not rewrite any of these when a sheet's title changes
+    (verified directly for each: a chart series ``val`` ref, a conditional
+    formatting rule's formula, and a data validation's ``formula1`` were all
+    still ``'Data'!...``/``Data!...`` after renaming ``Data`` and
+    save/reload) — a rename that proceeded anyway would return success while
+    leaving references pointed at a sheet that no longer exists. Every one
+    of these is already plain reference/formula text once openpyxl has
+    parsed the part (a series' ``numRef.f``, a rule's ``.formula`` entries, a
+    validation's ``.formula1``/``.formula2``), so the same
+    :func:`~rp_xlsx.refs.sheet_reference_matcher` that checks a cell formula
+    checks these too — no separate parser needed.
+    """
+    matches = refs.sheet_reference_matcher(old)
     found: list[str] = []
     for ws in wb.worksheets:
         for cell in ooxml.populated_cells(ws):
-            if cell.data_type == "f" and isinstance(cell.value, str) and pattern.search(cell.value):
+            if cell.data_type == "f" and isinstance(cell.value, str) and matches(cell.value):
                 found.append(f"formula {ws.title}!{cell.coordinate} = {cell.value}")
+        for chart in getattr(ws, "_charts", []):
+            for ref_text in _chart_reference_texts(chart):
+                if matches(ref_text):
+                    found.append(f"chart series on {ws.title!r} = {ref_text}")
+        for cf_range in ws.conditional_formatting:
+            for rule in cf_range.rules:
+                for formula in getattr(rule, "formula", None) or ():
+                    if isinstance(formula, str) and matches(formula):
+                        found.append(
+                            f"conditional formatting on {ws.title!r} {cf_range.sqref} = {formula}"
+                        )
+        for dv in ws.data_validations.dataValidation:
+            for formula in (dv.formula1, dv.formula2):
+                if formula and matches(formula):
+                    found.append(f"data validation on {ws.title!r} = {formula}")
     for name, dn in wb.defined_names.items():
-        if dn.attr_text and pattern.search(dn.attr_text):
+        if dn.attr_text and matches(dn.attr_text):
             found.append(f"defined name {name!r} = {dn.attr_text}")
     for ws in wb.worksheets:
         for name, dn in ws.defined_names.items():
-            if dn.attr_text and pattern.search(dn.attr_text):
+            if dn.attr_text and matches(dn.attr_text):
                 found.append(f"defined name {name!r} (scoped to {ws.title!r}) = {dn.attr_text}")
     return found
 
@@ -151,21 +201,21 @@ def rename_sheet(
 ) -> SheetOpResult:
     """Rename sheet ``old`` to ``new``.
 
-    **Refuses rather than rename when a formula or defined name refers to
-    ``old`` by sheet-qualified reference.** openpyxl does not update those
-    references when a sheet's title changes, so a rename that proceeded
-    anyway would silently leave formulas and defined names pointed at a
-    sheet name that no longer exists — indistinguishable from success until
-    someone opens the file and finds ``#REF!``-shaped wrongness with no
-    error anywhere. This package has no reference-rewriting implementation
-    (rewriting every reference-bearing structure correctly — quoted and
-    unquoted forms, 3-D ranges, chart series, conditional formatting, data
-    validation — is real work, not a small patch), and shipping a partial
-    rewrite that silently missed some of those would be worse than
-    refusing: it would look done. Rename the sheet back to something
-    without any live references first (or accept the dangling references
-    knowingly and edit them by hand), or add reference rewriting to this
-    package before lifting this restriction.
+    **Refuses rather than rename when anything sheet-qualifies a reference
+    to ``old``.** openpyxl does not update these references when a sheet's
+    title changes, so a rename that proceeded anyway would silently leave
+    them pointed at a sheet name that no longer exists — indistinguishable
+    from success until someone opens the file and finds ``#REF!``-shaped
+    wrongness with no error anywhere. Detection (:func:`_references_to_old_sheet`)
+    covers cell formulas, workbook- and sheet-scoped defined names, chart
+    series, conditional-formatting rules, and data-validation rules, in
+    both bare and quoted form and at either endpoint of a 3-D range. This
+    package has no reference-*rewriting* implementation — refusal was
+    chosen deliberately over a rewrite that could still miss some
+    reference-bearing structure and look done when it wasn't. Rename the
+    sheet back to something without any live references first (or accept
+    the dangling references knowingly and edit them by hand), or add
+    reference rewriting to this package before lifting this restriction.
     """
     report = fidelity.guard(path, allow_lossy=allow_lossy)
     target = ooxml.require_output(output)

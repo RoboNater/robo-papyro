@@ -86,14 +86,13 @@ be a complete permutation of the workbook's sheets; anything else is an error
 naming what is missing, duplicated, or out of range, and `sheets delete`
 refuses to leave zero visible sheets.
 
-**`sheets rename` refuses rather than rename when a formula or defined name
-still refers to the sheet being renamed.** openpyxl does not rewrite
-sheet-qualified references (`=Data!A1`, a defined name's `'Data'!$A$1`) when a
-worksheet's title changes, so proceeding anyway would leave those references
-pointed at a sheet that no longer exists — success that is actually silent
-data corruption. Update or remove the referencing formulas/defined names
-first, then rename. This does not scan chart series, conditional formatting,
-or data validation formulas, which openpyxl also leaves unrewritten.
+**`sheets rename` refuses rather than rename when anything still refers to the
+sheet being renamed.** openpyxl does not rewrite sheet-qualified references
+(`=Data!A1`, a defined name's `'Data'!$A$1`, a chart series, a
+conditional-formatting rule, a data-validation rule) when a worksheet's title
+changes, so proceeding anyway would leave those references pointed at a sheet
+that no longer exists — success that is actually silent data corruption.
+Update or remove the referencing formulas/rules first, then rename.
 
 `replace` rewrites cell values and header/footer text, and **skips formulas by
 default** — a replacement landing inside `=SUM(Revenue!A1:A9)` would otherwise

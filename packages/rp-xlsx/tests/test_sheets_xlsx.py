@@ -233,6 +233,68 @@ class TestRenameSheet:
         result = sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
         assert result.sheets == ["Renamed", "Other"]
 
+    def test_refuses_when_a_chart_series_references_the_old_name(self, tmp_path):
+        """openpyxl does not rewrite a chart series' `numRef.f` when the
+        sheet it points at is renamed -- verified directly."""
+        from openpyxl.chart import LineChart, Reference
+
+        wb = openpyxl.Workbook()
+        data = wb.active
+        data.title = "Data"
+        for row in range(1, 6):
+            data.cell(row=row, column=1, value=row)
+        summary = wb.create_sheet("Summary")
+        chart = LineChart()
+        chart.add_data(Reference(data, min_col=1, min_row=1, max_row=5))
+        summary.add_chart(chart, "C1")
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_refuses_when_a_conditional_formatting_rule_references_the_old_name(self, tmp_path):
+        from openpyxl.formatting.rule import FormulaRule
+
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        summary = wb.create_sheet("Summary")
+        summary.conditional_formatting.add("A1:A2", FormulaRule(formula=["Data!A1>0"]))
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_refuses_when_a_data_validation_references_the_old_name(self, tmp_path):
+        from openpyxl.worksheet.datavalidation import DataValidation
+
+        wb = openpyxl.Workbook()
+        wb.active.title = "Data"
+        summary = wb.create_sheet("Summary")
+        dv = DataValidation(type="list", formula1="'Data'!$A$1:$A$2")
+        summary.add_data_validation(dv)
+        dv.add("B1")
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "Data", "Renamed", output=tmp_path / "out.xlsx")
+
+    def test_refuses_on_the_first_endpoint_of_a_bare_3d_range(self, tmp_path):
+        """`=SUM(Sheet1:Sheet3!A1)` sheet-qualifies `Sheet1` too, even
+        though it sits before `:` rather than immediately before `!`."""
+        wb = openpyxl.Workbook()
+        wb.active.title = "Sheet1"
+        wb.create_sheet("Sheet2")
+        sheet3 = wb.create_sheet("Sheet3")
+        sheet3["A1"] = "=SUM(Sheet1:Sheet3!A1)"
+        source = tmp_path / "src.xlsx"
+        wb.save(source)
+
+        with pytest.raises(InputError):
+            sheets.rename_sheet(source, "Sheet1", "Renamed", output=tmp_path / "out.xlsx")
+
 
 class TestReorderSheets:
     def test_reorders(self, three_sheet_workbook, tmp_path):

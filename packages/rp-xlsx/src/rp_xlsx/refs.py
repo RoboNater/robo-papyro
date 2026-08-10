@@ -23,6 +23,7 @@ section 11.2's ``house_like`` fixture).
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from rp_core.errors import InputError
 from rp_core.ranges import parse_range_spec
@@ -243,30 +244,51 @@ def validate_sheet_name(name: str, existing: list[str] = ()) -> None:
         )
 
 
-def sheet_reference_pattern(name: str) -> re.Pattern[str]:
-    """A compiled, case-insensitive pattern matching a sheet-qualified
-    reference to ``name`` in formula text or a defined name's ``attr_text``.
+#: A quoted sheet qualifier, capturing its content unescaped: ``'Data'!`` or,
+#: for a 3-D range with quoting-requiring sheet names, ``'Sheet 1:Sheet 3'!``
+#: — Excel wraps *both* range endpoints in one pair of quotes rather than
+#: quoting each separately (verified against a real workbook). ``(?:[^']|'')*``
+#: is the standard doubled-quote-escape idiom: consume anything that is not a
+#: quote, or a doubled quote (Excel's escape for a literal ``'`` inside the
+#: name), stopping at the first quote not immediately followed by another.
+_QUOTED_SHEET_QUALIFIER_RE = re.compile(r"'((?:[^']|'')*)'!")
 
-    A formula can qualify a sheet reference two ways, and this matches
-    both: quoted (``'Sheet Name'!A1``, with any internal ``'`` doubled per
-    Excel's own escaping — verified against a real workbook) and bare
-    (``Sheet1!A1``). Matching is case-insensitive because Excel resolves a
+
+def sheet_reference_matcher(sheet_name: str) -> Callable[[str], bool]:
+    """A predicate: whether formula text or a defined name's ``attr_text``
+    sheet-qualifies a reference to ``sheet_name``.
+
+    Three spellings, all matched, all case-insensitive (Excel resolves a
     sheet qualifier case-insensitively, same as sheet-name uniqueness
-    itself (:func:`validate_sheet_name`).
+    itself — :func:`validate_sheet_name`):
 
-    Deliberately over-inclusive: the bare form is reported even where Excel
-    would technically require the quoted form (``name`` contains a space,
-    say), and a match inside what happens to be a 3-D range
-    (``Sheet1:Sheet3!A1``) is still caught since nothing excludes a
-    preceding ``:``. A false positive here costs an explicit refusal to
-    rename; a false negative would silently ship a workbook with a
-    dangling reference — the whole reason this function exists.
+    - **Bare**: ``Sheet1!A1``.
+    - **Quoted**: ``'Sheet Name'!A1``, internal ``'`` doubled.
+    - **3-D range, either endpoint**: ``Sheet1:Sheet3!A1`` (bare) or
+      ``'Sheet 1:Sheet 3'!A1`` (quoted, both endpoints inside one pair of
+      quotes) — matching only a name immediately before ``!`` would catch
+      the *second* endpoint of a bare 3-D range but silently miss the
+      first, since it sits before ``:`` instead (a real gap this function
+      closes: verified ``Sheet1:Sheet3!A1`` renaming ``Sheet1`` used to
+      pass undetected).
+
+    Deliberately over-inclusive rather than under: the bare check fires
+    even where Excel would technically require quoting, and a coincidental
+    match costs an explicit refusal to rename — a false negative would
+    silently ship a workbook with a dangling reference, which is the
+    entire reason this function exists.
     """
-    quoted = "'" + name.replace("'", "''") + "'"
-    return re.compile(
-        r"(?:" + re.escape(quoted) + r"|(?<![A-Za-z0-9_.])" + re.escape(name) + r")!",
-        re.IGNORECASE,
-    )
+    folded = sheet_name.casefold()
+    bare = re.compile(r"(?<![A-Za-z0-9_.])" + re.escape(sheet_name) + r"(?=[:!])", re.IGNORECASE)
+
+    def matches(text: str) -> bool:
+        for match in _QUOTED_SHEET_QUALIFIER_RE.finditer(text):
+            content = match.group(1).replace("''", "'")
+            if any(token.casefold() == folded for token in content.split(":")):
+                return True
+        return bool(bare.search(text))
+
+    return matches
 
 
 __all__ = [
@@ -279,6 +301,6 @@ __all__ = [
     "parse_a1_range",
     "parse_cell_ref",
     "resolve_sheet_selection",
-    "sheet_reference_pattern",
+    "sheet_reference_matcher",
     "validate_sheet_name",
 ]

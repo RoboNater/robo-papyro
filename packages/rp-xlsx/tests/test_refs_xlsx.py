@@ -18,7 +18,7 @@ from rp_xlsx.refs import (
     parse_a1_range,
     parse_cell_ref,
     resolve_sheet_selection,
-    sheet_reference_pattern,
+    sheet_reference_matcher,
     validate_sheet_name,
 )
 
@@ -200,30 +200,48 @@ class TestValidateSheetName:
         validate_sheet_name("New", ["Data", "Other"])  # must not raise
 
 
-class TestSheetReferencePattern:
+class TestSheetReferenceMatcher:
     def test_matches_the_bare_form(self):
-        assert sheet_reference_pattern("Data").search("=Data!A1")
+        assert sheet_reference_matcher("Data")("=Data!A1")
 
     def test_matches_the_bare_form_case_insensitively(self):
-        assert sheet_reference_pattern("Data").search("=DATA!A1")
+        assert sheet_reference_matcher("Data")("=DATA!A1")
 
     def test_does_not_match_a_longer_name_sharing_a_prefix(self):
-        assert not sheet_reference_pattern("Data").search("=Data2!A1")
+        assert not sheet_reference_matcher("Data")("=Data2!A1")
 
     def test_does_not_match_an_unrelated_sheet(self):
-        assert not sheet_reference_pattern("Data").search("=Other!B1")
+        assert not sheet_reference_matcher("Data")("=Other!B1")
 
     def test_matches_the_quoted_form(self):
-        assert sheet_reference_pattern("My Sheet").search("='My Sheet'!A1")
+        assert sheet_reference_matcher("My Sheet")("='My Sheet'!A1")
 
     def test_matches_the_quoted_form_with_a_doubled_apostrophe(self):
         """Excel escapes an internal `'` as `''` inside the quoted sheet
         name -- verified against a real workbook (`It's Data` renders as
         `'It''s Data'!A1`)."""
-        assert sheet_reference_pattern("It's Data").search("='It''s Data'!A1")
+        assert sheet_reference_matcher("It's Data")("='It''s Data'!A1")
 
     def test_matches_inside_a_defined_name_attr_text(self):
-        assert sheet_reference_pattern("Data").search("'Data'!$A$1")
+        assert sheet_reference_matcher("Data")("'Data'!$A$1")
 
-    def test_matches_a_3d_range_endpoint(self):
-        assert sheet_reference_pattern("Sheet3").search("=SUM(Sheet1:Sheet3!A1)")
+    def test_matches_the_second_endpoint_of_a_bare_3d_range(self):
+        assert sheet_reference_matcher("Sheet3")("=SUM(Sheet1:Sheet3!A1)")
+
+    def test_matches_the_first_endpoint_of_a_bare_3d_range(self):
+        """A prior version only matched a name immediately before `!`,
+        which caught the second endpoint of `Sheet1:Sheet3!A1` but missed
+        the first -- verified as a real gap (renaming `Sheet1` proceeded
+        undetected against exactly this formula)."""
+        assert sheet_reference_matcher("Sheet1")("=SUM(Sheet1:Sheet3!A1)")
+
+    def test_matches_either_endpoint_of_a_quoted_3d_range(self):
+        """Excel wraps both endpoints of a quoted 3-D range in one pair of
+        quotes -- verified against a real workbook: `'Sheet 1:Sheet 3'!A1`,
+        not `'Sheet 1':'Sheet 3'!A1`."""
+        text = "=SUM('Sheet 1:Sheet 3'!A1)"
+        assert sheet_reference_matcher("Sheet 1")(text)
+        assert sheet_reference_matcher("Sheet 3")(text)
+
+    def test_does_not_match_an_unrelated_name_inside_a_3d_range(self):
+        assert not sheet_reference_matcher("Sheet2")("=SUM(Sheet1:Sheet3!A1)")
