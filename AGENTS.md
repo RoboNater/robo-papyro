@@ -11,7 +11,8 @@ workspace.
 | `rp-pdf` | `rp_pdf` | `rp-pdf` | PDF read/extract/render (the former `pdfx`) |
 | `rp-docx` | `rp_docx` | `rp-docx` | Word documents — read, create, edit, template |
 | `rp-pptx` | `rp_pptx` | `rp-pptx` | PowerPoint decks — read, create, edit, template, slide operations |
-| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the three leaves to agents |
+| `rp-xlsx` | `rp_xlsx` | `rp-xlsx` | Excel workbooks — read, create, edit, template, sheet operations |
+| `rp-mcp` | `rp_mcp` | `rp-mcp` | MCP servers exposing the four leaves to agents |
 | `robo-papyro` | `robo_papyro` | `rp` | Meta-distribution and umbrella dispatcher |
 
 ## Layout
@@ -21,12 +22,13 @@ packages/rp-core/src/rp_core/     errors, models, ranges, binaries, render, doct
 packages/rp-pdf/src/rp_pdf/       core, markdown, ocr, vlm_utils, models, config, describe, cli
 packages/rp-docx/src/rp_docx/     ooxml, templates, models, errors, cli, docx/{read,write,runs,template}
 packages/rp-pptx/src/rp_pptx/     ooxml, templates, models, errors, cli, pptx/{read,write,runs,slides,template}
-packages/rp-mcp/src/rp_mcp/       sandbox, tools, errors, models, {pdf,docx,pptx}, server, cli
+packages/rp-xlsx/src/rp_xlsx/     ooxml, refs, fidelity, templates, models, errors, cli, xlsx/{read,write,sheets,tabular,template}
+packages/rp-mcp/src/rp_mcp/       sandbox, tools, errors, models, {pdf,docx,pptx,xlsx}, server, cli
 packages/robo-papyro/src/robo_papyro/   cli.py — the `rp` dispatcher
 docs/specs/                       the governing specifications
 dev-notes/                        investigation write-ups and phase status notes
-skills/                           agent skills for the three CLIs, one directory each
-templates/                        house .dotx/.docx and .potx/.pptx templates; templates/local/ is gitignored
+skills/                           agent skills for the four CLIs, one directory each
+templates/                        house .dotx/.docx, .potx/.pptx, and .xltx/.xltm templates; templates/local/ is gitignored
 ```
 
 Each package has its own `pyproject.toml` and its own `tests/`. Shared dev
@@ -148,6 +150,7 @@ if you trip one; each explains what breaks and why.
 | Every typer command is in `COMMAND_NAMES`, or it parses as a filename | `packages/rp-pdf/tests/test_invariants.py` |
 | `rp-docx`'s command surface matches the one its spec §10 specifies | `packages/rp-docx/tests/test_invariants.py` |
 | `rp-pptx`'s command surface matches the one its spec §10 specifies | `packages/rp-pptx/tests/test_invariants.py` |
+| `rp-xlsx`'s command surface matches the one its spec §10 specifies | `packages/rp-xlsx/tests/test_invariants_xlsx.py` |
 | Every `rp-mcp` tool resolves its path arguments through the sandbox | `packages/rp-mcp/tests/test_invariants_mcp.py` |
 | No leaf imports `rp_mcp`, and `rp_mcp` imports no leaf's CLI layer | `packages/rp-mcp/tests/test_invariants_mcp.py` |
 | `robo_papyro/cli.py` imports no leaf package | `packages/robo-papyro/tests/test_umbrella_cli.py::TestNoLeafImports` |
@@ -330,6 +333,64 @@ if you trip one; each explains what breaks and why.
   classify (SmartArt, ink, hand-authored shapes), so classification keys on the
   element tag (`p:pic`, `p:grpSp`, …) instead, which cannot raise.
 
+### rp-xlsx
+
+- **§6 is the package, not a section of it.** openpyxl does not round-trip a
+  workbook: every write discards every formula's *cached* value (it keeps the
+  formula text, drops the `<v>`), and silently deletes any part it does not
+  model — threaded comments, pivot caches, slicers, form controls, custom XML.
+  `fidelity.scan()` classifies at-risk parts by presence, and every write path
+  against an *existing* workbook calls it first, raising `LossyEditError`
+  (exit 3) unless `--allow-lossy`/`allow_lossy=True` opts in — which still
+  reports what was dropped in `WriteResult.dropped`, never silently. `create`
+  and `template` are exempt because neither opens an existing workbook.
+  `wb.calculation.fullCalcOnLoad = True` on every save makes Excel/LibreOffice
+  recompute on next open, so the cached-value hole only shows to a
+  *programmatic* reader before that happens — `WorkbookIndex.has_cached_values`
+  says so up front rather than let a caller discover stale `None`s itself.
+- **`ws.tables.items()` yields `(name, ref_string)`, not `(name, Table)`** —
+  the kind of thing that looks right on first read and is wrong. Iterate
+  `for name in ws.tables: table = ws.tables[name]` instead.
+- **A part's filename is not its sheet.** Sheet order lives in
+  `xl/workbook.xml`'s `<sheets>`, resolved through relationships to the actual
+  part — the same trap `rp-pptx`'s `p:sldIdLst` handling exists for. Binds
+  `ooxml.py`/`fidelity.py` only; openpyxl's own object model gets this right
+  for everything else, including `reorder_sheets`/`delete_sheets`.
+- **A workbook can have a sheet literally named `"2"`.** `--sheets`/`sheets=`
+  is always a 1-based *position* spec; selecting by name needs `--sheet
+  NAME`/`names=[...]` instead, and the two are deliberately never conflated.
+- **A sheet's declared dimensions lie.** A stray formatted cell far below the
+  real data inflates `max_row`/`dimensions` even under `read_only=True`; every
+  read that returns rows uses the *used* range (the bounding box of cells that
+  actually hold a value or formula) instead of the declared one.
+- **`.xltx` is the mirror image of `.dotx`.** Unlike python-docx/python-pptx,
+  openpyxl opens a template natively and sets `wb.template = True` — there is
+  no read-side retyping to do. But `save()` still carries the template content
+  type across a rename, so `ooxml.save()` sets `workbook.template` from the
+  *output* extension before writing, same shape as the other two leaves'
+  workaround, reflected. `.xlsm`/`.xltm` need `keep_vba=True` on open (the
+  default silently drops `xl/vbaProject.bin`) and `create` refuses to write a
+  macro-free file under a macro-enabled extension.
+- **Three bugs found by round-tripping `synthesize()` against a manifest it
+  had just built**, none visible from reading the code: (1) openpyxl does not
+  round-trip an empty-string cell value — it comes back `None` — so a manifest
+  built from a re-read synthesized file disagreed with the original until cell
+  text was normalized on read; (2) a cell with only `.number_format` set (no
+  `.value`) was invisible to the "is this column uniform" scan, which skipped
+  `cell.value is None`, so `synthesize()` now writes a dummy `0` alongside
+  every reconstructed format; (3) `fill_template`'s first pass computed
+  "unresolved" from context keys with no matches, which reported an *empty*
+  template's placeholders as fully resolved — fixed to compute it from the
+  template's actual placeholder keys via `find_placeholders`, matching
+  `rp-docx`'s approach rather than `rp-pptx`'s.
+- **CSV numeric coercion needs one regex, not two sequential `try`s.**
+  Guarding only `int()` against a leading zero and falling through to a bare
+  `float()` still loses it — `float("007")` succeeds as `7.0`. Check the
+  pattern once, before either conversion.
+- `set_properties` must skip `None` fields rather than assign them: openpyxl's
+  `created`/`modified` are non-nullable at serialization, so `wb.properties.created
+  = None` crashes on save when only some fields were given.
+
 ### rp-mcp
 
 - **A tool is a name, a docstring, and a call.** Every leaf function already
@@ -372,9 +433,10 @@ typer app, which means argv preprocessing done by a leaf's console script
 ## Licensing
 
 **Approved:** python-docx (MIT), lxml (BSD-3), mammoth (BSD-2), pypdf (BSD-3),
-pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), python-pptx (MIT), XlsxWriter
-(BSD-2, transitive via python-pptx), typer (MIT), pydantic (MIT), Pillow
-(MIT-CMU), pytest/ruff (MIT), `mcp` 2.x (MIT) and its tree.
+pdfplumber (MIT), pdf2image (MIT), openpyxl (MIT), et-xmlfile (MIT, openpyxl's
+only runtime dependency), python-pptx (MIT), XlsxWriter (BSD-2, transitive via
+python-pptx), typer (MIT), pydantic (MIT), Pillow (MIT-CMU), pytest/ruff (MIT),
+`mcp` 2.x (MIT) and its tree.
 
 **`mcp` is floored at 2.0 for licensing, not only for its API.** 1.x depends on
 `httpx` → `certifi` (MPL-2.0); `rp-mcp` is a published distribution, so that
@@ -575,10 +637,11 @@ above and the dev-notes.
 - Run the full suite and both ruff commands before committing; keep
   `README.md`, `docs/usage.md`, and `ROADMAP.md` in sync with behavior in the
   same commit. A behavior claim usually lives in more than one of those, plus
-  `docs/usage-docx.md`, `docs/usage-pptx.md`, `docs/usage-mcp.md`, the three
-  `skills/*/SKILL.md`, and the package READMEs — grep the claim, don't just fix
-  the file you were looking at. **A changed CLI flag or command name is a
-  `skills/` change**, and the skills quote commands verbatim, so run them.
+  `docs/usage-docx.md`, `docs/usage-pptx.md`, `docs/usage-xlsx.md`,
+  `docs/usage-mcp.md`, the four `skills/*/SKILL.md`, and the package READMEs —
+  grep the claim, don't just fix the file you were looking at. **A changed CLI
+  flag or command name is a `skills/` change**, and the skills quote commands
+  verbatim, so run them.
 - A feature is: core/library function returning pydantic models + CLI wrapper +
   tests + `docs/usage.md` update.
 - A phase or a batch of related work also gets a status note in `dev-notes/`,

@@ -38,6 +38,7 @@ dependencies = [
     "rp-mcp",
     "rp-pdf",
     "rp-pptx",
+    "rp-xlsx",
     "typer>=0.26.8",
 ]
 
@@ -50,6 +51,7 @@ rp-docx = { workspace = true }
 rp-mcp = { workspace = true }
 rp-pdf = { workspace = true }
 rp-pptx = { workspace = true }
+rp-xlsx = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

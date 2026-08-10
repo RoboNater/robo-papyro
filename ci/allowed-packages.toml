@@ -6,8 +6,8 @@
 # see docs/specs/robo-papyro-spec.md §7. Copyleft in the dependency graph is a
 # blocker in this environment, not a preference.
 #
-# Workspace members (rp-core, rp-pdf, rp-docx, rp-pptx, rp-mcp, robo-papyro)
-# are allowed automatically and do not need listing.
+# Workspace members (rp-core, rp-pdf, rp-docx, rp-pptx, rp-xlsx, rp-mcp,
+# robo-papyro) are allowed automatically and do not need listing.
 #
 # An entry is either a bare license string or a table. The table form adds a
 # `tag`, which is a *checked claim*: `extra:ai` asserts the package is
@@ -88,6 +88,8 @@ cobble = "BSD-2-Clause"
 colorama = "BSD-3-Clause"
 cryptography = "Apache-2.0 OR BSD-3-Clause"
 distro = "Apache-2.0"
+# openpyxl's only runtime dependency (Phase 3 / rp-xlsx).
+et-xmlfile = "MIT"
 h11 = "MIT"
 httpcore = "BSD-3-Clause"
 httpx = "BSD-3-Clause"

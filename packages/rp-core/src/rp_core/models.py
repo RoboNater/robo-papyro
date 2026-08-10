@@ -6,9 +6,29 @@ Format-specific models live in their own package (``rp_pdf.models``,
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel
+
+
+class CoreProperties(BaseModel):
+    """OPC core-properties part — format-independent, carries no format identifier.
+
+    Defined identically in ``rp_docx.models`` and ``rp_pptx.models`` until this
+    promotion; both leaves re-export it unchanged so no import elsewhere in the
+    suite needs to move. A third leaf needing the same shape is the rule
+    ``rp-pptx-spec.md`` section 3 states for promotion.
+    """
+
+    title: str | None = None
+    author: str | None = None
+    last_modified_by: str | None = None
+    created: datetime | None = None
+    modified: datetime | None = None
+    revision: int | None = None
+    category: str | None = None
+    keywords: str | None = None
 
 
 class Capability(BaseModel):

@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [rp-core, rp-pdf, rp-docx, rp-pptx, rp-mcp, robo-papyro]
+        package: [rp-core, rp-pdf, rp-docx, rp-pptx, rp-xlsx, rp-mcp, robo-papyro]
         python-version: ["3.11", "3.13"]
     name: test ${{ matrix.package }} (py${{ matrix.python-version }})
     steps:
@@ -96,12 +96,16 @@ jobs:
           uv run rp pptx --help
           uv run rp-pptx --help
           uv run rp-pptx doctor
+          uv run rp xlsx --help
+          uv run rp-xlsx --help
+          uv run rp-xlsx doctor
           uv run rp mcp --help
           uv run rp-mcp --help
           uv run rp-mcp doctor
           uv run rp-pdf-mcp --help
           uv run rp-docx-mcp --help
           uv run rp-pptx-mcp --help
+          uv run rp-xlsx-mcp --help
       - name: rp pdf and rp-pdf are the same code path
         run: |
           uv run --with reportlab python -c "
@@ -158,6 +162,32 @@ jobs:
           uv run rp-pptx templates manifest sample.pptx -o sample.manifest.json
           uv run rp-pptx templates synthesize sample.manifest.json -o rebuilt.potx
           uv run rp-pptx index rebuilt.potx > /dev/null
+      # The fourth leaf. Same assertion, same reason.
+      - name: rp xlsx and rp-xlsx are the same code path
+        run: |
+          printf 'A,B\n1,2\n3,4\n' > table.csv
+          uv run rp-xlsx create -o sample.xlsx --from-csv table.csv
+          uv run rp xlsx index sample.xlsx > xlsx-umbrella.json
+          uv run rp-xlsx index sample.xlsx > xlsx-direct.json
+          diff xlsx-umbrella.json xlsx-direct.json
+      # As for rp-docx and rp-pptx: no external binary is needed for any read or
+      # write path, so the whole round trip must work on a machine with no
+      # LibreOffice. The manifest/synthesize pair is the interesting part — it
+      # is what lets CI exercise a house template's shape without the template
+      # (spec section 5.2).
+      - name: rp-xlsx needs no external binary to read or write
+        run: |
+          uv run rp-xlsx set sample.xlsx --map '{"table": {"A2": 99}}' -o edited.xlsx
+          uv run rp-xlsx data edited.xlsx --plain
+          uv run rp-xlsx markdown edited.xlsx
+          uv run rp-xlsx cells sample.xlsx
+          uv run rp-xlsx fidelity sample.xlsx
+          uv run rp-xlsx sheets add sample.xlsx --name Extra -o added.xlsx
+          uv run rp-xlsx sheets reorder added.xlsx --order 2,1 -o reordered.xlsx
+          uv run rp-xlsx sheets delete reordered.xlsx --sheet Extra -o trimmed.xlsx
+          uv run rp-xlsx templates manifest sample.xlsx -o sample.manifest.json
+          uv run rp-xlsx templates synthesize sample.manifest.json -o rebuilt.xltx
+          uv run rp-xlsx index rebuilt.xltx > /dev/null
       - name: Exit codes are the suite's, not a flat 1
         run: |
           expect() {
@@ -186,6 +216,23 @@ jobs:
           expect 1 uv run rp-pptx create -o x.pptx --template nonexistent
           expect 1 uv run rp-pptx replace sample.pptx --map '{}'
           expect 0 uv run rp-pptx index sample.pptx
+          # The fourth leaf. Same taxonomy, plus rp-xlsx's own exit-3 case:
+          # section 6's fidelity guard, which the other three leaves don't have.
+          echo "not an xlsx" > fake.xlsx
+          expect 3 uv run rp-xlsx index fake.xlsx
+          expect 1 uv run rp-xlsx index missing.xlsx
+          expect 1 uv run rp-xlsx data sample.xlsx --sheets 99
+          expect 1 uv run rp-xlsx create -o x.xlsx --template nonexistent
+          expect 0 uv run rp-xlsx index sample.xlsx
+          uv run python -c "
+          import zipfile
+          with zipfile.ZipFile('sample.xlsx') as zin, zipfile.ZipFile('at-risk.xlsx', 'w') as zout:
+              for item in zin.infolist():
+                  zout.writestr(item, zin.read(item.filename))
+              zout.writestr('xl/threadedComments/threadedComment1.xml', '<threadedComments/>')
+          "
+          expect 3 uv run rp-xlsx set at-risk.xlsx --map '{"table": {"A2": 1}}' -o loss.xlsx
+          expect 0 uv run rp-xlsx set at-risk.xlsx --map '{"table": {"A2": 1}}' -o loss.xlsx --allow-lossy
       # rp-mcp's servers are what an agent actually talks to, and a broken
       # registration is invisible until a client connects. `tools` builds the
       # real server and lists it without serving, so the smoke job can assert
@@ -195,15 +242,18 @@ jobs:
         run: |
           uv run rp-mcp tools --server pdf --root . > mcp-read.json
           uv run rp-mcp tools --server docx --root . --write-root ./out > mcp-write.json
+          uv run rp-mcp tools --server xlsx --root . --write-root ./out > mcp-xlsx-write.json
           uv run python -c "
           import json
           read = {t['name'] for t in json.load(open('mcp-read.json'))['tools']}
           write = {t['name'] for t in json.load(open('mcp-write.json'))['tools']}
+          xlsx_write = {t['name'] for t in json.load(open('mcp-xlsx-write.json'))['tools']}
           assert 'pdf_index' in read, sorted(read)
           assert 'rp_sandbox' in read, sorted(read)
           assert 'docx_create' in write, sorted(write)
+          assert 'xlsx_create' in xlsx_write, sorted(xlsx_write)
           assert not json.load(open('mcp-read.json'))['sandbox']['writable']
-          print('mcp surface ok:', len(read), 'read tools,', len(write), 'docx tools')"
+          print('mcp surface ok:', len(read), 'read tools,', len(write), 'docx tools,', len(xlsx_write), 'xlsx tools')"
       - name: Errors are ErrorEnvelopes on stderr, results on stdout
         run: |
           uv run rp-pdf index missing.pdf > out.txt 2> err.txt || true

@@ -18,6 +18,7 @@ import pytest
 import rp_docx
 import rp_mcp
 import rp_pptx
+import rp_xlsx
 from rp_docx.errors import TemplateError
 from rp_mcp.sandbox import Sandbox
 from rp_mcp.server import ALL_SUITES, build_server
@@ -116,7 +117,7 @@ class TestNaming:
     def test_every_tool_is_prefixed_by_its_format(self, server, mcp):
         """So a client connected to two of these servers has no collisions."""
         for name in mcp.names(server):
-            assert name.startswith(("pdf_", "docx_", "pptx_", "rp_")), name
+            assert name.startswith(("pdf_", "docx_", "pptx_", "xlsx_", "rp_")), name
 
     def test_a_single_suite_server_keeps_the_same_prefixes(self, docs, mcp):
         """An agent's habits transfer between the combined and single servers."""
@@ -126,11 +127,11 @@ class TestNaming:
 
     def test_an_unknown_suite_is_refused_rather_than_skipped(self, docs):
         with pytest.raises(KeyError):
-            build_server(Sandbox([docs]), ("xlsx",))
+            build_server(Sandbox([docs]), ("notasuite",))
 
 
 class TestTemplateNamesAndPaths:
-    """`rp_mcp.tools._looks_like_a_path` claims to agree with both leaves.
+    """`rp_mcp.tools._looks_like_a_path` claims to agree with all four leaves.
 
     It decides whether the sandbox applies to a template argument, so a
     disagreement is either a hole (a path treated as a name) or a broken
@@ -141,20 +142,24 @@ class TestTemplateNamesAndPaths:
     @pytest.mark.parametrize(
         "text", ["memo.dotx", "house.potx", "dir/memo", "./memo", "/tmp/memo.docx"]
     )
-    def test_path_shaped_arguments_are_paths_to_all_three(self, text):
+    def test_path_shaped_arguments_are_paths_to_all_four(self, text):
         assert _looks_like_a_path(text)
         with pytest.raises(TemplateError, match="No such template file"):
             rp_docx.resolve_template(text)
         with pytest.raises(Exception, match="No such template file"):
             rp_pptx.resolve_template(text)
+        with pytest.raises(Exception, match="No such template file"):
+            rp_xlsx.resolve_template(text)
 
     @pytest.mark.parametrize("text", ["memo", "house-letterhead", "quarterly"])
-    def test_bare_names_are_names_to_all_three(self, text):
+    def test_bare_names_are_names_to_all_four(self, text):
         assert not _looks_like_a_path(text)
         with pytest.raises(TemplateError, match="No template called"):
             rp_docx.resolve_template(text)
         with pytest.raises(Exception, match="Unknown template"):
             rp_pptx.resolve_template(text)
+        with pytest.raises(Exception, match="Unknown template"):
+            rp_xlsx.resolve_template(text)
 
 
 class TestDependencyDirection:
@@ -174,7 +179,7 @@ class TestDependencyDirection:
     def _sources(package) -> list[pathlib.Path]:
         return sorted(pathlib.Path(package.__file__).parent.rglob("*.py"))
 
-    @pytest.mark.parametrize("package", [rp_docx, rp_pptx])
+    @pytest.mark.parametrize("package", [rp_docx, rp_pptx, rp_xlsx])
     def test_no_leaf_imports_rp_mcp(self, package):
         for source in self._sources(package):
             assert not [name for name in self._imports(source) if name.split(".")[0] == "rp_mcp"], (
@@ -188,6 +193,6 @@ class TestDependencyDirection:
         behaviour depend on a *human's* config file, which is precisely the
         coupling the suite's "core never imports the CLI layer" rule prevents.
         """
-        banned = {"rp_pdf.cli", "rp_pdf.config", "rp_docx.cli", "rp_pptx.cli"}
+        banned = {"rp_pdf.cli", "rp_pdf.config", "rp_docx.cli", "rp_pptx.cli", "rp_xlsx.cli"}
         for source in self._sources(rp_mcp):
             assert not (self._imports(source) & banned), source

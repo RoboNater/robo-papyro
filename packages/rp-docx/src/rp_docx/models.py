@@ -19,6 +19,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from rp_core.models import CoreProperties  # noqa: F401 -- re-exported; see class docstring there
+
 #: OOXML's own ``w:style/@w:type`` vocabulary. python-docx spells the last one
 #: ``LIST``; the OOXML attribute value is ``numbering``, and that is what these
 #: models report, because it is the name in the file rather than in one library.
@@ -102,17 +104,6 @@ class TrackedChange(BaseModel):
     date: datetime | None = None
     text: str
     paragraph_index: int
-
-
-class CoreProperties(BaseModel):
-    title: str | None = None
-    author: str | None = None
-    last_modified_by: str | None = None
-    created: datetime | None = None
-    modified: datetime | None = None
-    revision: int | None = None
-    category: str | None = None
-    keywords: str | None = None
 
 
 class DocumentIndex(BaseModel):
